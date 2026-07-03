@@ -85,6 +85,34 @@ copying assets from `bunnyland-web`. Use narrow imports such as `@bunnyland/ui-w
 and `@bunnyland/ui-web/admin-widgets` so bundlers can tree shake player-only and
 admin-only surfaces independently.
 
+## Docker Packaging
+
+An out-of-tree plugin should ship extension images, not forks of the main server and web
+repos. This repo provides that pattern with:
+
+- `Dockerfile.server`, which starts from `ghcr.io/thalismind/bunnyland-server:main` by
+  default and installs the plugin package into the existing server virtualenv.
+- `Dockerfile.web`, which starts from `ghcr.io/thalismind/bunnyland-web:main` by default
+  and adds the built 3D inspector and player clients under `/3d/`.
+
+Build the server image from this repo as the Docker context:
+
+```bash
+docker build -f Dockerfile.server -t bunnyland-3d-server .
+```
+
+Build the web image with the shared UI package supplied as a named BuildKit context:
+
+```bash
+docker build -f Dockerfile.web \
+  --build-context bunnyland-ui-web=../bunnyland-ui-web \
+  -t bunnyland-3d-web .
+```
+
+When extending the server command in compose or Kubernetes, include
+`--module bunnyland_3d`. Installing the Python package makes the module importable, but
+the Bunnyland server only applies out-of-tree plugins that are requested at startup.
+
 ## CI
 
 The included workflow checks out this repo and a separate Bunnyland server repo, then

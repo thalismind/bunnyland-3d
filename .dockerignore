@@ -1,0 +1,8 @@
+.git
+server/.venv
+server/.pytest_cache
+server/.ruff_cache
+web/artifacts
+web/dist
+web/node_modules
+web/.vite

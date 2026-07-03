@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 
 declare const process: {
   env: {
+    BUNNYLAND_3D_BASE?: string;
     BUNNYLAND_API_PROXY?: string;
   };
 };
@@ -9,6 +10,7 @@ declare const process: {
 const apiProxyTarget = process.env.BUNNYLAND_API_PROXY || 'http://127.0.0.1:8765';
 
 export default defineConfig({
+  base: process.env.BUNNYLAND_3D_BASE || '/',
   server: {
     proxy: {
       '/api': {

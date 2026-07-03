@@ -57,6 +57,30 @@ The web client depends on the sibling `@bunnyland/ui-web` package for shared the
 tokens, browser helpers, player action helpers, and reusable widgets while remaining
 out-of-tree. Do not copy shared UI assets into this repo.
 
+## Docker Images
+
+The root Dockerfiles extend the published Bunnyland images instead of replacing them:
+
+```bash
+docker build -f Dockerfile.server \
+  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server:main \
+  -t bunnyland-3d-server .
+
+docker build -f Dockerfile.web \
+  --build-context bunnyland-ui-web=../bunnyland-ui-web \
+  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web:main \
+  -t bunnyland-3d-web .
+```
+
+`Dockerfile.server` installs the out-of-tree Python plugin into the base server
+virtualenv and uses a default `bunnyland serve --module bunnyland_3d ...` command.
+If a deployment overrides the container command, keep `--module bunnyland_3d` in the
+server arguments so the plugin components, projections, and systems are loaded.
+
+`Dockerfile.web` builds both 3D clients and copies them into the extended web image at
+`/usr/share/nginx/html/3d`. The inspector is available at `/3d/`, and the playable
+client is available at `/3d/player.html`.
+
 ## Full Check
 
 ```bash
