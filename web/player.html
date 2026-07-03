@@ -31,6 +31,10 @@
         color: var(--bl-text);
       }
       button { cursor: pointer; }
+      #btn-request-image, #btn-capture {
+        min-width: max-content;
+        white-space: nowrap;
+      }
       #main {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 360px;
@@ -155,7 +159,7 @@
         <label for="character-select">Character</label>
         <select id="character-select"><option value="">Choose...</option></select>
         <button id="btn-claim" type="button" disabled>Claim</button>
-        <button id="btn-request-image" type="button">📷 Image</button>
+        <button id="btn-request-image" type="button">📷 image</button>
         <button id="btn-open-sheet" type="button">▣ Sheet</button>
         <button id="btn-refresh" type="button">Refresh</button>
         <button id="btn-mode" type="button">2D</button>
