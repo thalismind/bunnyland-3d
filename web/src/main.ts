@@ -29,6 +29,7 @@ const scene = new BunnylandScene(
   viewer,
   roomId => { void selectRoom(roomId); },
   entityId => { selectEntity(entityId); },
+  exitId => { void selectRoom(exitId); },
 );
 
 function status(text: string, cls = ''): void {

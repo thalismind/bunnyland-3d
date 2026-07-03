@@ -55,6 +55,11 @@ const claimButton = document.getElementById('btn-claim') as HTMLButtonElement;
 const requestImageButton = document.getElementById('btn-request-image') as HTMLButtonElement;
 const openSheetButton = document.getElementById('btn-open-sheet') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLElement;
+const portraitFrameEl = document.getElementById('portrait-frame') as HTMLElement;
+const characterNameEl = document.getElementById('character-name') as HTMLElement;
+const characterInfoEl = document.getElementById('character-info') as HTMLElement;
+const characterStatsEl = document.getElementById('character-stats') as HTMLElement;
+const characterPillsEl = document.getElementById('character-pills') as HTMLElement;
 const roomTitleEl = document.getElementById('room-title') as HTMLElement;
 const roomMetaEl = document.getElementById('room-meta') as HTMLElement;
 const membersEl = document.getElementById('members') as HTMLElement;
@@ -64,6 +69,7 @@ const targetLabelEl = document.getElementById('target-label') as HTMLElement;
 const clearTargetButton = document.getElementById('btn-clear-target') as HTMLButtonElement;
 const showActionIconsEl = document.getElementById('show-action-icons') as HTMLInputElement;
 const actionFilterEl = document.getElementById('action-filter') as HTMLInputElement;
+const actionFilterClearButton = document.getElementById('action-filter-clear') as HTMLButtonElement;
 const actionsEl = document.getElementById('actions') as HTMLElement;
 const queueEl = document.getElementById('queue') as HTMLElement;
 const activityEl = document.getElementById('activity') as HTMLElement;
@@ -95,6 +101,7 @@ let seenEventIds = new Set<string>();
 let eventsPrimed = false;
 let eventImageUrl = '';
 let eventImageFailureEpoch = -1;
+let submittingAction = '';
 
 const scene = new BunnylandScene(
   viewer,
@@ -103,6 +110,11 @@ const scene = new BunnylandScene(
   },
   entityId => {
     selectTarget(entityId);
+  },
+  (exitId, sourceRoomId) => {
+    if (projection?.room.id === sourceRoomId) void moveThroughExit(exitId);
+    else pushActivity({ text: `Remembered exit from ${nameFor(sourceRoomId) || sourceRoomId}`, kind: 'system' });
+    render();
   },
 );
 
@@ -205,6 +217,7 @@ function render(): void {
   requestImageButton.disabled = !playerId;
   openSheetButton.disabled = !playerId;
   if (!projection) {
+    renderCharacterPanel();
     roomTitleEl.textContent = 'No character selected';
     roomMetaEl.textContent = 'Connect and choose a character.';
     membersEl.textContent = 'No visible entities.';
@@ -217,6 +230,7 @@ function render(): void {
     return;
   }
   const points = projection.points || {};
+  renderCharacterPanel();
   roomTitleEl.textContent = projection.room.title;
   roomMetaEl.textContent = [
     projection.characterName,
@@ -274,6 +288,7 @@ function renderSelection(): void {
 
 function renderActions(): void {
   if (!projection) return;
+  actionFilterClearButton.disabled = !actionFilterEl.value;
   const filtered = filterActions(projection.actions, actionFilterEl.value);
   const sections = ['world', 'focus'].map(lane => {
     const rows = filtered
@@ -281,7 +296,8 @@ function renderActions(): void {
       .filter(item => actionLane(item.action) === lane)
       .map(item => actionRow(item.action, item.index))
       .join('');
-    return `<div class="section-title">${lane === 'focus' ? 'Focus actions' : 'Room actions'}</div>${rows || '<div class="muted">No matching actions.</div>'}`;
+    const count = filtered.filter(action => actionLane(action) === lane).length;
+    return `<div class="section-title">${lane === 'focus' ? 'Focus actions' : 'Room actions'} (${count})</div>${rows || '<div class="muted">No matching actions.</div>'}`;
   });
   actionsEl.innerHTML = sections.join('');
 }
@@ -294,12 +310,33 @@ function actionRow(action: ActionView, index: number): string {
     ? [cost.action ? `<span class="cost ap">${cost.action} AP</span>` : '', cost.focus ? `<span class="cost fp">${cost.focus} FP</span>` : ''].filter(Boolean).join(' ')
     : '<span class="cost free">free</span>';
   const target = actionArguments(action).some(arg => arg.target_group) ? '<span class="cost free">target</span>' : '';
+  const commandType = actionCommandType(action);
+  const submitting = submittingAction === commandType;
   return `
-    <button class="action-row ${available ? '' : 'unavailable'}" type="button" data-action="${escapeHtml(actionCommandType(action))}" data-action-index="${index}">
+    <button class="action-row ${available ? '' : 'unavailable'} ${submitting ? 'submitting' : ''}" type="button" data-action="${escapeHtml(commandType)}" data-action-index="${index}"${submitting ? ' disabled' : ''}>
       <span class="row-main"><span>${iconHtml(actionIcon(action))}${escapeHtml(actionTitle(action))}</span><span>${costText}</span></span>
-      <span class="row-detail">${target}${target ? ' ' : ''}${escapeHtml(reason || actionCommandType(action))}</span>
+      <span class="row-detail">${target}${target ? ' ' : ''}${escapeHtml(submitting ? 'submitting...' : reason || commandType)}</span>
     </button>
   `;
+}
+
+function renderCharacterPanel(): void {
+  const name = projection?.characterName || '';
+  const sheet = projection?.sheet || {};
+  characterNameEl.textContent = name || 'No character selected';
+  characterInfoEl.textContent = projection
+    ? [sheetText(sheet, 'species'), sheetText(sheet, 'kind'), projection.room.title].filter(Boolean).join(' / ') || projection.characterId
+    : 'Connect and choose a character.';
+  portraitFrameEl.innerHTML = portraitHtml();
+  characterStatsEl.innerHTML = projection
+    ? [
+      statChip('HP', hpText(projection)),
+      statChip('AP', pointText(projection.points, 'action', 'action_max')),
+      statChip('FP', pointText(projection.points, 'focus', 'focus_max')),
+    ].join('')
+    : '';
+  const extras = extraPills(projection);
+  characterPillsEl.innerHTML = extras.map(item => `<span class="pill">${escapeHtml(item)}</span>`).join('');
 }
 
 function renderQueue(): void {
@@ -329,11 +366,16 @@ async function doAction(action: ActionView): Promise<void> {
   const payload = fields.length ? await actionForm(action, fields) : {};
   if (payload == null) return;
   try {
+    submittingAction = actionCommandType(action);
+    renderActions();
     const result = await submitAction(baseUrl, projection, control, action, payload) as { queued?: boolean; reason?: string };
     if (result?.queued === false) pushActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
     await refresh();
   } catch (err) {
     status(`submit failed: ${(err as Error).message}`, 'err');
+  } finally {
+    submittingAction = '';
+    renderActions();
   }
 }
 
@@ -352,11 +394,16 @@ async function moveThroughExit(exitId: string): Promise<void> {
 async function doActionWithPayload(action: ActionView, payload: Record<string, unknown>): Promise<void> {
   if (!projection || !control) return;
   try {
+    submittingAction = actionCommandType(action);
+    renderActions();
     const result = await submitAction(baseUrl, projection, control, action, payload) as { queued?: boolean; reason?: string };
     if (result?.queued === false) pushActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
     await refresh();
   } catch (err) {
     status(`submit failed: ${(err as Error).message}`, 'err');
+  } finally {
+    submittingAction = '';
+    renderActions();
   }
 }
 
@@ -558,6 +605,91 @@ function nameFor(entityId: string): string | null {
     || null;
 }
 
+function portraitHtml(): string {
+  if (!projection) return `<div class="portrait-placeholder">?</div>`;
+  const url = typeof projection.portrait?.url === 'string' ? mediaUrl(projection.portrait.url) : '';
+  if (url) return `<img src="${escapeHtml(url)}" alt="${escapeHtml(projection.characterName)} portrait">`;
+  return `<div class="portrait-placeholder">${escapeHtml(initials(projection.characterName))}</div>`;
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (parts.length ? parts.map(part => part[0]).join('') : '?').slice(0, 2).toUpperCase();
+}
+
+function mediaUrl(url: string): string {
+  if (!url) return '';
+  if (/^(https?:|data:)/.test(url)) return url;
+  return `${normalizeBase(baseUrl)}${url}`;
+}
+
+function statChip(label: string, value: string): string {
+  return `<div class="stat-chip"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`;
+}
+
+function pointText(points: Record<string, number>, currentKey: string, maxKey: string): string {
+  return `${formatPoints(points[currentKey] ?? 0)} / ${formatPoints(points[maxKey] ?? 0)}`;
+}
+
+function hpText(data: CharacterProjection): string {
+  const points = data.points || {};
+  const current = firstNumber(points, ['health', 'hp', 'hit_points']);
+  const maximum = firstNumber(points, ['health_max', 'hp_max', 'hit_points_max', 'max_health']);
+  if (current != null || maximum != null) return `${formatPoints(current ?? 0)} / ${formatPoints(maximum ?? 0)}`;
+  const metric = metricByLabels(data.sheet?.vitals, ['health', 'hp', 'hit points']);
+  return metricText(metric);
+}
+
+function firstNumber(values: Record<string, number>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = Number(values[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function metricByLabels(rows: unknown, labels: string[]): Record<string, unknown> | null {
+  const wanted = new Set(labels.map(label => label.toLowerCase()));
+  return (Array.isArray(rows) ? rows : []).find(row => wanted.has(String((row as Record<string, unknown>).label || '').toLowerCase())) as Record<string, unknown> | undefined || null;
+}
+
+function metricText(metric: Record<string, unknown> | null): string {
+  if (!metric) return '-';
+  if (metric.text != null) return String(metric.text);
+  if (metric.value != null && metric.max != null) return `${formatPoints(Number(metric.value))} / ${formatPoints(Number(metric.max))}`;
+  if (metric.value != null) return String(metric.value);
+  return '-';
+}
+
+function sheetText(sheet: Record<string, unknown>, key: string): string {
+  return typeof sheet[key] === 'string' ? String(sheet[key]) : '';
+}
+
+function extraPills(data: CharacterProjection | null): string[] {
+  if (!data) return [];
+  const sheet = data.sheet || {};
+  const status = Array.isArray(sheet.status) ? sheet.status.map(String) : [];
+  const vitals = compactMetrics(sheet.vitals, ['health', 'hp', 'hit points', 'initiative']).slice(0, 2);
+  const needs = compactMetrics(sheet.needs, []).slice(0, 2);
+  const affect = compactMetrics(sheet.affect, []).slice(0, 1);
+  return [...status, ...vitals, ...needs, ...affect].slice(0, 7);
+}
+
+function compactMetrics(rows: unknown, skipLabels: string[]): string[] {
+  const skip = new Set(skipLabels.map(label => label.toLowerCase()));
+  return (Array.isArray(rows) ? rows : [])
+    .map(row => row as Record<string, unknown>)
+    .filter(row => !skip.has(String(row.label || '').toLowerCase()))
+    .map(row => [row.label, row.text ?? row.value].filter(value => value != null && value !== '').join(' '))
+    .filter(Boolean)
+    .map(String);
+}
+
+function formatPoints(value: unknown): string {
+  const number = Number(value || 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
+}
+
 function pushActivity(...lines: ActivityLine[]): void {
   if (!lines.length) return;
   activityLines.push(...lines);
@@ -612,6 +744,11 @@ showActionIconsEl.addEventListener('change', () => {
   render();
 });
 actionFilterEl.addEventListener('input', renderActions);
+actionFilterClearButton.addEventListener('click', () => {
+  actionFilterEl.value = '';
+  renderActions();
+  actionFilterEl.focus();
+});
 membersEl.addEventListener('click', event => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-target-id]');
   if (row?.dataset.targetId) selectTarget(row.dataset.targetId);
@@ -666,6 +803,7 @@ declare global {
       selectCharacter: (characterId: string) => Promise<void>;
       refresh: () => Promise<void>;
       selectTarget: (entityId: string) => void;
+      exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<BunnylandScene['exitScreenPoint']>;
       cameraState: () => ReturnType<BunnylandScene['cameraState']>;
       capture: () => string;
     };
@@ -678,6 +816,7 @@ window.__world3dPlayer = {
   selectCharacter,
   refresh,
   selectTarget,
+  exitScreenPoint: (exitId, sourceRoomId = '') => scene.exitScreenPoint(exitId, sourceRoomId),
   cameraState: () => scene.cameraState(),
   capture: captureImage,
 };

@@ -36,6 +36,12 @@ interface TrackedEntity {
   mesh: THREE.Mesh;
 }
 
+interface TrackedExit {
+  exitId: string;
+  sourceRoomId: string;
+  marker: THREE.Sprite;
+}
+
 interface CameraTransition {
   from: THREE.Vector3;
   to: THREE.Vector3;
@@ -49,6 +55,11 @@ export interface CameraState {
   moving: boolean;
 }
 
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
 export class BunnylandScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -56,12 +67,14 @@ export class BunnylandScene {
   private readonly ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
   private readonly roomGroup = new THREE.Group();
   private readonly linkGroup = new THREE.Group();
+  private readonly exitGroup = new THREE.Group();
   private readonly entityGroup = new THREE.Group();
   private readonly selectionGroup = new THREE.Group();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly rooms = new Map<string, TrackedRoom>();
   private readonly entities = new Map<string, TrackedEntity>();
+  private readonly exits: TrackedExit[] = [];
   private mode: ViewMode = '3d';
   private manualCamera = false;
   private selectedRoomId = '';
@@ -81,6 +94,7 @@ export class BunnylandScene {
     private readonly container: HTMLElement,
     private readonly onSelectRoom: (roomId: string) => void,
     private readonly onSelectEntity: (entityId: string) => void,
+    private readonly onSelectExit: (exitId: string, sourceRoomId: string) => void = () => {},
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -91,7 +105,7 @@ export class BunnylandScene {
     const sun = new THREE.DirectionalLight(0xffffff, 0.82);
     sun.position.set(0.4, 1, 0.25);
     this.scene.add(sun);
-    this.scene.add(this.linkGroup, this.roomGroup, this.entityGroup, this.selectionGroup);
+    this.scene.add(this.linkGroup, this.exitGroup, this.roomGroup, this.entityGroup, this.selectionGroup);
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
     window.addEventListener('pointermove', this.onPointerMove);
@@ -131,8 +145,10 @@ export class BunnylandScene {
     this.layout = layout;
     this.rooms.clear();
     this.entities.clear();
+    this.exits.length = 0;
     this.roomGroup.clear();
     this.linkGroup.clear();
+    this.exitGroup.clear();
     this.entityGroup.clear();
     this.selectionGroup.clear();
     if (resetCamera) {
@@ -196,6 +212,22 @@ export class BunnylandScene {
     };
   }
 
+  exitScreenPoint(exitId: string, sourceRoomId = ''): ScreenPoint | null {
+    this.updateCameraTransition(performance.now());
+    this.applyCamera();
+    const tracked = this.exits.find(item =>
+      item.exitId === exitId && (!sourceRoomId || item.sourceRoomId === sourceRoomId),
+    );
+    if (!tracked) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const projected = tracked.marker.position.clone().project(this.activeCamera());
+    if (projected.z < -1 || projected.z > 1) return null;
+    return {
+      x: rect.left + (projected.x + 1) * rect.width / 2,
+      y: rect.top + (-projected.y + 1) * rect.height / 2,
+    };
+  }
+
   private addLinks(layout: WorldLayout): void {
     const byId = new Map(layout.rooms.map(room => [room.id, room]));
     const points: THREE.Vector3[] = [];
@@ -210,6 +242,11 @@ export class BunnylandScene {
         points.push(new THREE.Vector3(room.worldX, 0.08, room.worldZ));
         points.push(new THREE.Vector3(target.worldX, 0.08, target.worldZ));
       }
+      for (const exit of room.exits) {
+        const target = byId.get(exit.id);
+        if (!target) continue;
+        this.addExitMarker(room, target, exit);
+      }
     }
     if (points.length) {
       this.linkGroup.add(
@@ -219,6 +256,20 @@ export class BunnylandScene {
         ),
       );
     }
+  }
+
+  private addExitMarker(room: LayoutRoom, target: LayoutRoom, exit: LayoutRoom['exits'][number]): void {
+    const start = new THREE.Vector3(room.worldX, room.worldY + 0.95, room.worldZ);
+    const end = new THREE.Vector3(target.worldX, target.worldY + 0.95, target.worldZ);
+    const position = start.clone().lerp(end, 0.34);
+    const direction = exit.direction || 'exit';
+    const label = this.createLabel(`> ${direction}`, exit.label || target.title);
+    label.position.copy(position);
+    label.scale.set(2.2, 0.82, 1);
+    label.userData.exitId = exit.id;
+    label.userData.sourceRoomId = room.id;
+    this.exitGroup.add(label);
+    this.exits.push({ exitId: exit.id, sourceRoomId: room.id, marker: label });
   }
 
   private addRoom(room: LayoutRoom): void {
@@ -299,7 +350,17 @@ export class BunnylandScene {
       material.emissiveIntensity = selected ? 0.22 : tracked.room.fogged ? 0.01 : 0.04;
       (tracked.label.material as THREE.SpriteMaterial).opacity = selected ? 1 : tracked.room.fogged ? 0.52 : 0.76;
     }
+    this.updateExitSelection();
     this.updateEntitySelection();
+  }
+
+  private updateExitSelection(): void {
+    for (const tracked of this.exits) {
+      const selectedSource = tracked.sourceRoomId === this.selectedRoomId;
+      const material = tracked.marker.material as THREE.SpriteMaterial;
+      material.opacity = selectedSource ? 0.94 : 0.28;
+      tracked.marker.scale.set(selectedSource ? 2.35 : 1.85, selectedSource ? 0.88 : 0.7, 1);
+    }
   }
 
   private updateEntitySelection(): void {
@@ -391,6 +452,18 @@ export class BunnylandScene {
     return this.pick(event, [...this.entities.values()].map(item => item.mesh), 'entityId');
   }
 
+  private pickExit(event: PointerEvent): { exitId: string; sourceRoomId: string } | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.mode === '3d' ? this.perspective : this.ortho);
+    const hits = this.raycaster.intersectObjects(this.exits.map(item => item.marker));
+    const data = hits[0]?.object.userData || {};
+    return typeof data.exitId === 'string' && typeof data.sourceRoomId === 'string'
+      ? { exitId: data.exitId, sourceRoomId: data.sourceRoomId }
+      : null;
+  }
+
   private pickRoom(event: PointerEvent): string {
     return this.pick(event, [...this.rooms.values()].map(item => item.mesh), 'roomId');
   }
@@ -427,6 +500,11 @@ export class BunnylandScene {
     if (!click) return;
     const entityId = this.pickEntity(event);
     if (entityId && this.selectEntity(entityId)) return;
+    const exit = this.pickExit(event);
+    if (exit) {
+      this.onSelectExit(exit.exitId, exit.sourceRoomId);
+      return;
+    }
     const roomId = this.pickRoom(event);
     if (roomId) this.selectRoom(roomId);
   };
