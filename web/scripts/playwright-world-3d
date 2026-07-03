@@ -100,6 +100,66 @@ ROOMS = {
     },
 }
 
+PLAYER_ROOM_ID = "room:meadow"
+PLAYER_QUEUE = [
+    {
+        "command_id": "cmd-1",
+        "command_type": "wait",
+        "lane": "world",
+        "payload": {},
+        "cost": {"action": 1, "focus": 0},
+    }
+]
+
+
+def player_projection():
+    room = ROOMS[PLAYER_ROOM_ID]["room"]
+    exits = [{"id": "room:pond", "direction": "east", "label": "Mirror Pond", "locked": False}]
+    if PLAYER_ROOM_ID == "room:pond":
+        exits = [{"id": "room:meadow", "direction": "west", "label": "Sunlit Meadow", "locked": False}]
+    return {
+        "ok": True,
+        "character_id": "character:ash",
+        "character_name": "Ash",
+        "world_epoch": 21,
+        "room": {**room, "biome": "meadow" if PLAYER_ROOM_ID == "room:meadow" else "marsh", "exits": exits},
+        "points": {"action": 1, "action_max": 2, "focus": 1, "focus_max": 2},
+        "controller": {"controller_id": "controller:web", "generation": 3},
+        "target_groups": {
+            "exits": [{"id": item["id"], "label": item["label"], "kind": "exit"} for item in exits]
+        },
+        "actions": [
+            {
+                "command_type": "move",
+                "tool_name": "move",
+                "title": "Move",
+                "lane": "world",
+                "cost": {"action": 1, "focus": 0},
+                "arguments": [{"key": "exit_id", "title": "Exit", "kind": "entity", "required": True, "target_group": "exits"}],
+                "available": True,
+            },
+            {
+                "command_type": "wait",
+                "tool_name": "wait",
+                "title": "Wait",
+                "lane": "world",
+                "cost": {"action": 0, "focus": 0},
+                "arguments": [],
+                "available": True,
+            },
+            {
+                "command_type": "remember",
+                "tool_name": "remember",
+                "title": "Remember",
+                "lane": "focus",
+                "cost": {"action": 0, "focus": 1},
+                "arguments": [{"key": "query", "title": "Query", "kind": "string", "required": True}],
+                "available": False,
+                "unavailable_reason": "not enough focus",
+            },
+        ],
+    }
+
 
 def url_ok(url: str) -> bool:
     try:
@@ -145,12 +205,56 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
 def route_api(page):
     page.route("**/mock/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
     page.route("**/mock/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
+    page.route("**/mock/world/characters", lambda route: route.fulfill(status=200, json={
+        "ok": True,
+        "world_epoch": 21,
+        "characters": [{"character_id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
+    }))
+    page.route("**/mock/world/controllers/web/claim", lambda route: route.fulfill(status=200, json={
+        "ok": True,
+        "character_id": "character:ash",
+        "controller_id": "controller:web",
+        "controller_generation": 3,
+        "claim_id": "claim-1",
+        "claim_secret": "secret-1",
+        "fallback_controller": "suspend",
+        "timeout_seconds": 1800,
+    }))
+    page.route("**/mock/world/commands", player_command_route)
 
     def room_route(route):
         room_id = unquote(route.request.url.rsplit("/world/room/", 1)[1])
         route.fulfill(status=200, json=ROOMS.get(room_id, ROOMS["room:meadow"]))
 
     page.route("**/mock/world/room/*", room_route)
+
+    def character_route(route):
+        path = route.request.url.split("/mock/world/character/", 1)[1].split("?", 1)[0]
+        if "/commands/" in path and route.request.method == "DELETE":
+            command_id = unquote(path.rsplit("/", 1)[1])
+            PLAYER_QUEUE[:] = [command for command in PLAYER_QUEUE if command.get("command_id") != command_id]
+            route.fulfill(status=200, json={"ok": True, "cancelled": True, "command_id": command_id})
+            return
+        if path.endswith("/commands"):
+            route.fulfill(status=200, json={
+                "ok": True,
+                "character_id": "character:ash",
+                "world_epoch": 21,
+                "next_tick_at_unix": time.time() + 8,
+                "commands": PLAYER_QUEUE,
+            })
+            return
+        route.fulfill(status=200, json=player_projection())
+
+    page.route("**/mock/world/character/**", character_route)
+
+
+def player_command_route(route):
+    global PLAYER_ROOM_ID
+    payload = route.request.post_data_json
+    if payload.get("command_type") == "move":
+        PLAYER_ROOM_ID = payload.get("payload", {}).get("exit_id", PLAYER_ROOM_ID)
+    route.fulfill(status=200, json={"ok": True, "queued": True, "command_id": "cmd-new"})
 
 
 def png_has_detail(path: Path) -> bool:
@@ -285,6 +389,35 @@ def main() -> None:
             page.screenshot(path=ARTIFACT_DIR / "world-3d-2d.png", full_page=True)
             page.locator('[data-room-id="room:pond"]').click()
             expect(page.locator("#selected-entities")).to_contain_text("Bright Pebble")
+
+            page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")
+            page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
+            expect(page.locator("#status")).to_contain_text("loaded 1 characters")
+            page.locator("#character-select").select_option("character:ash")
+            expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
+            page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
+            expect(page.locator("#queue")).to_contain_text("Wait")
+            page.locator('[data-command-id="cmd-1"]').click()
+            expect(page.locator("#queue")).to_contain_text("No queued actions")
+            page.locator("#action-filter").fill("move")
+            expect(page.locator("#actions")).to_contain_text("Move")
+            player_before = page.evaluate("window.__world3dPlayer.cameraState()")
+            page.locator('[data-action="move"]').click()
+            page.locator('[data-field="0"]').select_option("room:pond")
+            page.locator("[data-form-submit]").click()
+            expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
+            player_during = page.evaluate("window.__world3dPlayer.cameraState()")
+            if not player_during["moving"]:
+                raise AssertionError(f"player room move did not animate camera: {player_before!r} -> {player_during!r}")
+            page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
+            player_after = page.evaluate("window.__world3dPlayer.cameraState()")
+            if player_after["target"] == player_before["target"]:
+                raise AssertionError(f"player camera did not follow room move: {player_before!r} -> {player_after!r}")
+            player_canvas = ARTIFACT_DIR / "world-3d-player-canvas.png"
+            download_capture_from_button(page, player_canvas)
+            if not png_has_detail(player_canvas):
+                raise AssertionError("3D player canvas rendered blank pixels")
+            page.screenshot(path=ARTIFACT_DIR / "world-3d-player.png", full_page=True)
             browser.close()
     finally:
         if proc is not None:

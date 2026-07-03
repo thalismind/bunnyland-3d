@@ -39,9 +39,16 @@ npm run dev
 ```
 
 Open the printed Vite URL and set the Bunnyland API server to `/api/` or a full server
-URL. The client renders `/world/overview`, then loads selected room contents from
+URL. The default `index.html` client is a 3D inspector: it renders `/world/overview`,
+then loads selected room contents from
 `/world/room/{id}`. If the server plugin is installed and projections include 3D fields,
 the client uses them; otherwise it falls back to deterministic room layout.
+
+The `player.html` client is the playable 3D view. It claims a character through the
+public web-controller API, follows the current room with the same animated camera focus,
+shows searchable actions, and displays queued commands with click-to-cancel controls.
+Remembered rooms are stored in browser `localStorage` per server and character, so fogged
+rooms remain visible after refresh while their contents stay hidden until revisited.
 
 The camera capture button downloads the current canvas as a PNG. Playwright smoke tests
 also save full-page screenshots with the toolbar/sidebar visible under `web/artifacts/`.

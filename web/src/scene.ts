@@ -127,7 +127,7 @@ export class BunnylandScene {
     return dataUrl;
   }
 
-  loadLayout(layout: WorldLayout): void {
+  loadLayout(layout: WorldLayout, resetCamera = true): void {
     this.layout = layout;
     this.rooms.clear();
     this.entities.clear();
@@ -135,10 +135,12 @@ export class BunnylandScene {
     this.linkGroup.clear();
     this.entityGroup.clear();
     this.selectionGroup.clear();
-    this.center.set((layout.width * ROOM_SIZE) / 2, 0, (layout.height * ROOM_SIZE) / 2);
-    this.cameraTarget.copy(this.center);
-    this.cameraTransition = null;
-    this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
+    if (resetCamera) {
+      this.center.set((layout.width * ROOM_SIZE) / 2, 0, (layout.height * ROOM_SIZE) / 2);
+      this.cameraTarget.copy(this.center);
+      this.cameraTransition = null;
+      this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
+    }
     this.addLinks(layout);
     for (const room of layout.rooms) this.addRoom(room);
     if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false, false);
@@ -156,6 +158,13 @@ export class BunnylandScene {
     if (!room) return;
     for (const entity of entities) this.addEntity(room, entity);
     this.updateSelection();
+  }
+
+  loadPlayerRoom(layout: WorldLayout, roomId: string, entities: RoomRenderEntity[]): void {
+    const resetCamera = this.layout === null;
+    this.loadLayout(layout, resetCamera);
+    this.selectRoom(roomId, false, true);
+    this.loadRoomEntities(roomId, entities);
   }
 
   selectRoom(roomId: string, notify = true, animate = true): void {
@@ -214,15 +223,25 @@ export class BunnylandScene {
 
   private addRoom(room: LayoutRoom): void {
     const color = this.colorFor(room.render3d?.color, BIOME_COLORS[room.biome] ?? BIOME_COLORS.unknown);
+    const fogged = Boolean(room.fogged);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(ROOM_TILE_SIZE, 0.35, ROOM_TILE_SIZE),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.04, roughness: 0.78 }),
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: fogged ? 0.01 : 0.04,
+        opacity: fogged ? 0.34 : 1,
+        roughness: 0.78,
+        transparent: fogged,
+      }),
     );
     mesh.position.set(room.worldX, room.worldY + 0.18, room.worldZ);
     mesh.userData.roomId = room.id;
     this.roomGroup.add(mesh);
-    const label = this.createLabel(room.title, `${room.occupantCount} chars / ${room.itemCount} items`);
+    const detail = fogged ? 'remembered' : `${room.occupantCount} chars / ${room.itemCount} items`;
+    const label = this.createLabel(room.title, detail);
     label.position.set(room.worldX, room.worldY + 0.7, room.worldZ);
+    (label.material as THREE.SpriteMaterial).opacity = fogged ? 0.52 : 0.76;
     this.roomGroup.add(label);
     this.rooms.set(room.id, { room, mesh, label });
   }
@@ -277,8 +296,8 @@ export class BunnylandScene {
       const selected = roomId === this.selectedRoomId;
       tracked.mesh.scale.y = selected ? 1.85 : 1;
       const material = tracked.mesh.material as THREE.MeshStandardMaterial;
-      material.emissiveIntensity = selected ? 0.22 : 0.04;
-      (tracked.label.material as THREE.SpriteMaterial).opacity = selected ? 1 : 0.76;
+      material.emissiveIntensity = selected ? 0.22 : tracked.room.fogged ? 0.01 : 0.04;
+      (tracked.label.material as THREE.SpriteMaterial).opacity = selected ? 1 : tracked.room.fogged ? 0.52 : 0.76;
     }
     this.updateEntitySelection();
   }

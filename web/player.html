@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bunnyland 3D Player</title>
+    <link rel="stylesheet" href="/assets/bunnyland-ui.css">
+    <style>
+      :root { font-family: system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      #app { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+      #toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+        font-size: var(--bl-text-md);
+      }
+      #api-url { width: 250px; }
+      #character-select { min-width: 190px; }
+      input, select, button {
+        min-height: 28px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
+      }
+      button { cursor: pointer; }
+      #main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        min-height: 0;
+      }
+      #viewer { min-width: 0; min-height: 0; }
+      #viewer canvas { display: block; width: 100%; height: 100%; }
+      #side {
+        min-height: 0;
+        overflow: auto;
+        border-left: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+      }
+      .panel { padding: 10px; border-bottom: 1px solid var(--bl-border); }
+      .panel h2 { margin: 0 0 8px; font-size: 18px; }
+      .muted { color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
+      #status.ok { color: var(--bl-ok); }
+      #status.err { color: var(--bl-error); }
+      #action-filter { width: 100%; margin-bottom: 8px; }
+      .action-row, .queue-row {
+        display: block;
+        width: 100%;
+        margin: 0 0 6px;
+        padding: 7px 8px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
+        text-align: left;
+      }
+      .action-row:hover, .queue-row:hover { background: var(--bl-surface-hover); }
+      .action-row.unavailable { opacity: 0.68; }
+      .row-main {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-weight: bold;
+      }
+      .row-detail { margin-top: 3px; color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
+      .section-title {
+        margin: 10px 0 6px;
+        color: var(--bl-accent-strong);
+        font-size: var(--bl-text-xs);
+        text-transform: uppercase;
+      }
+      #action-form-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 10001;
+        display: grid;
+        place-items: center;
+        background: var(--bl-overlay);
+      }
+      .action-form-card {
+        width: min(380px, calc(100vw - 24px));
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-bg-strong);
+        box-shadow: var(--bl-shadow-popover);
+      }
+      .action-form-card h2 { margin: 0; padding: 12px; border-bottom: 1px solid var(--bl-border); font-size: 16px; }
+      .form-body { display: grid; gap: 8px; padding: 12px; }
+      .form-field { display: grid; gap: 4px; }
+      .form-field input, .form-field select { width: 100%; }
+      .form-error { min-height: 18px; color: var(--bl-error); font-size: var(--bl-text-sm); }
+      .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px; border-top: 1px solid var(--bl-border); }
+      @media (max-width: 900px) {
+        #main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 1fr) 330px; }
+        #side { border-left: 0; border-top: 1px solid var(--bl-border); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="toolbar">
+        <strong>Bunnyland 3D Player</strong>
+        <label for="api-url">Server</label>
+        <input id="api-url" value="/api/" spellcheck="false">
+        <button id="btn-connect" type="button">Connect</button>
+        <label for="character-select">Character</label>
+        <select id="character-select"><option value="">Choose...</option></select>
+        <button id="btn-refresh" type="button">Refresh</button>
+        <button id="btn-mode" type="button">2D</button>
+        <button id="btn-camera" type="button">Auto Camera</button>
+        <button id="btn-capture" type="button">📷 Download</button>
+        <label for="theme-select">Theme</label>
+        <select id="theme-select"></select>
+        <span id="status">Ready</span>
+      </div>
+      <main id="main">
+        <section id="viewer"></section>
+        <aside id="side">
+          <section class="panel">
+            <h2 id="room-title">No character selected</h2>
+            <div id="room-meta" class="muted">Connect and choose a character.</div>
+          </section>
+          <section class="panel">
+            <h2>Actions</h2>
+            <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
+            <div id="actions" class="muted">No actions loaded.</div>
+          </section>
+          <section class="panel">
+            <h2>Queue</h2>
+            <div id="queue" class="muted">No queued actions.</div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script src="/assets/bunnyland-ui.js"></script>
+    <script type="module" src="/src/player.ts"></script>
+  </body>
+</html>

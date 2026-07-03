@@ -22,6 +22,7 @@ export interface LayoutRoom {
   worldZ: number;
   render3d?: Render3D;
   bounds3d?: unknown;
+  fogged?: boolean;
   exits: { id: string; direction: string; label: string; locked: boolean }[];
 }
 
