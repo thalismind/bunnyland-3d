@@ -244,6 +244,12 @@ def main() -> None:
             )
             if theme != {"current": "anime-light", "anime": True}:
                 raise AssertionError(f"theme selector did not use shared theme setup: {theme!r}")
+            page.locator("#viewer canvas").hover()
+            radius_before = page.evaluate("window.__world3d.cameraState().radius")
+            page.mouse.wheel(0, -600)
+            radius_after = page.evaluate("window.__world3d.cameraState().radius")
+            if not radius_after < radius_before:
+                raise AssertionError(f"auto camera wheel did not zoom in: {radius_before!r} -> {radius_after!r}")
             page.locator('[data-entity-id="item:clover"]').click()
             if "active" not in (page.locator('[data-entity-id="item:clover"]').get_attribute("class") or ""):
                 raise AssertionError("selected entity row did not become active")

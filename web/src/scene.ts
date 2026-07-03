@@ -45,6 +45,7 @@ interface CameraTransition {
 
 export interface CameraState {
   target: { x: number; y: number; z: number };
+  radius: number;
   moving: boolean;
 }
 
@@ -181,6 +182,7 @@ export class BunnylandScene {
         y: this.cameraTarget.y,
         z: this.cameraTarget.z,
       },
+      radius: this.cameraRadius,
       moving: this.cameraTransition !== null,
     };
   }
@@ -411,9 +413,8 @@ export class BunnylandScene {
   };
 
   private onWheel = (event: WheelEvent): void => {
-    if (!this.manualCamera && this.mode === '3d') return;
     event.preventDefault();
-    this.cameraTransition = null;
+    if (this.manualCamera) this.cameraTransition = null;
     if (this.mode === '2d') {
       this.orthoHalf = THREE.MathUtils.clamp(this.orthoHalf + Math.sign(event.deltaY) * 1.2, 3, 80);
       this.resize();
