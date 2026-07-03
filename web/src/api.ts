@@ -1,42 +1,21 @@
-export function normalizeBase(url: string): string {
-  return String(url || '').trim().replace(/\/$/, '');
-}
+export {
+  mediaUrl,
+  normalizeBase,
+  parseJsonResponse,
+  sendJson,
+  serverFromUrl,
+  setServerInUrl,
+  type AdminAuth,
+} from '@bunnyland/ui-web/api';
 
-export function serverFromUrl(): string {
-  return new URLSearchParams(location.search).get('server') || '';
-}
+import { adminHeaders, normalizeBase, parseJsonResponse, type AdminAuth } from '@bunnyland/ui-web/api';
 
-export function setServerInUrl(base: string): void {
-  const url = new URL(location.href);
-  const normalized = normalizeBase(base);
-  if (normalized) url.searchParams.set('server', normalized);
-  else url.searchParams.delete('server');
-  history.replaceState(null, '', url);
-}
-
-export async function parseJsonResponse(res: Response): Promise<unknown> {
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const message = typeof data === 'object' && data && 'detail' in data ? String(data.detail) : `HTTP ${res.status}`;
-    throw new Error(message);
-  }
-  return data;
-}
-
-export async function sendJson(base: string, path: string): Promise<unknown> {
-  return parseJsonResponse(await fetch(`${normalizeBase(base)}${path}`));
-}
-
-export interface AdminAuth {
-  authorization: string;
-  secret: string;
-}
-
-function adminHeaders(auth: AdminAuth): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (auth.authorization) headers.Authorization = auth.authorization;
-  if (auth.secret) headers['X-Bunnyland-Admin-Secret'] = auth.secret;
-  return headers;
+function promptBasicAuth(): string | null {
+  const username = window.prompt('Admin username');
+  if (!username) return null;
+  const password = window.prompt('Admin password');
+  if (password == null) return null;
+  return `Basic ${btoa(`${username}:${password}`)}`;
 }
 
 export async function sendAdmin(base: string, path: string, auth: AdminAuth): Promise<unknown> {
@@ -50,10 +29,9 @@ export async function sendAdmin(base: string, path: string, auth: AdminAuth): Pr
     }
   }
   if (res.status === 401) {
-    const username = window.prompt('Admin username');
-    const password = username ? window.prompt('Admin password') : null;
-    if (username && password != null) {
-      auth.authorization = `Basic ${btoa(`${username}:${password}`)}`;
+    const authorization = promptBasicAuth();
+    if (authorization) {
+      auth.authorization = authorization;
       res = await fetch(url, { headers: adminHeaders(auth) });
     }
   }

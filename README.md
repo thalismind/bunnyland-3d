@@ -53,10 +53,9 @@ rooms remain visible after refresh while their contents stay hidden until revisi
 The camera capture button downloads the current canvas as a PNG. Playwright smoke tests
 also save full-page screenshots with the toolbar/sidebar visible under `web/artifacts/`.
 
-The web client vendors `assets/bunnyland-ui.css` and `assets/bunnyland-ui.js` from
-`bunnyland-web` so it can use the same theme names, CSS variables, and localStorage key
-while remaining out-of-tree. Refresh those files from `bunnyland-web/assets` when the
-shared UI theme contract changes.
+The web client depends on the sibling `@bunnyland/ui-web` package for shared theme
+tokens, browser helpers, player action helpers, and reusable widgets while remaining
+out-of-tree. Do not copy shared UI assets into this repo.
 
 ## Full Check
 

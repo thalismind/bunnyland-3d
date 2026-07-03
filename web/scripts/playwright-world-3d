@@ -453,7 +453,7 @@ def main() -> None:
             page.locator("#theme-select").select_option("anime-light")
             theme = page.evaluate(
                 """() => ({
-                  current: window.BunnylandUI.currentTheme(),
+                  current: document.documentElement.dataset.theme,
                   anime: document.documentElement.classList.contains('bl-theme-anime-light')
                 })"""
             )

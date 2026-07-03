@@ -79,6 +79,12 @@ The server test script sets `PYTHONPATH` to both `server/src` and the Bunnyland 
 checkout. If `uv` is available, it runs tests inside the Bunnyland server project
 environment using `uv run --project ../bunnyland-server -m pytest ...`.
 
+Vite clients should depend on shared web UI through `@bunnyland/ui-web` instead of
+copying assets from `bunnyland-web`. Use narrow imports such as `@bunnyland/ui-web/api`,
+`@bunnyland/ui-web/play`, `@bunnyland/ui-web/theme`, `@bunnyland/ui-web/player-widgets`,
+and `@bunnyland/ui-web/admin-widgets` so bundlers can tree shake player-only and
+admin-only surfaces independently.
+
 ## CI
 
 The included workflow checks out this repo and a separate Bunnyland server repo, then
@@ -93,6 +99,7 @@ panel are visible in CI artifacts.
 
 - Do not edit `bunnyland-server` for plugin components, systems, or tests.
 - Do not edit `bunnyland-web` for this client.
+- Do not vendor shared web UI assets; import them from `@bunnyland/ui-web`.
 - Model singleton state as components.
 - Model repeatable relationships as edges in Bunnyland, not multiple components of the
   same type on one entity.

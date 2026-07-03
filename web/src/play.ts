@@ -1,60 +1,86 @@
-import { normalizeBase, parseJsonResponse } from './api';
+import { claimHeaders, normalizeBase, requestSceneImage, sendJson } from '@bunnyland/ui-web/api';
+import {
+  actionArguments,
+  actionAvailable,
+  actionCommandType,
+  actionCost,
+  actionFields,
+  actionIcon,
+  actionLane,
+  actionTitle,
+  actionUnavailableReason,
+  allTargets,
+  cancelQueuedCommand,
+  characterSheetHref,
+  claimCharacter as claimSharedCharacter,
+  clearClaimControl,
+  controlFromResponse,
+  drainNarratedEvents,
+  fetchCharacterProjection,
+  fetchCharacters,
+  fetchQueuedCommands,
+  fetchRecentEvents,
+  filterActions,
+  iconPreference as sharedIconPreference,
+  imageCompletions,
+  imageRequestMessage,
+  inventoryEntries,
+  latestImageCompletion,
+  latestImageFailure,
+  persistentClientId,
+  queuedCommandLabel,
+  queuedCountdownSeconds,
+  setIconPreference as sharedSetIconPreference,
+  storeClaimControl,
+  submitCommand,
+  type ActionView,
+  type ActivityLine,
+  type CharacterProjection,
+  type CharacterSummary,
+  type ClaimOptions,
+  type ControlClaim,
+  type QueuedProjection,
+} from '@bunnyland/ui-web/play';
 import { roomEntities, WORLD_3D_CONSTANTS, type LayoutRoom, type RoomRenderEntity, type WorldLayout } from './adapter.mjs';
+
+export {
+  actionArguments,
+  actionAvailable,
+  actionCommandType,
+  actionCost,
+  actionFields,
+  actionIcon,
+  actionLane,
+  actionTitle,
+  actionUnavailableReason,
+  allTargets,
+  characterSheetHref,
+  drainNarratedEvents,
+  fetchCharacters,
+  fetchRecentEvents,
+  filterActions,
+  imageCompletions,
+  imageRequestMessage,
+  inventoryEntries,
+  latestImageCompletion,
+  latestImageFailure,
+  queuedCommandLabel,
+  queuedCountdownSeconds,
+  requestSceneImage,
+  type ActionView,
+  type ActivityLine,
+  type CharacterProjection,
+  type CharacterSummary,
+  type ClaimOptions,
+  type ControlClaim,
+  type QueuedProjection,
+};
 
 const ROOM_SIZE = WORLD_3D_CONSTANTS.ROOM_WORLD_SIZE;
 const CLIENT_ID_KEY = 'bunnyland.3d.clientId';
-const CLAIM_KEY_PREFIX = 'bunnyland.3d.claim';
+const CLAIM_KEY = 'bunnyland.3d';
 const FOG_KEY_PREFIX = 'bunnyland.3d.fog';
 const ICON_PREF_KEY = 'bunnyland.3d.actionIcons';
-
-export const IMAGE_AFFORDANCE = {
-  REQUEST_EMOJI: '📷',
-  ACK_EMOJI: '👀',
-  DELIVER_EMOJI: '📸',
-  FAIL_EMOJI: '⚠️',
-  REQUEST_LABEL: 'Request image',
-};
-
-const KIND_ICON: Record<string, string> = {
-  room: '🏠',
-  character: '🐰',
-  container: '📦',
-  item: '✦',
-  door: '🚪',
-  food: '🍎',
-  water: '💧',
-  other: '⬡',
-};
-
-const ACTION_ICON_BY_COMMAND_TYPE: Record<string, string> = {
-  look: '👁️',
-  inspect: '🔎',
-  move: '➡️',
-  take: '🤲',
-  put: '📥',
-  drop: '📤',
-  open: '🚪',
-  close: '🚪',
-  wait: '⏳',
-  say: '💬',
-  tell: '🗣️',
-  remember: '🧠',
-  forget: '🧹',
-  eat: '🍽️',
-  drink: '💧',
-  craft: '🛠️',
-  attack: '⚔️',
-  defend: '🛡️',
-};
-
-const ACTION_ICON_KEYWORDS: [string, string][] = [
-  ['move', '➡️'], ['travel', '🧭'], ['enter', '🚪'], ['leave', '🚪'],
-  ['open', '🚪'], ['close', '🚪'], ['search', '🔎'], ['inspect', '🔎'],
-  ['say', '💬'], ['tell', '🗣️'], ['remember', '🧠'], ['take', '🤲'],
-  ['drop', '📤'], ['put', '📥'], ['craft', '🛠️'], ['eat', '🍽️'],
-  ['drink', '💧'], ['attack', '⚔️'], ['defend', '🛡️'], ['wait', '⏳'],
-  ['image', '📷'], ['camera', '📷'], ['cancel', '🚫'],
-];
 
 const DIRECTION_VECTORS = new Map<string, [number, number]>([
   ['north', [0, -1]], ['n', [0, -1]],
@@ -66,97 +92,6 @@ const DIRECTION_VECTORS = new Map<string, [number, number]>([
   ['southeast', [1, 1]], ['se', [1, 1]],
   ['southwest', [-1, 1]], ['sw', [-1, 1]],
 ]);
-
-export interface CharacterSummary {
-  id: string;
-  name: string;
-  kind: string;
-  suspended: boolean;
-}
-
-export interface ControlClaim {
-  characterId: string;
-  controllerId: string;
-  generation: number;
-  claimId: string;
-  claimSecret: string;
-  active?: boolean;
-}
-
-export interface ActionView {
-  command_type?: string;
-  tool_name?: string;
-  title?: string;
-  lane?: string;
-  available?: boolean;
-  unavailable_reason?: string;
-  cost?: { action?: number; focus?: number };
-  arguments?: ActionArgument[];
-}
-
-export interface ActionArgument {
-  key: string;
-  title?: string;
-  kind?: string;
-  required?: boolean;
-  target_group?: string;
-}
-
-export interface TargetOption {
-  value: string;
-  label: string;
-  kind: string;
-  icon: string;
-}
-
-export interface CharacterProjection {
-  characterId: string;
-  characterName: string;
-  worldEpoch: number;
-  room: {
-    id: string;
-    title: string;
-    biome: string;
-    exits: { id: string; direction: string; label: string; locked: boolean }[];
-    entities: unknown[];
-  };
-  inventory: ProjectionItem[];
-  points: Record<string, number>;
-  controller: { controller_id?: string; generation?: number } | null;
-  portrait?: Record<string, unknown>;
-  sheet?: Record<string, unknown>;
-  targetGroups: Record<string, TargetOption[]>;
-  actions: ActionView[];
-}
-
-export interface ProjectionItem {
-  id: string;
-  label?: string;
-  name?: string;
-  kind?: string;
-  sprite?: Record<string, unknown>;
-}
-
-export interface QueuedProjection {
-  characterId: string;
-  worldEpoch: number;
-  nextTickAtUnix: number | null;
-  commands: QueuedCommand[];
-}
-
-export interface QueuedCommand {
-  command_id?: string;
-  command_type?: string;
-  lane?: string;
-  payload?: Record<string, unknown>;
-  cost?: { action?: number; focus?: number };
-}
-
-export interface ActivityLine {
-  text: string;
-  kind: 'event' | 'system' | 'rejection';
-  icon?: string;
-}
 
 export interface FogRoom {
   id: string;
@@ -176,113 +111,22 @@ export interface PlayerSceneView {
   entities: RoomRenderEntity[];
 }
 
-export function persistentClientId(): string {
-  try {
-    const existing = localStorage.getItem(CLIENT_ID_KEY);
-    if (existing) return existing;
-    const next = globalThis.crypto?.randomUUID?.() || `3d-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    localStorage.setItem(CLIENT_ID_KEY, next);
-    return next;
-  } catch (_err) {
-    return `3d-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-}
-
-export function storedClaim(base: string, characterId: string): ControlClaim | null {
-  try {
-    const raw = localStorage.getItem(claimKey(base, characterId));
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data.controllerId || !data.claimId || !data.claimSecret) return null;
-    return {
-      characterId,
-      controllerId: String(data.controllerId),
-      generation: Number(data.generation || 0),
-      claimId: String(data.claimId),
-      claimSecret: String(data.claimSecret),
-    };
-  } catch (_err) {
-    return null;
-  }
-}
-
-export function storeClaim(base: string, control: ControlClaim): void {
-  try {
-    localStorage.setItem(claimKey(base, control.characterId), JSON.stringify(control));
-  } catch (_err) {
-    // Best-effort continuity only.
-  }
-}
-
-export function clearClaim(base: string, characterId: string): void {
-  try {
-    localStorage.removeItem(claimKey(base, characterId));
-  } catch (_err) {
-    // Best-effort continuity only.
-  }
-}
-
-export function claimHeaders(control: ControlClaim | null): Record<string, string> {
-  return control?.claimSecret ? { 'X-Bunnyland-Claim-Secret': control.claimSecret } : {};
-}
-
-export async function requestJson(base: string, path: string, init: RequestInit = {}): Promise<unknown> {
-  const headers = new Headers(init.headers || {});
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  return parseJsonResponse(await fetch(`${normalizeBase(base)}${path}`, { ...init, headers }));
-}
-
-export async function fetchCharacters(base: string): Promise<CharacterSummary[]> {
-  const data = await requestJson(base, '/world/characters') as { characters?: unknown[] };
-  return (data.characters || []).map(character => {
-    const item = character as Record<string, unknown>;
-    return {
-      id: String(item.character_id || ''),
-      name: String(item.name || item.character_id || ''),
-      kind: String(item.kind || 'character'),
-      suspended: Boolean(item.suspended),
-    };
-  }).filter(character => character.id);
-}
-
-export interface ClaimOptions {
-  fallbackController?: string;
-  timeoutSeconds?: number;
-}
-
 export async function claimCharacter(base: string, characterId: string, options: ClaimOptions = {}): Promise<ControlClaim> {
-  const stored = storedClaim(base, characterId);
-  const data = await requestJson(base, '/world/controllers/web/claim', {
-    method: 'POST',
-    headers: claimHeaders(stored),
-    body: JSON.stringify({
-      character_id: characterId,
-      client_id: persistentClientId(),
-      claim_id: stored?.claimId || undefined,
-      fallback_controller: options.fallbackController || 'suspend',
-      timeout_seconds: options.timeoutSeconds || 1800,
-      label: '3d-player',
-    }),
-  }) as Record<string, unknown>;
-  const control: ControlClaim = {
-    characterId: String(data.character_id || characterId),
-    controllerId: String(data.controller_id || ''),
-    generation: Number(data.controller_generation || data.generation || 0),
-    claimId: String(data.claim_id || ''),
-    claimSecret: String(data.claim_secret || ''),
-    active: true,
-  };
-  storeClaim(base, control);
-  return control;
+  return claimSharedCharacter(base, characterId, CLAIM_KEY, {
+    ...options,
+    clientIdKey: CLIENT_ID_KEY,
+    clientIdPrefix: '3d',
+    label: '3d-player',
+  });
 }
 
 export async function updateControllerFallback(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<unknown> {
-  return requestJson(base, '/world/controllers/web/fallback', {
+  return sendJson(base, '/world/controllers/web/fallback', {
     method: 'PATCH',
     headers: claimHeaders(control),
     body: JSON.stringify({
       character_id: characterId,
-      client_id: persistentClientId(),
+      client_id: persistentClientId(CLIENT_ID_KEY, '3d'),
       claim_id: control.claimId || undefined,
       fallback_controller: options.fallbackController || 'suspend',
       timeout_seconds: options.timeoutSeconds || 1800,
@@ -291,158 +135,78 @@ export async function updateControllerFallback(base: string, characterId: string
 }
 
 export async function releaseController(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<ControlClaim> {
-  const data = await requestJson(base, '/world/controllers/web/release-controller', {
+  const data = await sendJson(base, '/world/controllers/web/release-controller', {
     method: 'POST',
     headers: claimHeaders(control),
     body: JSON.stringify({
       character_id: characterId,
-      client_id: persistentClientId(),
+      client_id: persistentClientId(CLIENT_ID_KEY, '3d'),
       claim_id: control.claimId || undefined,
       fallback_controller: options.fallbackController || 'suspend',
       timeout_seconds: options.timeoutSeconds || 1800,
     }),
-  }) as Record<string, unknown>;
-  const next: ControlClaim = {
-    characterId: String(data.character_id || characterId),
-    controllerId: String(data.controller_id || control.controllerId),
-    generation: Number(data.controller_generation || data.generation || control.generation || 0),
-    claimId: String(data.claim_id || control.claimId || ''),
-    claimSecret: String(data.claim_secret || control.claimSecret || ''),
-    active: false,
-  };
-  storeClaim(base, next);
+  });
+  const next = controlFromResponse(data, characterId, { active: false }) || { ...control, active: false };
+  storeClaimControl(CLAIM_KEY, next);
   return next;
 }
 
 export async function releaseClaim(base: string, characterId: string, control: ControlClaim): Promise<unknown> {
-  const result = await requestJson(base, '/world/controllers/web/release-claim', {
+  const result = await sendJson(base, '/world/controllers/web/release-claim', {
     method: 'POST',
     headers: claimHeaders(control),
     body: JSON.stringify({
       character_id: characterId,
-      client_id: persistentClientId(),
+      client_id: persistentClientId(CLIENT_ID_KEY, '3d'),
       claim_id: control.claimId || undefined,
     }),
   });
-  clearClaim(base, characterId);
+  clearClaimControl(CLAIM_KEY, characterId);
   return result;
 }
 
 export async function fetchProjection(base: string, characterId: string, control: ControlClaim): Promise<CharacterProjection> {
-  const query = control.claimId ? `?claim_id=${encodeURIComponent(control.claimId)}` : '';
-  return parseProjection(await requestJson(base, `/world/character/${encodeURIComponent(characterId)}${query}`, {
-    headers: claimHeaders(control),
-  }));
+  const projection = await fetchCharacterProjection(base, characterId, control);
+  if (!projection) throw new Error(`No projection for ${characterId}`);
+  return projection;
 }
 
 export async function fetchQueue(base: string, characterId: string, control: ControlClaim): Promise<QueuedProjection> {
-  const query = control.claimId ? `?claim_id=${encodeURIComponent(control.claimId)}` : '';
-  const data = await requestJson(base, `/world/character/${encodeURIComponent(characterId)}/commands${query}`, {
-    headers: claimHeaders(control),
-  }) as Record<string, unknown>;
-  return {
-    characterId: String(data.character_id || ''),
-    worldEpoch: Number(data.world_epoch || 0),
-    nextTickAtUnix: data.next_tick_at_unix == null ? null : Number(data.next_tick_at_unix),
-    commands: Array.isArray(data.commands) ? data.commands as QueuedCommand[] : [],
-  };
+  const queue = await fetchQueuedCommands(base, characterId, control);
+  if (!queue) throw new Error(`No queue for ${characterId}`);
+  return queue;
 }
 
 export async function submitAction(base: string, projection: CharacterProjection, control: ControlClaim, action: ActionView, payload: Record<string, unknown>): Promise<unknown> {
-  return requestJson(base, '/world/commands', {
-    method: 'POST',
-    headers: claimHeaders(control),
-    body: JSON.stringify({
-      character_id: projection.characterId,
-      controller_id: control.controllerId,
-      controller_generation: control.generation,
-      claim_id: control.claimId || undefined,
-      command_type: actionCommandType(action),
-      payload,
-      cost: actionCost(action),
-      lane: actionLane(action),
-      on_insufficient_points: 'queue',
-    }),
-  });
-}
-
-export async function cancelCommand(base: string, characterId: string, commandId: string, control: ControlClaim): Promise<unknown> {
-  const params = new URLSearchParams({
+  return submitCommand(base, {
+    character_id: projection.characterId,
     controller_id: control.controllerId,
-    controller_generation: String(control.generation),
-  });
-  if (control.claimId) params.set('claim_id', control.claimId);
-  return requestJson(base, `/world/character/${encodeURIComponent(characterId)}/commands/${encodeURIComponent(commandId)}?${params}`, {
-    method: 'DELETE',
-    headers: claimHeaders(control),
-  });
+    controller_generation: control.generation,
+    claim_id: control.claimId || undefined,
+    command_type: actionCommandType(action),
+    payload,
+    cost: actionCost(action),
+    lane: actionLane(action),
+    on_insufficient_points: 'queue',
+  }, control);
 }
 
-export async function fetchRecentEvents(base: string): Promise<unknown[]> {
-  const data = await requestJson(base, '/world/events/recent') as { events?: unknown[] };
-  return Array.isArray(data.events) ? data.events : [];
+export const cancelCommand = cancelQueuedCommand;
+
+export function iconPreference(defaultValue = true): boolean {
+  return sharedIconPreference(ICON_PREF_KEY, defaultValue);
 }
 
-export async function requestSceneImage(base: string, characterId: string, control: ControlClaim | null): Promise<unknown> {
-  const params = new URLSearchParams();
-  if (control?.claimId) params.set('claim_id', control.claimId);
-  const query = params.toString();
-  return requestJson(base, `/world/character/${encodeURIComponent(characterId)}/scene-image${query ? `?${query}` : ''}`, {
-    method: 'POST',
-    headers: claimHeaders(control),
-  });
-}
-
-export function parseProjection(data: unknown): CharacterProjection {
-  const raw = data as Record<string, unknown>;
-  const room = (raw.room || {}) as Record<string, unknown>;
-  const targetGroups: Record<string, TargetOption[]> = {};
-  for (const [key, values] of Object.entries((raw.target_groups || {}) as Record<string, unknown[]>)) {
-    targetGroups[key] = (values || []).map(value => {
-      const item = value as Record<string, unknown>;
-      return {
-        value: String(item.id || ''),
-        label: String(item.label || item.id || ''),
-        kind: String(item.kind || key),
-        icon: targetIcon(String(item.kind || key)),
-      };
-    }).filter(item => item.value);
-  }
-  return {
-    characterId: String(raw.character_id || ''),
-    characterName: String(raw.character_name || raw.character_id || ''),
-    worldEpoch: Number(raw.world_epoch || 0),
-    room: {
-      id: String(room.id || ''),
-      title: String(room.title || room.id || ''),
-      biome: String(room.biome || 'unknown'),
-      exits: ((room.exits || []) as unknown[]).map(exit => {
-        const item = exit as Record<string, unknown>;
-        return {
-          id: String(item.id || ''),
-          direction: String(item.direction || ''),
-          label: String(item.label || item.id || ''),
-          locked: Boolean(item.locked),
-        };
-      }).filter(exit => exit.id),
-      entities: Array.isArray(room.entities) ? room.entities : [],
-    },
-    inventory: Array.isArray(raw.inventory) ? raw.inventory as ProjectionItem[] : [],
-    points: raw.points as Record<string, number> || {},
-    controller: raw.controller as CharacterProjection['controller'] || null,
-    portrait: raw.portrait as Record<string, unknown> || {},
-    sheet: raw.sheet as Record<string, unknown> || {},
-    targetGroups,
-    actions: Array.isArray(raw.actions) ? raw.actions as ActionView[] : [],
-  };
+export function setIconPreference(value: boolean): void {
+  sharedSetIconPreference(ICON_PREF_KEY, value);
 }
 
 export function loadFog(base: string, characterId: string): FogState {
   try {
     const raw = localStorage.getItem(fogKey(base, characterId));
     if (!raw) return { rooms: [] };
-    const data = JSON.parse(raw);
-    return { rooms: Array.isArray(data.rooms) ? data.rooms : [] };
+    const data = JSON.parse(raw) as { rooms?: unknown[] };
+    return { rooms: Array.isArray(data.rooms) ? data.rooms as FogRoom[] : [] };
   } catch (_err) {
     return { rooms: [] };
   }
@@ -525,302 +289,6 @@ export function playerSceneView(fog: FogState, projection: CharacterProjection):
   };
 }
 
-export function filterActions(actions: ActionView[], query: string): ActionView[] {
-  const q = query.trim().toLowerCase();
-  const filtered = q ? actions.filter(action => [
-    actionTitle(action),
-    actionTool(action),
-    actionCommandType(action),
-    actionUnavailableReason(action),
-  ].join(' ').toLowerCase().includes(q)) : actions;
-  return filtered.map((action, index) => ({ action, index })).sort((a, b) => {
-    const availability = Number(!actionAvailable(a.action)) - Number(!actionAvailable(b.action));
-    return availability || a.index - b.index;
-  }).map(item => item.action);
-}
-
-export function iconPreference(defaultValue = true): boolean {
-  try {
-    const value = localStorage.getItem(ICON_PREF_KEY);
-    return value == null ? defaultValue : value !== 'false';
-  } catch (_err) {
-    return defaultValue;
-  }
-}
-
-export function setIconPreference(value: boolean): void {
-  try {
-    localStorage.setItem(ICON_PREF_KEY, value ? 'true' : 'false');
-  } catch (_err) {
-    // Best-effort preference only.
-  }
-}
-
-export function actionIcon(action: ActionView): string {
-  const raw = actionCommandType(action).trim().toLowerCase().replaceAll('_', '-');
-  if (ACTION_ICON_BY_COMMAND_TYPE[raw]) return ACTION_ICON_BY_COMMAND_TYPE[raw];
-  const tokens = raw.split('-');
-  const match = ACTION_ICON_KEYWORDS.find(([token]) => tokens.includes(token));
-  return match ? match[1] : '•';
-}
-
-export function actionTitle(action: ActionView): string {
-  return String(action.title || action.tool_name || action.command_type || 'Action');
-}
-
-export function actionArguments(action: ActionView): ActionArgument[] {
-  return Array.isArray(action.arguments) ? action.arguments : [];
-}
-
-export function actionTool(action: ActionView): string {
-  return String(action.tool_name || action.command_type || 'action');
-}
-
-export function actionCommandType(action: ActionView): string {
-  return String(action.command_type || actionTool(action));
-}
-
-export function actionLane(action: ActionView): string {
-  return String(action.lane || 'world');
-}
-
-export function actionAvailable(action: ActionView): boolean {
-  return action.available !== false;
-}
-
-export function actionUnavailableReason(action: ActionView): string {
-  return actionAvailable(action) ? '' : String(action.unavailable_reason || 'Unavailable right now');
-}
-
-export function actionCost(action: ActionView): { action: number; focus: number } {
-  const cost = action.cost || {};
-  return { action: Number(cost.action || 0), focus: Number(cost.focus || 0) };
-}
-
-export function actionFields(action: ActionView, projection: CharacterProjection): { key: string; label: string; kind: string; required: boolean; candidates: TargetOption[] | null }[] {
-  return actionArguments(action).filter(arg => arg.key && (arg.required || arg.target_group)).map(arg => ({
-    key: arg.key,
-    label: arg.title || arg.key,
-    kind: arg.kind || 'string',
-    required: Boolean(arg.required),
-    candidates: arg.target_group ? projection.targetGroups[arg.target_group] || [] : null,
-  }));
-}
-
-export function allTargets(projection: CharacterProjection | null): TargetOption[] {
-  const targets: TargetOption[] = [];
-  const seen = new Set<string>();
-  const add = (value: unknown, label: unknown, kind = ''): void => {
-    const id = String(value || '');
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    const type = String(kind || 'other');
-    targets.push({ value: id, label: String(label || id), kind: type, icon: targetIcon(type) });
-  };
-  for (const group of Object.values(projection?.targetGroups || {})) {
-    for (const item of group || []) add(item.value, item.label, item.kind);
-  }
-  for (const entity of projection?.room.entities || []) {
-    const item = entity as Record<string, unknown>;
-    add(item.id, item.name || item.label || item.id, String(item.kind || (item.is_character ? 'character' : 'other')));
-  }
-  for (const exit of projection?.room.exits || []) add(exit.id, exit.direction || exit.label || exit.id, 'exit');
-  for (const item of projection?.inventory || []) add(item.id, item.label || item.name || item.id, item.kind || 'item');
-  return targets;
-}
-
-export function inventoryEntries(projection: CharacterProjection | null): TargetOption[] {
-  return (projection?.inventory || []).map(item => ({
-    value: item.id,
-    label: item.label || item.name || item.id,
-    kind: item.kind || 'item',
-    icon: targetIcon(item.kind || 'item'),
-  })).filter(item => item.value);
-}
-
-export function queuedCountdownSeconds(queue: QueuedProjection | null): number | null {
-  if (queue?.nextTickAtUnix == null) return null;
-  return Math.max(0, Math.round(queue.nextTickAtUnix - Date.now() / 1000));
-}
-
-export function queuedCommandLabel(command: QueuedCommand, actions: ActionView[]): string {
-  const action = actions.find(item => actionCommandType(item) === command.command_type);
-  const name = action ? actionTitle(action) : String(command.command_type || 'command').replaceAll('-', ' ');
-  const cost = actionCost(command as ActionView);
-  const costText = cost.action || cost.focus ? `${cost.action ? `${cost.action} AP` : ''}${cost.action && cost.focus ? ' + ' : ''}${cost.focus ? `${cost.focus} FP` : ''}` : 'free';
-  const details = Object.entries(command.payload || {}).map(([key, value]) => `${key}: ${String(value)}`).join(', ');
-  return [name, command.lane ? `[${command.lane}]` : '', costText, details].filter(Boolean).join(' - ');
-}
-
-export function imageRequestMessage(result: unknown): string {
-  const data = result as Record<string, unknown> | null;
-  if (!data || data.ok === false) return `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${String(data?.reason || 'image request failed')}`;
-  if (data.status === 'skipped') return `${IMAGE_AFFORDANCE.DELIVER_EMOJI} image ready`;
-  return `${IMAGE_AFFORDANCE.ACK_EMOJI} image requested`;
-}
-
-export function latestImageCompletion(messages: unknown[], base: string, purpose = ''): { url: string; purpose: string; epoch: number } | null {
-  let best: { url: string; purpose: string; epoch: number } | null = null;
-  for (const item of imageCompletions(messages, base, purpose)) {
-    if (!best || item.epoch >= best.epoch) best = item;
-  }
-  return best;
-}
-
-export function imageCompletions(messages: unknown[], base: string, purpose = ''): { url: string; purpose: string; epoch: number; entityId: string }[] {
-  const images: { url: string; purpose: string; epoch: number; entityId: string }[] = [];
-  for (const message of messages || []) {
-    const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
-    if (data.event_type !== 'ImageGenerationCompletedEvent') continue;
-    const event = (data.event || {}) as Record<string, unknown>;
-    if (!event.url) continue;
-    const item = {
-      url: mediaUrl(base, String(event.url)),
-      purpose: String(event.purpose || ''),
-      entityId: String(event.entity_id || ''),
-      epoch: Number(event.world_epoch || 0),
-    };
-    if (purpose && item.purpose !== purpose) continue;
-    images.push(item);
-  }
-  return images.sort((a, b) => a.epoch - b.epoch);
-}
-
-export function latestImageFailure(messages: unknown[], purpose = ''): { reason: string; purpose: string; epoch: number } | null {
-  let best: { reason: string; purpose: string; epoch: number } | null = null;
-  for (const message of messages || []) {
-    const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
-    if (data.event_type !== 'ImageGenerationFailedEvent') continue;
-    const event = (data.event || {}) as Record<string, unknown>;
-    const item = {
-      reason: String(event.reason || 'image generation failed'),
-      purpose: String(event.purpose || ''),
-      epoch: Number(event.world_epoch || 0),
-    };
-    if (purpose && item.purpose !== purpose) continue;
-    if (!best || item.epoch >= best.epoch) best = item;
-  }
-  return best;
-}
-
-export function characterSheetHref(apiBase: string, characterId: string, page = 'character-sheet.html'): string {
-  const url = new URL(page, location.href);
-  const normalized = normalizeBase(apiBase);
-  if (normalized) url.searchParams.set('server', normalized);
-  else url.searchParams.delete('server');
-  url.hash = characterId || '';
-  if (url.origin !== location.origin) return url.toString();
-  return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
-}
-
-export function drainNarratedEvents(messages: unknown[], options: {
-  seenIds: Set<string>;
-  playerId: string;
-  roomOf: (id: string) => string | null;
-  nameFor: (id: string) => string | null;
-}): { lines: ActivityLine[]; seenIds: Set<string> } {
-  const current = new Set(options.seenIds);
-  const lines: ActivityLine[] = [];
-  for (const message of messages || []) {
-    const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
-    const event = (data.event || {}) as Record<string, unknown>;
-    const eventId = String(event.event_id || '');
-    if (!eventId) continue;
-    current.add(eventId);
-    if (options.seenIds.has(eventId)) continue;
-    const eventType = String(data.event_type || 'Event');
-    if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
-    const actorId = String(event.actor_id || '');
-    const own = options.playerId && actorId === options.playerId;
-    if (own || perceivesEvent(event, options)) lines.push(renderEventLine(data, options));
-  }
-  return { lines, seenIds: current };
-}
-
-const UNNARRATED_EVENT_TYPES = new Set([
-  'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
-  'CommandCancelledEvent', 'CommandExecutedEvent', 'CommandExpiredEvent',
-  'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EntitySeenEvent',
-]);
-
-const SYSTEM_EVENT_TYPES = new Set(['ControllerChangedEvent', 'WorldPauseStatusChangedEvent']);
-
-const EVENT_ICON_BY_TYPE: Record<string, string> = {
-  ActorMovedEvent: '➡️',
-  RoomLookedEvent: '👁️',
-  CommandRejectedEvent: '⚠️',
-  ControllerChangedEvent: '🎮',
-  WorldPauseStatusChangedEvent: '⏸️',
-  CharacterClaimedEvent: '🎮',
-};
-
-const EVENT_BASE_KEYS = new Set([
-  'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
-  'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
-]);
-
-function renderEventLine(data: Record<string, unknown>, options: { playerId: string; nameFor: (id: string) => string | null }): ActivityLine {
-  const event = (data.event || {}) as Record<string, unknown>;
-  const eventType = String(data.event_type || 'Event');
-  if (eventType === 'ActorMovedEvent' && options.playerId && event.actor_id === options.playerId && event.arrival_summary) {
-    return { text: String(event.arrival_summary), kind: 'event', icon: eventIcon(eventType, event) };
-  }
-  if (eventType === 'RoomLookedEvent' && event.summary) {
-    return { text: String(event.summary), kind: 'event', icon: eventIcon(eventType, event) };
-  }
-  const actor = event.actor_id ? options.nameFor(String(event.actor_id)) : null;
-  const details: string[] = [];
-  for (const [key, value] of Object.entries(event)) {
-    if (EVENT_BASE_KEYS.has(key) || value == null || value === '' || (Array.isArray(value) && !value.length)) continue;
-    if (key.endsWith('_ids') && Array.isArray(value)) {
-      const names = value.map(item => options.nameFor(String(item))).filter(Boolean);
-      if (names.length) details.push(names.join(', '));
-    } else if (key.endsWith('_id')) {
-      const name = options.nameFor(String(value));
-      if (name) details.push(name);
-    } else {
-      details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
-    }
-  }
-  return {
-    text: `${actor ? `${actor}: ` : ''}${humanizeEventType(eventType)}${details.length ? ` - ${details.join('; ')}` : ''}`,
-    kind: eventType === 'CommandRejectedEvent' ? 'rejection' : SYSTEM_EVENT_TYPES.has(eventType) ? 'system' : 'event',
-    icon: eventIcon(eventType, event),
-  };
-}
-
-function humanizeEventType(eventType: string): string {
-  return eventType.replace(/Event$/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
-}
-
-function eventIcon(eventType: string, event: Record<string, unknown>): string {
-  if (eventType === 'CommandRejectedEvent' && event.command_type) return actionIcon({ command_type: String(event.command_type) });
-  return EVENT_ICON_BY_TYPE[eventType] || '•';
-}
-
-function perceivesEvent(event: Record<string, unknown>, options: { playerId: string; roomOf: (id: string) => string | null }): boolean {
-  const visibility = event.visibility;
-  if (visibility === 'public') return true;
-  if (visibility === 'room') return Boolean(options.playerId) && event.room_id === options.roomOf(options.playerId);
-  if (visibility === 'directed') {
-    return Boolean(options.playerId) && (
-      event.actor_id === options.playerId || ((event.target_ids || []) as unknown[]).includes(options.playerId)
-    );
-  }
-  if (visibility === 'private') return Boolean(options.playerId) && event.actor_id === options.playerId;
-  return false;
-}
-
-function mediaUrl(base: string, url: string): string {
-  if (!url) return '';
-  if (/^(https?:|data:)/.test(url)) return url;
-  return `${normalizeBase(base)}${url}`;
-}
-
-function claimKey(base: string, characterId: string): string {
-  return `${CLAIM_KEY_PREFIX}.${normalizeBase(base)}.${characterId}`;
-}
-
 function fogKey(base: string, characterId: string): string {
   return `${FOG_KEY_PREFIX}.${normalizeBase(base)}.${characterId}`;
 }
@@ -835,9 +303,4 @@ function directionVector(direction: string, fallbackIndex: number): [number, num
 function oppositeDirection(direction: string): string {
   const values: Record<string, string> = { north: 'south', n: 'south', south: 'north', s: 'north', east: 'west', e: 'west', west: 'east', w: 'east' };
   return values[direction.trim().toLowerCase()] || '';
-}
-
-function targetIcon(kind: string): string {
-  if (kind === 'exit') return KIND_ICON.door;
-  return KIND_ICON[kind] || KIND_ICON.other;
 }

@@ -1,4 +1,8 @@
-import { normalizeBase, serverFromUrl, setServerInUrl } from './api';
+import '@bunnyland/ui-web/assets/bunnyland-ui.css';
+import { mediaUrl as sharedMediaUrl, normalizeBase, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
+import { bindThemeSelect } from '@bunnyland/ui-web/theme';
+import { escapeHtml } from '@bunnyland/ui-web/widgets';
+import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
 import { BunnylandScene, type ViewMode } from './scene';
 import {
   actionArguments,
@@ -93,15 +97,6 @@ const dialogClaimButton = document.getElementById('btn-dialog-claim') as HTMLBut
 const dialogSaveFallbackButton = document.getElementById('btn-dialog-save-fallback') as HTMLButtonElement;
 const dialogIdleButton = document.getElementById('btn-dialog-idle') as HTMLButtonElement;
 const dialogReleaseButton = document.getElementById('btn-dialog-release') as HTMLButtonElement;
-
-interface GalleryItem {
-  id: string;
-  src: string;
-  title: string;
-  detail: string;
-  filename: string;
-  createdAt: number;
-}
 
 let baseUrl = '';
 let characters: CharacterSummary[] = [];
@@ -392,14 +387,7 @@ function renderActivity(): void {
 }
 
 function renderGallery(): void {
-  photoGalleryEl.innerHTML = galleryItems.length
-    ? galleryItems.slice().reverse().map(item => `
-      <button class="gallery-item" type="button" data-gallery-id="${escapeHtml(item.id)}">
-        <img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.title)}">
-        <span class="gallery-caption">${escapeHtml(item.title)}</span>
-      </button>
-    `).join('')
-    : '<div class="muted">No photos yet.</div>';
+  photoGalleryEl.innerHTML = galleryItems.length ? renderGalleryItems(galleryItems) : '<div class="muted">No photos yet.</div>';
 }
 
 async function doAction(action: ActionView): Promise<void> {
@@ -671,9 +659,7 @@ function initials(name: string): string {
 }
 
 function mediaUrl(url: string): string {
-  if (!url) return '';
-  if (/^(https?:|data:)/.test(url)) return url;
-  return `${normalizeBase(baseUrl)}${url}`;
+  return sharedMediaUrl(baseUrl, url);
 }
 
 function statChip(label: string, value: string): string {
@@ -769,11 +755,7 @@ function captureToGallery(): void {
 
 function addGalleryItem(item: GalleryItem, open: boolean): void {
   const existing = galleryItems.find(entry => entry.id === item.id || entry.src === item.src);
-  if (!existing) {
-    galleryItems = [...galleryItems, item]
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(-36);
-  }
+  galleryItems = mergeGalleryItems(galleryItems, item);
   if (open) openGalleryItem(existing?.id || item.id);
   else renderGallery();
 }
@@ -814,14 +796,6 @@ function targetIcon(kind: string): string {
 
 function iconHtml(icon: string): string {
   return showActionIcons && icon ? `<span class="row-icon">${escapeHtml(icon)}</span>` : '';
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 connectButton.addEventListener('click', () => { void connect(apiInput.value); });
@@ -894,7 +868,7 @@ captureButton.addEventListener('click', captureToGallery);
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !photoLightbox.classList.contains('hidden')) closeLightbox();
 });
-window.BunnylandUI?.bindThemeSelect(themeSelect);
+bindThemeSelect(themeSelect);
 
 const server = serverFromUrl();
 if (server) void connect(server);
@@ -902,10 +876,6 @@ render();
 
 declare global {
   interface Window {
-    BunnylandUI?: {
-      bindThemeSelect: (select: HTMLSelectElement | null) => unknown;
-      currentTheme: () => string;
-    };
     __world3dPlayer?: {
       ready: boolean;
       connect: (base: string) => Promise<void>;

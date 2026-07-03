@@ -11,6 +11,7 @@
     "playwright": "scripts/playwright-world-3d"
   },
   "dependencies": {
+    "@bunnyland/ui-web": "file:../../bunnyland-ui-web",
     "three": "^0.169.0"
   },
   "devDependencies": {

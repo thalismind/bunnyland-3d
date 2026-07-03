@@ -1,3 +1,6 @@
+import '@bunnyland/ui-web/assets/bunnyland-ui.css';
+import { bindThemeSelect } from '@bunnyland/ui-web/theme';
+import { escapeHtml } from '@bunnyland/ui-web/widgets';
 import { normalizeBase, sendAdmin, sendJson, serverFromUrl, setServerInUrl } from './api';
 import { layoutOverview, roomEntities, roomSummary, snapshot3d, type WorldLayout } from './adapter.mjs';
 import { BunnylandScene, type ViewMode } from './scene';
@@ -119,14 +122,6 @@ function selectEntity(entityId: string): void {
   renderSelected(selectedEntities);
 }
 
-function escapeHtml(value: unknown): string {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function captureImage(): string {
   return scene.capturePng();
 }
@@ -161,17 +156,13 @@ cameraButton.addEventListener('click', () => {
   cameraButton.textContent = manualCamera ? 'Manual Camera' : 'Auto Camera';
 });
 captureButton.addEventListener('click', downloadCapture);
-window.BunnylandUI?.bindThemeSelect(themeSelect);
+bindThemeSelect(themeSelect);
 
 const server = serverFromUrl();
 if (server) void connect(server);
 
 declare global {
   interface Window {
-    BunnylandUI?: {
-      bindThemeSelect: (select: HTMLSelectElement | null) => unknown;
-      currentTheme: () => string;
-    };
     __world3d?: {
       ready: boolean;
       connect: (base: string) => Promise<void>;
