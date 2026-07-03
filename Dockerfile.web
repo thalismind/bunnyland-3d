@@ -25,6 +25,7 @@ CMD ["node", "--test", "--test-reporter=junit", "--test-reporter-destination=/re
 FROM mcr.microsoft.com/playwright/python:v1.56.0-noble AS browser-test
 
 WORKDIR /app/web
+RUN python -m pip install --no-cache-dir playwright==1.56.0
 COPY --from=build /app/web/dist ./dist
 COPY web/scripts ./scripts
 CMD ["./scripts/playwright-world-3d"]
