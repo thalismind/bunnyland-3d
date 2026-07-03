@@ -172,6 +172,7 @@ declare global {
       selectRoom: (roomId: string) => Promise<void>;
       setMode: (mode: ViewMode) => void;
       capture: () => string;
+      cameraState: () => ReturnType<BunnylandScene['cameraState']>;
     };
   }
 }
@@ -186,4 +187,5 @@ window.__world3d = {
     scene.setMode(mode);
   },
   capture: captureImage,
+  cameraState: () => scene.cameraState(),
 };

@@ -7,6 +7,7 @@ export type ViewMode = '2d' | '3d';
 
 const ROOM_SIZE = WORLD_3D_CONSTANTS.ROOM_WORLD_SIZE;
 const ROOM_TILE_SIZE = 6.0;
+const ROOM_FOCUS_MS = 520;
 
 const BIOME_COLORS: Record<string, number> = {
   cave: 0x746354,
@@ -35,6 +36,18 @@ interface TrackedEntity {
   mesh: THREE.Mesh;
 }
 
+interface CameraTransition {
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  startMs: number;
+  durationMs: number;
+}
+
+export interface CameraState {
+  target: { x: number; y: number; z: number };
+  moving: boolean;
+}
+
 export class BunnylandScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -54,6 +67,7 @@ export class BunnylandScene {
   private selectedEntityId = '';
   private center = new THREE.Vector3();
   private cameraTarget = new THREE.Vector3();
+  private cameraTransition: CameraTransition | null = null;
   private layout: WorldLayout | null = null;
   private cameraTheta = Math.PI * 0.25;
   private cameraPhi = 0.85;
@@ -97,6 +111,7 @@ export class BunnylandScene {
   }
 
   capturePng(): string {
+    this.updateCameraTransition(performance.now());
     this.applyCamera();
     const canvas = document.createElement('canvas');
     const width = Math.max(1, this.renderer.domElement.width);
@@ -121,10 +136,11 @@ export class BunnylandScene {
     this.selectionGroup.clear();
     this.center.set((layout.width * ROOM_SIZE) / 2, 0, (layout.height * ROOM_SIZE) / 2);
     this.cameraTarget.copy(this.center);
+    this.cameraTransition = null;
     this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
     this.addLinks(layout);
     for (const room of layout.rooms) this.addRoom(room);
-    if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false);
+    if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false, false);
     this.updateSelection();
     this.resize();
   }
@@ -141,10 +157,10 @@ export class BunnylandScene {
     this.updateSelection();
   }
 
-  selectRoom(roomId: string, notify = true): void {
+  selectRoom(roomId: string, notify = true, animate = true): void {
     if (!this.rooms.has(roomId)) return;
     this.selectedRoomId = roomId;
-    this.focusRoom(roomId);
+    this.focusRoom(roomId, animate);
     this.updateSelection();
     if (notify) this.onSelectRoom(roomId);
   }
@@ -155,6 +171,18 @@ export class BunnylandScene {
     this.updateEntitySelection();
     if (notify) this.onSelectEntity(entityId);
     return true;
+  }
+
+  cameraState(): CameraState {
+    this.updateCameraTransition(performance.now());
+    return {
+      target: {
+        x: this.cameraTarget.x,
+        y: this.cameraTarget.y,
+        z: this.cameraTarget.z,
+      },
+      moving: this.cameraTransition !== null,
+    };
   }
 
   private addLinks(layout: WorldLayout): void {
@@ -268,10 +296,21 @@ export class BunnylandScene {
     this.selectionGroup.add(label);
   }
 
-  private focusRoom(roomId: string): void {
+  private focusRoom(roomId: string, animate: boolean): void {
     const tracked = this.rooms.get(roomId);
     if (!tracked) return;
-    this.cameraTarget.set(tracked.room.worldX, tracked.room.worldY, tracked.room.worldZ);
+    const target = new THREE.Vector3(tracked.room.worldX, tracked.room.worldY, tracked.room.worldZ);
+    if (!animate || this.cameraTarget.distanceToSquared(target) < 0.0001) {
+      this.cameraTransition = null;
+      this.cameraTarget.copy(target);
+      return;
+    }
+    this.cameraTransition = {
+      from: this.cameraTarget.clone(),
+      to: target,
+      startMs: performance.now(),
+      durationMs: ROOM_FOCUS_MS,
+    };
   }
 
   private animate = (): void => {
@@ -279,6 +318,7 @@ export class BunnylandScene {
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
+    this.updateCameraTransition(now);
     if (this.mode === '3d' && !this.manualCamera) this.cameraTheta += dt * 0.08;
     this.applyCamera();
     this.renderer.render(this.scene, this.activeCamera());
@@ -347,6 +387,7 @@ export class BunnylandScene {
     this.pointerDown.x = event.clientX;
     this.pointerDown.y = event.clientY;
     if (!this.manualCamera) return;
+    this.cameraTransition = null;
     const orbit = this.mode === '3d' && (this.pointerDown.button === 2 || event.altKey);
     if (!orbit) {
       this.panCamera(dx, dy);
@@ -372,6 +413,7 @@ export class BunnylandScene {
   private onWheel = (event: WheelEvent): void => {
     if (!this.manualCamera && this.mode === '3d') return;
     event.preventDefault();
+    this.cameraTransition = null;
     if (this.mode === '2d') {
       this.orthoHalf = THREE.MathUtils.clamp(this.orthoHalf + Math.sign(event.deltaY) * 1.2, 3, 80);
       this.resize();
@@ -402,5 +444,20 @@ export class BunnylandScene {
   private colorFor(value: string | undefined, fallback: number): number {
     if (!value || !/^#[0-9a-fA-F]{6}$/.test(value)) return fallback;
     return Number.parseInt(value.slice(1), 16);
+  }
+
+  private updateCameraTransition(now: number): void {
+    if (!this.cameraTransition) return;
+    const progress = THREE.MathUtils.clamp(
+      (now - this.cameraTransition.startMs) / this.cameraTransition.durationMs,
+      0,
+      1,
+    );
+    const eased = 1 - Math.pow(1 - progress, 3);
+    this.cameraTarget.lerpVectors(this.cameraTransition.from, this.cameraTransition.to, eased);
+    if (progress >= 1) {
+      this.cameraTarget.copy(this.cameraTransition.to);
+      this.cameraTransition = null;
+    }
   }
 }

@@ -238,6 +238,23 @@ def main() -> None:
             page.locator('[data-entity-id="item:clover"]').click()
             if "active" not in (page.locator('[data-entity-id="item:clover"]').get_attribute("class") or ""):
                 raise AssertionError("selected entity row did not become active")
+            motion = page.evaluate(
+                """async () => {
+                  const before = window.__world3d.cameraState();
+                  const selectPromise = window.__world3d.selectRoom('room:pond');
+                  const during = window.__world3d.cameraState();
+                  await selectPromise;
+                  return { before, during };
+                }"""
+            )
+            if not motion["during"]["moving"]:
+                raise AssertionError(f"room selection did not animate camera: {motion!r}")
+            page.wait_for_function("!window.__world3d.cameraState().moving")
+            after = page.evaluate("window.__world3d.cameraState()")
+            if after["moving"]:
+                raise AssertionError("camera transition did not settle")
+            if after["target"] == motion["before"]["target"]:
+                raise AssertionError(f"camera target did not change after room switch: {motion!r} -> {after!r}")
             page.wait_for_timeout(250)
             canvas_3d = ARTIFACT_DIR / "world-3d-canvas-3d.png"
             download_capture_from_button(page, canvas_3d)
