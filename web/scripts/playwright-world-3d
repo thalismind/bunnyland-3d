@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""Playwright screenshot smoke for the standalone Bunnyland 3D client."""
+
+from __future__ import annotations
+
+import os
+import socket
+import subprocess
+import struct
+import time
+import zlib
+from pathlib import Path
+from urllib.parse import unquote
+import urllib.request
+
+from playwright.sync_api import expect, sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_3D_WEB_BASE_URL", "").rstrip("/")
+ARTIFACT_DIR = Path(os.environ.get("BUNNYLAND_3D_ARTIFACT_DIR", "artifacts"))
+
+OVERVIEW = {
+    "ok": True,
+    "world_epoch": 12,
+    "room_count": 3,
+    "character_count": 1,
+    "rooms": [
+        {
+            "id": "room:meadow",
+            "title": "Sunlit Meadow",
+            "biome": "meadow",
+            "occupant_count": 1,
+            "item_count": 1,
+            "transform3d": {"position": {"x": 4, "y": 0, "z": 4}},
+            "render3d": {"color": "#7ca85c"},
+            "exits": [{"id": "room:burrow", "direction": "east"}],
+        },
+        {
+            "id": "room:burrow",
+            "title": "Root Burrow",
+            "biome": "cave",
+            "occupant_count": 0,
+            "item_count": 1,
+            "exits": [
+                {"id": "room:meadow", "direction": "west"},
+                {"id": "room:pond", "direction": "south"},
+            ],
+        },
+        {
+            "id": "room:pond",
+            "title": "Mirror Pond",
+            "biome": "marsh",
+            "occupant_count": 0,
+            "item_count": 1,
+            "exits": [{"id": "room:burrow", "direction": "north"}],
+        },
+    ],
+}
+
+ROOMS = {
+    "room:meadow": {
+        "ok": True,
+        "room": {
+            "id": "room:meadow",
+            "title": "Sunlit Meadow",
+            "entities": [
+                {
+                    "id": "character:ash",
+                    "name": "Ash",
+                    "kind": "character",
+                    "is_character": True,
+                    "transform3d": {"position": {"x": 0.3, "y": 0.0, "z": 0.2}},
+                    "render3d": {"shape": "sphere", "color": "#89b4fa"},
+                },
+                {
+                    "id": "item:clover",
+                    "name": "Silver Clover",
+                    "kind": "item",
+                    "transform3d": {"position": {"x": -0.4, "y": 0.0, "z": -0.2}},
+                    "render3d": {"shape": "box", "color": "#f9e2af"},
+                },
+            ],
+        },
+    },
+    "room:pond": {
+        "ok": True,
+        "room": {
+            "id": "room:pond",
+            "title": "Mirror Pond",
+            "entities": [
+                {
+                    "id": "item:pebble",
+                    "name": "Bright Pebble",
+                    "kind": "item",
+                    "transform3d": {"position": {"x": 0, "y": 0, "z": 0}},
+                    "render3d": {"shape": "sphere", "color": "#f9e2af"},
+                }
+            ],
+        },
+    },
+}
+
+
+def url_ok(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as response:
+            return 200 <= response.status < 400
+    except OSError:
+        return False
+
+
+def free_base_url() -> str:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+
+
+def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
+    if BASE_URL:
+        if url_ok(f"{BASE_URL}/index.html"):
+            return None, BASE_URL
+        base_url = BASE_URL
+    else:
+        base_url = free_base_url()
+    web_root = Path(__file__).resolve().parents[1]
+    dist_root = web_root / "dist"
+    if not dist_root.exists():
+        subprocess.run(["npm", "run", "build"], cwd=web_root, check=True)
+    port = base_url.rsplit(":", 1)[1]
+    proc = subprocess.Popen(
+        ["python3", "-m", "http.server", port],
+        cwd=dist_root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if url_ok(f"{base_url}/index.html"):
+            return proc, base_url
+        time.sleep(0.1)
+    proc.terminate()
+    raise RuntimeError(f"timed out waiting for {base_url}")
+
+
+def route_api(page):
+    page.route("**/mock/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
+
+    def room_route(route):
+        room_id = unquote(route.request.url.rsplit("/world/room/", 1)[1])
+        route.fulfill(status=200, json=ROOMS.get(room_id, ROOMS["room:meadow"]))
+
+    page.route("**/mock/world/room/*", room_route)
+
+
+def png_has_detail(path: Path) -> bool:
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return False
+    width = height = color_type = None
+    idat = bytearray()
+    index = 8
+    while index < len(data):
+        length = struct.unpack(">I", data[index : index + 4])[0]
+        chunk_type = data[index + 4 : index + 8]
+        chunk_data = data[index + 8 : index + 8 + length]
+        index += length + 12
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type, _, _, _ = struct.unpack(">IIBBBBB", chunk_data)
+            if bit_depth != 8 or color_type not in (2, 6):
+                return False
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+    if width is None or height is None or color_type is None:
+        return False
+    channels = 4 if color_type == 6 else 3
+    stride = width * channels
+    raw = zlib.decompress(bytes(idat))
+    previous = bytearray(stride)
+    first_pixel: tuple[int, int, int] | None = None
+    varied = 0
+    offset = 0
+    for _ in range(height):
+        filter_type = raw[offset]
+        offset += 1
+        row = bytearray(raw[offset : offset + stride])
+        offset += stride
+        for i, value in enumerate(row):
+            left = row[i - channels] if i >= channels else 0
+            up = previous[i]
+            upper_left = previous[i - channels] if i >= channels else 0
+            if filter_type == 1:
+                row[i] = (value + left) & 0xFF
+            elif filter_type == 2:
+                row[i] = (value + up) & 0xFF
+            elif filter_type == 3:
+                row[i] = (value + ((left + up) // 2)) & 0xFF
+            elif filter_type == 4:
+                predictor = left + up - upper_left
+                pa = abs(predictor - left)
+                pb = abs(predictor - up)
+                pc = abs(predictor - upper_left)
+                row[i] = (value + (left if pa <= pb and pa <= pc else up if pb <= pc else upper_left)) & 0xFF
+            elif filter_type != 0:
+                return False
+        for i in range(0, stride, channels * 40):
+            pixel = (row[i], row[i + 1], row[i + 2])
+            if first_pixel is None:
+                first_pixel = pixel
+            elif sum(abs(pixel[channel] - first_pixel[channel]) for channel in range(3)) > 28:
+                varied += 1
+                if varied >= 16:
+                    return True
+        previous = row
+    return False
+
+
+def download_capture_from_button(page, path: Path) -> None:
+    with page.expect_download() as download_info:
+        page.locator("#btn-capture").click()
+    download = download_info.value
+    download.save_as(path)
+
+
+def main() -> None:
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    proc, base_url = ensure_server()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1280, "height": 820})
+            route_api(page)
+            page.goto(f"{base_url}/index.html?server={base_url}/mock", wait_until="networkidle")
+            page.wait_for_function("window.__world3d && window.__world3d.ready")
+            expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
+            page.wait_for_timeout(250)
+            canvas_3d = ARTIFACT_DIR / "world-3d-canvas-3d.png"
+            download_capture_from_button(page, canvas_3d)
+            if not png_has_detail(canvas_3d):
+                raise AssertionError("3D canvas rendered blank pixels")
+            page.screenshot(path=ARTIFACT_DIR / "world-3d-3d.png", full_page=True)
+            page.locator("#btn-mode").click()
+            page.wait_for_timeout(150)
+            canvas_2d = ARTIFACT_DIR / "world-3d-canvas-2d.png"
+            download_capture_from_button(page, canvas_2d)
+            if not png_has_detail(canvas_2d):
+                raise AssertionError("2D canvas rendered blank pixels")
+            page.screenshot(path=ARTIFACT_DIR / "world-3d-2d.png", full_page=True)
+            page.locator('[data-room-id="room:pond"]').click()
+            expect(page.locator("#selected-entities")).to_contain_text("Bright Pebble")
+            browser.close()
+    finally:
+        if proc is not None:
+            proc.terminate()
+
+
+if __name__ == "__main__":
+    main()

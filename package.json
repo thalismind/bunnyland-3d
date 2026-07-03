@@ -1,0 +1,12 @@
+{
+  "name": "bunnyland-3d-repo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix web run build",
+    "test": "npm --prefix web test",
+    "check": "scripts/check",
+    "playwright": "npm --prefix web run playwright"
+  }
+}

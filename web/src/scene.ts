@@ -1,0 +1,363 @@
+import * as THREE from 'three';
+
+import type { LayoutRoom, RoomRenderEntity, WorldLayout } from './adapter.mjs';
+import { WORLD_3D_CONSTANTS } from './adapter.mjs';
+
+export type ViewMode = '2d' | '3d';
+
+const ROOM_SIZE = WORLD_3D_CONSTANTS.ROOM_WORLD_SIZE;
+const ROOM_TILE_SIZE = 6.0;
+
+const BIOME_COLORS: Record<string, number> = {
+  cave: 0x746354,
+  garden: 0x6fa85c,
+  marsh: 0x4b8979,
+  meadow: 0x7ca85c,
+  station: 0x4f6f9f,
+  unknown: 0x6d7788,
+};
+
+const ENTITY_COLORS: Record<string, number> = {
+  character: 0x89b4fa,
+  item: 0xf9e2af,
+  object: 0xa6e3a1,
+  other: 0xcdd6f4,
+};
+
+interface TrackedRoom {
+  room: LayoutRoom;
+  mesh: THREE.Mesh;
+  label: THREE.Sprite;
+}
+
+export class BunnylandScene {
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly scene = new THREE.Scene();
+  private readonly perspective = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  private readonly ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
+  private readonly roomGroup = new THREE.Group();
+  private readonly linkGroup = new THREE.Group();
+  private readonly entityGroup = new THREE.Group();
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly pointer = new THREE.Vector2();
+  private readonly rooms = new Map<string, TrackedRoom>();
+  private mode: ViewMode = '3d';
+  private manualCamera = false;
+  private selectedRoomId = '';
+  private center = new THREE.Vector3();
+  private cameraTarget = new THREE.Vector3();
+  private layout: WorldLayout | null = null;
+  private cameraTheta = Math.PI * 0.25;
+  private cameraPhi = 0.85;
+  private cameraRadius = 24;
+  private orthoHalf = 8;
+  private pointerDown: { x: number; y: number; button: number; moved: boolean } | null = null;
+  private lastFrameTime = performance.now();
+
+  constructor(private readonly container: HTMLElement, private readonly onSelectRoom: (roomId: string) => void) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.domElement.tabIndex = 0;
+    container.appendChild(this.renderer.domElement);
+    this.scene.background = new THREE.Color(0x0b110d);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.58));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.82);
+    sun.position.set(0.4, 1, 0.25);
+    this.scene.add(sun);
+    this.scene.add(this.linkGroup, this.roomGroup, this.entityGroup);
+    this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
+    this.renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
+    window.addEventListener('pointermove', this.onPointerMove);
+    window.addEventListener('pointerup', this.onPointerUp);
+    this.renderer.domElement.addEventListener('wheel', this.onWheel, { passive: false });
+    window.addEventListener('resize', () => this.resize());
+    this.resize();
+    this.animate();
+  }
+
+  setMode(mode: ViewMode): void {
+    this.mode = mode;
+    this.resize();
+  }
+
+  setManualCamera(enabled: boolean): void {
+    this.manualCamera = enabled;
+  }
+
+  capturePng(): string {
+    this.applyCamera();
+    const canvas = document.createElement('canvas');
+    const width = Math.max(1, this.renderer.domElement.width);
+    const height = Math.max(1, this.renderer.domElement.height);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, canvas, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(width, height, false);
+    renderer.render(this.scene, this.activeCamera());
+    renderer.getContext().finish();
+    const dataUrl = canvas.toDataURL('image/png');
+    renderer.dispose();
+    return dataUrl;
+  }
+
+  loadLayout(layout: WorldLayout): void {
+    this.layout = layout;
+    this.rooms.clear();
+    this.roomGroup.clear();
+    this.linkGroup.clear();
+    this.entityGroup.clear();
+    this.center.set((layout.width * ROOM_SIZE) / 2, 0, (layout.height * ROOM_SIZE) / 2);
+    this.cameraTarget.copy(this.center);
+    this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
+    this.addGround(layout);
+    this.addLinks(layout);
+    for (const room of layout.rooms) this.addRoom(room);
+    if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false);
+    this.updateSelection();
+    this.resize();
+  }
+
+  loadRoomEntities(roomId: string, entities: RoomRenderEntity[]): void {
+    this.selectedRoomId = roomId;
+    this.entityGroup.clear();
+    const room = this.layout?.rooms.find(item => item.id === roomId);
+    if (!room) return;
+    for (const entity of entities) this.addEntity(room, entity);
+    this.updateSelection();
+  }
+
+  selectRoom(roomId: string, notify = true): void {
+    if (!this.rooms.has(roomId)) return;
+    this.selectedRoomId = roomId;
+    this.focusRoom(roomId);
+    this.updateSelection();
+    if (notify) this.onSelectRoom(roomId);
+  }
+
+  private addGround(layout: WorldLayout): void {
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(layout.width * ROOM_SIZE, layout.height * ROOM_SIZE),
+      new THREE.MeshStandardMaterial({ color: 0x17211b, roughness: 0.92 }),
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(this.center.x, -0.02, this.center.z);
+    this.roomGroup.add(mesh);
+  }
+
+  private addLinks(layout: WorldLayout): void {
+    const byId = new Map(layout.rooms.map(room => [room.id, room]));
+    const points: THREE.Vector3[] = [];
+    const seen = new Set<string>();
+    for (const room of layout.rooms) {
+      for (const exit of room.exits) {
+        const target = byId.get(exit.id);
+        if (!target) continue;
+        const key = [room.id, target.id].sort().join('->');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        points.push(new THREE.Vector3(room.worldX, 0.08, room.worldZ));
+        points.push(new THREE.Vector3(target.worldX, 0.08, target.worldZ));
+      }
+    }
+    if (points.length) {
+      this.linkGroup.add(
+        new THREE.LineSegments(
+          new THREE.BufferGeometry().setFromPoints(points),
+          new THREE.LineBasicMaterial({ color: 0xa6e3a1, transparent: true, opacity: 0.58 }),
+        ),
+      );
+    }
+  }
+
+  private addRoom(room: LayoutRoom): void {
+    const color = this.colorFor(room.render3d?.color, BIOME_COLORS[room.biome] ?? BIOME_COLORS.unknown);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(ROOM_TILE_SIZE, 0.35, ROOM_TILE_SIZE),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.04, roughness: 0.78 }),
+    );
+    mesh.position.set(room.worldX, room.worldY + 0.18, room.worldZ);
+    mesh.userData.roomId = room.id;
+    this.roomGroup.add(mesh);
+    const label = this.createLabel(room.title, `${room.occupantCount} chars / ${room.itemCount} items`);
+    label.position.set(room.worldX, room.worldY + 0.7, room.worldZ);
+    this.roomGroup.add(label);
+    this.rooms.set(room.id, { room, mesh, label });
+  }
+
+  private addEntity(room: LayoutRoom, entity: RoomRenderEntity): void {
+    const color = this.colorFor(
+      entity.render3d?.color,
+      ENTITY_COLORS[entity.isCharacter ? 'character' : entity.kind] ?? ENTITY_COLORS.other,
+    );
+    const shape = entity.render3d?.shape || (entity.isCharacter ? 'sphere' : 'box');
+    const geometry = shape === 'sphere'
+      ? new THREE.SphereGeometry(0.22, 16, 12)
+      : new THREE.BoxGeometry(0.32, 0.32, 0.32);
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.16 }),
+    );
+    mesh.position.set(room.worldX + entity.localX, room.worldY + entity.localY + 0.75, room.worldZ + entity.localZ);
+    this.entityGroup.add(mesh);
+  }
+
+  private createLabel(title: string, detail: string): THREE.Sprite {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = 'rgba(17, 25, 18, 0.84)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = 'rgba(166, 227, 161, 0.58)';
+      ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
+      ctx.fillStyle = '#f2f5df';
+      ctx.font = 'bold 20px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(title.slice(0, 24), canvas.width / 2, 34);
+      ctx.fillStyle = '#aeb8a4';
+      ctx.font = '14px system-ui, sans-serif';
+      ctx.fillText(detail, canvas.width / 2, 66);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+    sprite.scale.set(2.6, 0.98, 1);
+    return sprite;
+  }
+
+  private updateSelection(): void {
+    for (const [roomId, tracked] of this.rooms) {
+      const selected = roomId === this.selectedRoomId;
+      tracked.mesh.scale.y = selected ? 1.85 : 1;
+      const material = tracked.mesh.material as THREE.MeshStandardMaterial;
+      material.emissiveIntensity = selected ? 0.22 : 0.04;
+      (tracked.label.material as THREE.SpriteMaterial).opacity = selected ? 1 : 0.76;
+    }
+  }
+
+  private focusRoom(roomId: string): void {
+    const tracked = this.rooms.get(roomId);
+    if (!tracked) return;
+    this.cameraTarget.set(tracked.room.worldX, tracked.room.worldY, tracked.room.worldZ);
+  }
+
+  private animate = (): void => {
+    requestAnimationFrame(this.animate);
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
+    this.lastFrameTime = now;
+    if (this.mode === '3d' && !this.manualCamera) this.cameraTheta += dt * 0.08;
+    this.applyCamera();
+    this.renderer.render(this.scene, this.activeCamera());
+  };
+
+  private activeCamera(): THREE.Camera {
+    return this.mode === '3d' ? this.perspective : this.ortho;
+  }
+
+  private applyCamera(): void {
+    if (this.mode === '2d') {
+      this.ortho.position.set(this.cameraTarget.x, 120, this.cameraTarget.z);
+      this.ortho.up.set(0, 0, -1);
+      this.ortho.lookAt(this.cameraTarget);
+      return;
+    }
+    const x = this.cameraTarget.x + Math.cos(this.cameraTheta) * Math.cos(this.cameraPhi) * this.cameraRadius;
+    const y = Math.max(5, Math.sin(this.cameraPhi) * this.cameraRadius);
+    const z = this.cameraTarget.z + Math.sin(this.cameraTheta) * Math.cos(this.cameraPhi) * this.cameraRadius;
+    this.perspective.position.set(x, y, z);
+    this.perspective.lookAt(this.cameraTarget);
+  }
+
+  private resize(): void {
+    const width = Math.max(1, this.container.clientWidth);
+    const height = Math.max(1, this.container.clientHeight);
+    this.renderer.setSize(width, height);
+    this.perspective.aspect = width / height;
+    this.perspective.updateProjectionMatrix();
+    this.orthoHalf = Math.max(3, Math.min(this.orthoHalf, 80));
+    this.ortho.left = -this.orthoHalf * (width / height);
+    this.ortho.right = this.orthoHalf * (width / height);
+    this.ortho.top = this.orthoHalf;
+    this.ortho.bottom = -this.orthoHalf;
+    this.ortho.updateProjectionMatrix();
+  }
+
+  private pickRoom(event: PointerEvent): string {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.mode === '3d' ? this.perspective : this.ortho);
+    const hits = this.raycaster.intersectObjects([...this.rooms.values()].map(item => item.mesh));
+    return typeof hits[0]?.object.userData.roomId === 'string' ? hits[0].object.userData.roomId : '';
+  }
+
+  private onPointerDown = (event: PointerEvent): void => {
+    this.pointerDown = { x: event.clientX, y: event.clientY, button: event.button, moved: false };
+    this.renderer.domElement.setPointerCapture(event.pointerId);
+  };
+
+  private onPointerMove = (event: PointerEvent): void => {
+    if (!this.pointerDown) return;
+    const dx = event.clientX - this.pointerDown.x;
+    const dy = event.clientY - this.pointerDown.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) this.pointerDown.moved = true;
+    this.pointerDown.x = event.clientX;
+    this.pointerDown.y = event.clientY;
+    if (!this.manualCamera) return;
+    const orbit = this.mode === '3d' && (this.pointerDown.button === 2 || event.altKey);
+    if (!orbit) {
+      this.panCamera(dx, dy);
+      return;
+    }
+    this.cameraTheta += dx * 0.008;
+    this.cameraPhi = THREE.MathUtils.clamp(this.cameraPhi - dy * 0.006, 0.25, 1.25);
+  };
+
+  private onPointerUp = (event: PointerEvent): void => {
+    const click = this.pointerDown && !this.pointerDown.moved;
+    this.pointerDown = null;
+    if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
+      this.renderer.domElement.releasePointerCapture(event.pointerId);
+    }
+    if (!click) return;
+    const roomId = this.pickRoom(event);
+    if (roomId) this.selectRoom(roomId);
+  };
+
+  private onWheel = (event: WheelEvent): void => {
+    if (!this.manualCamera && this.mode === '3d') return;
+    event.preventDefault();
+    if (this.mode === '2d') {
+      this.orthoHalf = THREE.MathUtils.clamp(this.orthoHalf + Math.sign(event.deltaY) * 1.2, 3, 80);
+      this.resize();
+      return;
+    }
+    this.cameraRadius = THREE.MathUtils.clamp(this.cameraRadius + Math.sign(event.deltaY) * 1.2, 4, 160);
+    this.resize();
+  };
+
+  private panCamera(dx: number, dy: number): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (this.mode === '2d') {
+      const scale = (this.orthoHalf * 2) / Math.max(1, rect.height);
+      this.cameraTarget.x += dx * scale;
+      this.cameraTarget.z -= dy * scale;
+      return;
+    }
+    const forward = new THREE.Vector3().subVectors(this.cameraTarget, this.perspective.position);
+    forward.y = 0;
+    if (forward.lengthSq() < 0.0001) forward.set(0, 0, -1);
+    forward.normalize();
+    const right = new THREE.Vector3(forward.z, 0, -forward.x);
+    const scale = this.cameraRadius / Math.max(240, rect.height) * 1.8;
+    this.cameraTarget.addScaledVector(right, dx * scale);
+    this.cameraTarget.addScaledVector(forward, dy * scale);
+  }
+
+  private colorFor(value: string | undefined, fallback: number): number {
+    if (!value || !/^#[0-9a-fA-F]{6}$/.test(value)) return fallback;
+    return Number.parseInt(value.slice(1), 16);
+  }
+}
