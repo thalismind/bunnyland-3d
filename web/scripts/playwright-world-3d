@@ -7,10 +7,11 @@ import os
 import socket
 import subprocess
 import struct
+import tempfile
 import time
 import zlib
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 import urllib.request
 
 from playwright.sync_api import expect, sync_playwright
@@ -235,6 +236,8 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
     if BASE_URL:
         if url_ok(f"{BASE_URL}/index.html"):
             return None, BASE_URL
+        if url_ok(f"{BASE_URL}/3d/index.html"):
+            return None, f"{BASE_URL}/3d"
         base_url = BASE_URL
     else:
         base_url = free_base_url()
@@ -242,20 +245,27 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
     dist_root = web_root / "dist"
     if not dist_root.exists():
         subprocess.run(["npm", "run", "build"], cwd=web_root, check=True)
-    port = base_url.rsplit(":", 1)[1]
+    parsed = urlparse(base_url)
+    port = str(parsed.port)
+    serve_root = Path(tempfile.mkdtemp(prefix="bunnyland-3d-smoke-"))
+    (serve_root / "3d").symlink_to(dist_root, target_is_directory=True)
+    assets_root = dist_root / "assets"
+    if assets_root.exists():
+        (serve_root / "assets").symlink_to(assets_root, target_is_directory=True)
     proc = subprocess.Popen(
         ["python3", "-m", "http.server", port],
-        cwd=dist_root,
+        cwd=serve_root,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    app_base_url = f"{base_url.rstrip('/')}/3d"
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        if url_ok(f"{base_url}/index.html"):
-            return proc, base_url
+        if url_ok(f"{app_base_url}/index.html"):
+            return proc, app_base_url
         time.sleep(0.1)
     proc.terminate()
-    raise RuntimeError(f"timed out waiting for {base_url}")
+    raise RuntimeError(f"timed out waiting for {app_base_url}")
 
 
 def route_api(page):
