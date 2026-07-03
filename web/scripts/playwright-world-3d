@@ -235,6 +235,15 @@ def main() -> None:
             page.goto(f"{base_url}/index.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3d && window.__world3d.ready")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
+            page.locator("#theme-select").select_option("anime-light")
+            theme = page.evaluate(
+                """() => ({
+                  current: window.BunnylandUI.currentTheme(),
+                  anime: document.documentElement.classList.contains('bl-theme-anime-light')
+                })"""
+            )
+            if theme != {"current": "anime-light", "anime": True}:
+                raise AssertionError(f"theme selector did not use shared theme setup: {theme!r}")
             page.locator('[data-entity-id="item:clover"]').click()
             if "active" not in (page.locator('[data-entity-id="item:clover"]').get_attribute("class") or ""):
                 raise AssertionError("selected entity row did not become active")

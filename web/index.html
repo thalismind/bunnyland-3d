@@ -4,12 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bunnyland 3D</title>
+    <link rel="stylesheet" href="/assets/bunnyland-ui.css">
     <style>
       :root {
-        color-scheme: dark;
         font-family: system-ui, sans-serif;
-        background: #0b110d;
-        color: #edf2df;
       }
 
       * {
@@ -32,12 +30,14 @@
 
       #toolbar {
         display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
         gap: 8px;
         align-items: center;
         padding: 8px 10px;
-        border-bottom: 1px solid #2d3c31;
-        background: #111912;
-        font-size: 12px;
+        border-bottom: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+        font-size: var(--bl-text-md);
       }
 
       #api-url {
@@ -45,12 +45,13 @@
       }
 
       input,
+      select,
       button {
         min-height: 28px;
-        border: 1px solid #506457;
-        border-radius: 4px;
-        background: #1f2d23;
-        color: #edf2df;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
       }
 
       button {
@@ -58,11 +59,11 @@
       }
 
       #status.ok {
-        color: #a6e3a1;
+        color: var(--bl-ok);
       }
 
       #status.err {
-        color: #f38ba8;
+        color: var(--bl-error);
       }
 
       #main {
@@ -86,13 +87,13 @@
       #side {
         min-height: 0;
         overflow: auto;
-        border-left: 1px solid #2d3c31;
-        background: #111912;
+        border-left: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
       }
 
       .panel {
         padding: 10px;
-        border-bottom: 1px solid #2d3c31;
+        border-bottom: 1px solid var(--bl-border);
       }
 
       .room-row,
@@ -101,24 +102,24 @@
         width: 100%;
         margin: 0 0 6px;
         padding: 7px 8px;
-        border: 1px solid #506457;
-        border-radius: 4px;
-        background: #1f2d23;
-        color: #edf2df;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
         text-align: left;
       }
 
       .room-row.active {
-        border-color: #a6e3a1;
+        border-color: var(--bl-ok);
       }
 
       .entity-row.active {
-        border-color: #f2cd5c;
+        border-color: var(--bl-warn);
       }
 
       .muted {
-        color: #aeb8a4;
-        font-size: 11px;
+        color: var(--bl-text-soft);
+        font-size: var(--bl-text-sm);
       }
 
       @media (max-width: 900px) {
@@ -129,7 +130,7 @@
 
         #side {
           border-left: 0;
-          border-top: 1px solid #2d3c31;
+          border-top: 1px solid var(--bl-border);
         }
       }
     </style>
@@ -145,6 +146,8 @@
         <button id="btn-mode" type="button">2D</button>
         <button id="btn-camera" type="button">Auto Camera</button>
         <button id="btn-capture" type="button">📷 Download</button>
+        <label for="theme-select">Theme</label>
+        <select id="theme-select"></select>
         <span id="epoch"></span>
         <span id="status">Ready</span>
       </div>
@@ -163,6 +166,7 @@
         </aside>
       </main>
     </div>
+    <script src="/assets/bunnyland-ui.js"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

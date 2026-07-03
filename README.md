@@ -46,6 +46,11 @@ the client uses them; otherwise it falls back to deterministic room layout.
 The camera capture button downloads the current canvas as a PNG. Playwright smoke tests
 also save full-page screenshots with the toolbar/sidebar visible under `web/artifacts/`.
 
+The web client vendors `assets/bunnyland-ui.css` and `assets/bunnyland-ui.js` from
+`bunnyland-web` so it can use the same theme names, CSS variables, and localStorage key
+while remaining out-of-tree. Refresh those files from `bunnyland-web/assets` when the
+shared UI theme contract changes.
+
 ## Full Check
 
 ```bash

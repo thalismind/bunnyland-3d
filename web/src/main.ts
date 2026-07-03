@@ -13,6 +13,7 @@ const selectedEntitiesEl = document.getElementById('selected-entities') as HTMLE
 const modeButton = document.getElementById('btn-mode') as HTMLButtonElement;
 const cameraButton = document.getElementById('btn-camera') as HTMLButtonElement;
 const captureButton = document.getElementById('btn-capture') as HTMLButtonElement;
+const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
 
 let baseUrl = '';
 let auth = { authorization: '', secret: '' };
@@ -159,12 +160,17 @@ cameraButton.addEventListener('click', () => {
   cameraButton.textContent = manualCamera ? 'Manual Camera' : 'Auto Camera';
 });
 captureButton.addEventListener('click', downloadCapture);
+window.BunnylandUI?.bindThemeSelect(themeSelect);
 
 const server = serverFromUrl();
 if (server) void connect(server);
 
 declare global {
   interface Window {
+    BunnylandUI?: {
+      bindThemeSelect: (select: HTMLSelectElement | null) => unknown;
+      currentTheme: () => string;
+    };
     __world3d?: {
       ready: boolean;
       connect: (base: string) => Promise<void>;
