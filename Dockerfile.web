@@ -19,14 +19,15 @@ RUN npm run build
 FROM build AS test
 
 COPY web/test ./test
-RUN npm test
+RUN mkdir -p /reports
+CMD ["node", "--test", "--test-reporter=junit", "--test-reporter-destination=/reports/web.xml"]
 
 FROM mcr.microsoft.com/playwright/python:v1.56.0-noble AS browser-test
 
 WORKDIR /app/web
 COPY --from=build /app/web/dist ./dist
 COPY web/scripts ./scripts
-RUN BUNNYLAND_3D_ARTIFACT_DIR=/tmp/bunnyland-3d-artifacts ./scripts/playwright-world-3d
+CMD ["./scripts/playwright-world-3d"]
 
 FROM ${BUNNYLAND_WEB_IMAGE} AS runtime
 
