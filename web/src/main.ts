@@ -19,10 +19,16 @@ let auth = { authorization: '', secret: '' };
 let layout: WorldLayout | null = null;
 let snapshot3dMap: ReturnType<typeof snapshot3d> | null = null;
 let selectedRoomId = '';
+let selectedEntityId = '';
+let selectedEntities: ReturnType<typeof roomEntities> = [];
 let viewMode: ViewMode = '3d';
 let manualCamera = false;
 
-const scene = new BunnylandScene(viewer, roomId => { void selectRoom(roomId); });
+const scene = new BunnylandScene(
+  viewer,
+  roomId => { void selectRoom(roomId); },
+  entityId => { selectEntity(entityId); },
+);
 
 function status(text: string, cls = ''): void {
   statusEl.textContent = text;
@@ -57,6 +63,8 @@ async function refresh(): Promise<void> {
 async function selectRoom(roomId: string): Promise<void> {
   if (!layout || !roomSummary(layout, roomId)) return;
   selectedRoomId = roomId;
+  selectedEntityId = '';
+  selectedEntities = [];
   scene.selectRoom(roomId, false);
   renderRooms();
   renderSelected(null);
@@ -64,6 +72,7 @@ async function selectRoom(roomId: string): Promise<void> {
   try {
     const projection = await sendJson(baseUrl, `/world/room/${encodeURIComponent(roomId)}`);
     const entities = roomEntities(projection, snapshot3dMap);
+    selectedEntities = entities;
     scene.loadRoomEntities(roomId, entities);
     renderSelected(entities);
   } catch (err) {
@@ -92,8 +101,20 @@ function renderSelected(entities: ReturnType<typeof roomEntities> | null): void 
     return;
   }
   selectedEntitiesEl.innerHTML = entities.length
-    ? entities.map(entity => `<div class="entity-row">${escapeHtml(entity.name)}<div class="muted">${escapeHtml(entity.kind)}</div></div>`).join('')
+    ? entities.map(entity => `
+      <button class="entity-row ${entity.id === selectedEntityId ? 'active' : ''}" type="button" data-entity-id="${escapeHtml(entity.id)}">
+        ${escapeHtml(entity.name)}
+        <div class="muted">${escapeHtml(entity.kind)}</div>
+      </button>
+    `).join('')
     : '<span class="muted">No visible room contents.</span>';
+}
+
+function selectEntity(entityId: string): void {
+  if (!selectedEntities.some(entity => entity.id === entityId)) return;
+  selectedEntityId = entityId;
+  scene.selectEntity(entityId, false);
+  renderSelected(selectedEntities);
 }
 
 function escapeHtml(value: unknown): string {
@@ -120,6 +141,10 @@ function downloadCapture(): void {
 roomListEl.addEventListener('click', event => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-room-id]');
   if (row?.dataset.roomId) void selectRoom(row.dataset.roomId);
+});
+selectedEntitiesEl.addEventListener('click', event => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-entity-id]');
+  if (row?.dataset.entityId) selectEntity(row.dataset.entityId);
 });
 document.getElementById('btn-load')?.addEventListener('click', () => { void connect(apiInput.value); });
 document.getElementById('btn-refresh')?.addEventListener('click', () => { void refresh(); });

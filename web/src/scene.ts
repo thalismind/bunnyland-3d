@@ -30,6 +30,11 @@ interface TrackedRoom {
   label: THREE.Sprite;
 }
 
+interface TrackedEntity {
+  entity: RoomRenderEntity;
+  mesh: THREE.Mesh;
+}
+
 export class BunnylandScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -38,12 +43,15 @@ export class BunnylandScene {
   private readonly roomGroup = new THREE.Group();
   private readonly linkGroup = new THREE.Group();
   private readonly entityGroup = new THREE.Group();
+  private readonly selectionGroup = new THREE.Group();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly rooms = new Map<string, TrackedRoom>();
+  private readonly entities = new Map<string, TrackedEntity>();
   private mode: ViewMode = '3d';
   private manualCamera = false;
   private selectedRoomId = '';
+  private selectedEntityId = '';
   private center = new THREE.Vector3();
   private cameraTarget = new THREE.Vector3();
   private layout: WorldLayout | null = null;
@@ -54,7 +62,11 @@ export class BunnylandScene {
   private pointerDown: { x: number; y: number; button: number; moved: boolean } | null = null;
   private lastFrameTime = performance.now();
 
-  constructor(private readonly container: HTMLElement, private readonly onSelectRoom: (roomId: string) => void) {
+  constructor(
+    private readonly container: HTMLElement,
+    private readonly onSelectRoom: (roomId: string) => void,
+    private readonly onSelectEntity: (entityId: string) => void,
+  ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.domElement.tabIndex = 0;
@@ -64,7 +76,7 @@ export class BunnylandScene {
     const sun = new THREE.DirectionalLight(0xffffff, 0.82);
     sun.position.set(0.4, 1, 0.25);
     this.scene.add(sun);
-    this.scene.add(this.linkGroup, this.roomGroup, this.entityGroup);
+    this.scene.add(this.linkGroup, this.roomGroup, this.entityGroup, this.selectionGroup);
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
     window.addEventListener('pointermove', this.onPointerMove);
@@ -102,9 +114,11 @@ export class BunnylandScene {
   loadLayout(layout: WorldLayout): void {
     this.layout = layout;
     this.rooms.clear();
+    this.entities.clear();
     this.roomGroup.clear();
     this.linkGroup.clear();
     this.entityGroup.clear();
+    this.selectionGroup.clear();
     this.center.set((layout.width * ROOM_SIZE) / 2, 0, (layout.height * ROOM_SIZE) / 2);
     this.cameraTarget.copy(this.center);
     this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
@@ -118,7 +132,10 @@ export class BunnylandScene {
 
   loadRoomEntities(roomId: string, entities: RoomRenderEntity[]): void {
     this.selectedRoomId = roomId;
+    this.selectedEntityId = '';
+    this.entities.clear();
     this.entityGroup.clear();
+    this.selectionGroup.clear();
     const room = this.layout?.rooms.find(item => item.id === roomId);
     if (!room) return;
     for (const entity of entities) this.addEntity(room, entity);
@@ -131,6 +148,14 @@ export class BunnylandScene {
     this.focusRoom(roomId);
     this.updateSelection();
     if (notify) this.onSelectRoom(roomId);
+  }
+
+  selectEntity(entityId: string, notify = true): boolean {
+    if (!this.entities.has(entityId)) return false;
+    this.selectedEntityId = entityId;
+    this.updateEntitySelection();
+    if (notify) this.onSelectEntity(entityId);
+    return true;
   }
 
   private addGround(layout: WorldLayout): void {
@@ -197,7 +222,9 @@ export class BunnylandScene {
       new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.16 }),
     );
     mesh.position.set(room.worldX + entity.localX, room.worldY + entity.localY + 0.75, room.worldZ + entity.localZ);
+    mesh.userData.entityId = entity.id;
     this.entityGroup.add(mesh);
+    this.entities.set(entity.id, { entity, mesh });
   }
 
   private createLabel(title: string, detail: string): THREE.Sprite {
@@ -234,6 +261,22 @@ export class BunnylandScene {
       material.emissiveIntensity = selected ? 0.22 : 0.04;
       (tracked.label.material as THREE.SpriteMaterial).opacity = selected ? 1 : 0.76;
     }
+    this.updateEntitySelection();
+  }
+
+  private updateEntitySelection(): void {
+    this.selectionGroup.clear();
+    const tracked = this.entities.get(this.selectedEntityId);
+    if (!tracked) return;
+
+    const outline = new THREE.BoxHelper(tracked.mesh, 0xf2cd5c);
+    this.selectionGroup.add(outline);
+
+    const label = this.createLabel(tracked.entity.name, tracked.entity.kind);
+    label.position.copy(tracked.mesh.position);
+    label.position.y += 0.7;
+    label.scale.set(2.1, 0.78, 1);
+    this.selectionGroup.add(label);
   }
 
   private focusRoom(roomId: string): void {
@@ -284,13 +327,22 @@ export class BunnylandScene {
     this.ortho.updateProjectionMatrix();
   }
 
-  private pickRoom(event: PointerEvent): string {
+  private pick(event: PointerEvent, meshes: THREE.Object3D[], key: string): string {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.mode === '3d' ? this.perspective : this.ortho);
-    const hits = this.raycaster.intersectObjects([...this.rooms.values()].map(item => item.mesh));
-    return typeof hits[0]?.object.userData.roomId === 'string' ? hits[0].object.userData.roomId : '';
+    const hits = this.raycaster.intersectObjects(meshes);
+    const value = hits[0]?.object.userData[key];
+    return typeof value === 'string' ? value : '';
+  }
+
+  private pickEntity(event: PointerEvent): string {
+    return this.pick(event, [...this.entities.values()].map(item => item.mesh), 'entityId');
+  }
+
+  private pickRoom(event: PointerEvent): string {
+    return this.pick(event, [...this.rooms.values()].map(item => item.mesh), 'roomId');
   }
 
   private onPointerDown = (event: PointerEvent): void => {
@@ -322,6 +374,8 @@ export class BunnylandScene {
       this.renderer.domElement.releasePointerCapture(event.pointerId);
     }
     if (!click) return;
+    const entityId = this.pickEntity(event);
+    if (entityId && this.selectEntity(entityId)) return;
     const roomId = this.pickRoom(event);
     if (roomId) this.selectRoom(roomId);
   };

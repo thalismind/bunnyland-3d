@@ -144,6 +144,7 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
 
 def route_api(page):
     page.route("**/mock/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
+    page.route("**/mock/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
 
     def room_route(route):
         room_id = unquote(route.request.url.rsplit("/world/room/", 1)[1])
@@ -234,6 +235,9 @@ def main() -> None:
             page.goto(f"{base_url}/index.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3d && window.__world3d.ready")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
+            page.locator('[data-entity-id="item:clover"]').click()
+            if "active" not in (page.locator('[data-entity-id="item:clover"]').get_attribute("class") or ""):
+                raise AssertionError("selected entity row did not become active")
             page.wait_for_timeout(250)
             canvas_3d = ARTIFACT_DIR / "world-3d-canvas-3d.png"
             download_capture_from_button(page, canvas_3d)
