@@ -25,6 +25,27 @@ const ENTITY_COLORS: Record<string, number> = {
   other: 0xcdd6f4,
 };
 
+interface ScenePalette {
+  background: string;
+  link: string;
+  fogRoom: string;
+  labelBackground: string;
+  labelBorder: string;
+  labelText: string;
+  labelDetail: string;
+  selection: string;
+  roomFallbacks: Record<string, string>;
+  entityFallbacks: Record<string, string>;
+}
+
+export interface SceneThemeState {
+  theme: string;
+  background: string;
+  link: string;
+  fogRoom: string;
+  selection: string;
+}
+
 interface TrackedRoom {
   room: LayoutRoom;
   mesh: THREE.Mesh;
@@ -79,6 +100,8 @@ export class BunnylandScene {
   private manualCamera = false;
   private selectedRoomId = '';
   private selectedEntityId = '';
+  private palette: ScenePalette = scenePaletteFromCss();
+  private readonly themeObserver: MutationObserver;
   private center = new THREE.Vector3();
   private cameraTarget = new THREE.Vector3();
   private cameraTransition: CameraTransition | null = null;
@@ -100,7 +123,12 @@ export class BunnylandScene {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.domElement.tabIndex = 0;
     container.appendChild(this.renderer.domElement);
-    this.scene.background = new THREE.Color(0x0b110d);
+    this.applyTheme();
+    this.themeObserver = new MutationObserver(() => this.applyTheme());
+    this.themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    });
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.58));
     const sun = new THREE.DirectionalLight(0xffffff, 0.82);
     sun.position.set(0.4, 1, 0.25);
@@ -212,6 +240,16 @@ export class BunnylandScene {
     };
   }
 
+  themeState(): SceneThemeState {
+    return {
+      theme: document.documentElement.dataset.theme || '',
+      background: this.palette.background,
+      link: this.palette.link,
+      fogRoom: this.palette.fogRoom,
+      selection: this.palette.selection,
+    };
+  }
+
   exitScreenPoint(exitId: string, sourceRoomId = ''): ScreenPoint | null {
     this.updateCameraTransition(performance.now());
     this.applyCamera();
@@ -252,7 +290,7 @@ export class BunnylandScene {
       this.linkGroup.add(
         new THREE.LineSegments(
           new THREE.BufferGeometry().setFromPoints(points),
-          new THREE.LineBasicMaterial({ color: 0xa6e3a1, transparent: true, opacity: 0.58 }),
+          new THREE.LineBasicMaterial({ color: this.palette.link, transparent: true, opacity: 0.58 }),
         ),
       );
     }
@@ -273,7 +311,7 @@ export class BunnylandScene {
   }
 
   private addRoom(room: LayoutRoom): void {
-    const color = this.colorFor(room.render3d?.color, BIOME_COLORS[room.biome] ?? BIOME_COLORS.unknown);
+    const color = this.roomColor(room);
     const fogged = Boolean(room.fogged);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(ROOM_TILE_SIZE, 0.35, ROOM_TILE_SIZE),
@@ -298,10 +336,7 @@ export class BunnylandScene {
   }
 
   private addEntity(room: LayoutRoom, entity: RoomRenderEntity): void {
-    const color = this.colorFor(
-      entity.render3d?.color,
-      ENTITY_COLORS[entity.isCharacter ? 'character' : entity.kind] ?? ENTITY_COLORS.other,
-    );
+    const color = this.entityColor(entity);
     const shape = entity.render3d?.shape || (entity.isCharacter ? 'sphere' : 'box');
     const geometry = shape === 'sphere'
       ? new THREE.SphereGeometry(0.22, 16, 12)
@@ -317,27 +352,10 @@ export class BunnylandScene {
   }
 
   private createLabel(title: string, detail: string): THREE.Sprite {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 96;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = 'rgba(17, 25, 18, 0.84)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = 'rgba(166, 227, 161, 0.58)';
-      ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
-      ctx.fillStyle = '#f2f5df';
-      ctx.font = 'bold 20px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(title.slice(0, 24), canvas.width / 2, 34);
-      ctx.fillStyle = '#aeb8a4';
-      ctx.font = '14px system-ui, sans-serif';
-      ctx.fillText(detail, canvas.width / 2, 66);
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
+    const texture = this.createLabelTexture(title, detail);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+    sprite.userData.title = title;
+    sprite.userData.detail = detail;
     sprite.scale.set(2.6, 0.98, 1);
     return sprite;
   }
@@ -368,7 +386,7 @@ export class BunnylandScene {
     const tracked = this.entities.get(this.selectedEntityId);
     if (!tracked) return;
 
-    const outline = new THREE.BoxHelper(tracked.mesh, 0xf2cd5c);
+    const outline = new THREE.BoxHelper(tracked.mesh, this.colorToHex(this.palette.selection));
     this.selectionGroup.add(outline);
 
     const label = this.createLabel(tracked.entity.name, tracked.entity.kind);
@@ -544,6 +562,83 @@ export class BunnylandScene {
     return Number.parseInt(value.slice(1), 16);
   }
 
+  private roomColor(room: LayoutRoom): number {
+    if (room.fogged) return this.colorToHex(this.palette.fogRoom);
+    const fallback = this.colorToHex(this.palette.roomFallbacks[room.biome] || this.palette.roomFallbacks.unknown);
+    return this.colorFor(room.render3d?.color, fallback);
+  }
+
+  private entityColor(entity: RoomRenderEntity): number {
+    const kind = entity.isCharacter ? 'character' : entity.kind;
+    const fallback = this.colorToHex(this.palette.entityFallbacks[kind] || this.palette.entityFallbacks.other);
+    return this.colorFor(entity.render3d?.color, fallback);
+  }
+
+  private colorToHex(value: string): number {
+    return new THREE.Color(value).getHex();
+  }
+
+  private applyTheme(): void {
+    this.palette = scenePaletteFromCss();
+    const background = new THREE.Color(this.palette.background);
+    this.scene.background = background;
+    this.renderer.setClearColor(background, 1);
+    for (const child of this.linkGroup.children) {
+      const material = (child as THREE.LineSegments).material as THREE.LineBasicMaterial | undefined;
+      if (material) material.color.set(this.palette.link);
+    }
+    for (const tracked of this.rooms.values()) {
+      const color = this.roomColor(tracked.room);
+      const material = tracked.mesh.material as THREE.MeshStandardMaterial;
+      material.color.setHex(color);
+      material.emissive.setHex(color);
+      this.updateLabel(tracked.label);
+    }
+    for (const tracked of this.entities.values()) {
+      const color = this.entityColor(tracked.entity);
+      const material = tracked.mesh.material as THREE.MeshStandardMaterial;
+      material.color.setHex(color);
+      material.emissive.setHex(color);
+    }
+    for (const tracked of this.exits) this.updateLabel(tracked.marker);
+    this.updateSelection();
+  }
+
+  private updateLabel(label: THREE.Sprite): void {
+    const title = typeof label.userData.title === 'string' ? label.userData.title : '';
+    const detail = typeof label.userData.detail === 'string' ? label.userData.detail : '';
+    if (!title) return;
+    const material = label.material as THREE.SpriteMaterial;
+    const oldMap = material.map;
+    material.map = this.createLabelTexture(title, detail);
+    oldMap?.dispose();
+    material.needsUpdate = true;
+  }
+
+  private createLabelTexture(title: string, detail: string): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = this.palette.labelBackground;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = this.palette.labelBorder;
+      ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
+      ctx.fillStyle = this.palette.labelText;
+      ctx.font = 'bold 20px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(title.slice(0, 24), canvas.width / 2, 34);
+      ctx.fillStyle = this.palette.labelDetail;
+      ctx.font = '14px system-ui, sans-serif';
+      ctx.fillText(detail, canvas.width / 2, 66);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
   private updateCameraTransition(now: number): void {
     if (!this.cameraTransition) return;
     const progress = THREE.MathUtils.clamp(
@@ -558,4 +653,33 @@ export class BunnylandScene {
       this.cameraTransition = null;
     }
   }
+}
+
+export function scenePaletteFromCss(root: HTMLElement = document.documentElement): ScenePalette {
+  const css = getComputedStyle(root);
+  const value = (name: string, fallback: string): string => css.getPropertyValue(name).trim() || fallback;
+  return {
+    background: value('--bl-bg-deep', '#0b110d'),
+    link: value('--bl-accent-strong', '#a6e3a1'),
+    fogRoom: value('--bl-text-muted', '#585b70'),
+    labelBackground: value('--bl-overlay-solid', 'rgba(17, 25, 18, 0.95)'),
+    labelBorder: value('--bl-accent', '#a6e3a1'),
+    labelText: value('--bl-text', '#f2f5df'),
+    labelDetail: value('--bl-text-soft', '#aeb8a4'),
+    selection: value('--bl-warn', '#f2cd5c'),
+    roomFallbacks: {
+      cave: value('--bl-secondary', `#${BIOME_COLORS.cave.toString(16).padStart(6, '0')}`),
+      garden: value('--bl-ok', `#${BIOME_COLORS.garden.toString(16).padStart(6, '0')}`),
+      marsh: value('--bl-info', `#${BIOME_COLORS.marsh.toString(16).padStart(6, '0')}`),
+      meadow: value('--bl-accent', `#${BIOME_COLORS.meadow.toString(16).padStart(6, '0')}`),
+      station: value('--bl-secondary', `#${BIOME_COLORS.station.toString(16).padStart(6, '0')}`),
+      unknown: value('--bl-border-strong', `#${BIOME_COLORS.unknown.toString(16).padStart(6, '0')}`),
+    },
+    entityFallbacks: {
+      character: value('--bl-accent', `#${ENTITY_COLORS.character.toString(16).padStart(6, '0')}`),
+      item: value('--bl-warn', `#${ENTITY_COLORS.item.toString(16).padStart(6, '0')}`),
+      object: value('--bl-ok', `#${ENTITY_COLORS.object.toString(16).padStart(6, '0')}`),
+      other: value('--bl-text', `#${ENTITY_COLORS.other.toString(16).padStart(6, '0')}`),
+    },
+  };
 }

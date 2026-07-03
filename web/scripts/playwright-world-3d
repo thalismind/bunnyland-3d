@@ -472,6 +472,9 @@ def main() -> None:
             )
             if theme != {"current": "anime-light", "anime": True}:
                 raise AssertionError(f"theme selector did not use shared theme setup: {theme!r}")
+            scene_theme = page.evaluate("window.__world3d.themeState()")
+            if scene_theme["theme"] != "anime-light" or scene_theme["background"].lower() != "#efd0e2":
+                raise AssertionError(f"3D scene did not use selected theme colors: {scene_theme!r}")
             page.locator("#viewer canvas").hover()
             radius_before = page.evaluate("window.__world3d.cameraState().radius")
             page.mouse.wheel(0, -600)

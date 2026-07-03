@@ -883,6 +883,7 @@ declare global {
       refresh: () => Promise<void>;
       selectTarget: (entityId: string) => void;
       exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<BunnylandScene['exitScreenPoint']>;
+      themeState: () => ReturnType<BunnylandScene['themeState']>;
       cameraState: () => ReturnType<BunnylandScene['cameraState']>;
       capture: () => string;
     };
@@ -896,6 +897,7 @@ window.__world3dPlayer = {
   refresh,
   selectTarget,
   exitScreenPoint: (exitId, sourceRoomId = '') => scene.exitScreenPoint(exitId, sourceRoomId),
+  themeState: () => scene.themeState(),
   cameraState: () => scene.cameraState(),
   capture: captureImage,
 };
