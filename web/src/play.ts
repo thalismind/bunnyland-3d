@@ -661,6 +661,14 @@ export function imageRequestMessage(result: unknown): string {
 
 export function latestImageCompletion(messages: unknown[], base: string, purpose = ''): { url: string; purpose: string; epoch: number } | null {
   let best: { url: string; purpose: string; epoch: number } | null = null;
+  for (const item of imageCompletions(messages, base, purpose)) {
+    if (!best || item.epoch >= best.epoch) best = item;
+  }
+  return best;
+}
+
+export function imageCompletions(messages: unknown[], base: string, purpose = ''): { url: string; purpose: string; epoch: number; entityId: string }[] {
+  const images: { url: string; purpose: string; epoch: number; entityId: string }[] = [];
   for (const message of messages || []) {
     const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
     if (data.event_type !== 'ImageGenerationCompletedEvent') continue;
@@ -669,12 +677,13 @@ export function latestImageCompletion(messages: unknown[], base: string, purpose
     const item = {
       url: mediaUrl(base, String(event.url)),
       purpose: String(event.purpose || ''),
+      entityId: String(event.entity_id || ''),
       epoch: Number(event.world_epoch || 0),
     };
     if (purpose && item.purpose !== purpose) continue;
-    if (!best || item.epoch >= best.epoch) best = item;
+    images.push(item);
   }
-  return best;
+  return images.sort((a, b) => a.epoch - b.epoch);
 }
 
 export function latestImageFailure(messages: unknown[], purpose = ''): { reason: string; purpose: string; epoch: number } | null {
@@ -804,7 +813,7 @@ function perceivesEvent(event: Record<string, unknown>, options: { playerId: str
 
 function mediaUrl(base: string, url: string): string {
   if (!url) return '';
-  if (/^https?:\/\//.test(url)) return url;
+  if (/^(https?:|data:)/.test(url)) return url;
   return `${normalizeBase(base)}${url}`;
 }
 

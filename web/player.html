@@ -205,6 +205,76 @@
       }
       .activity-row.kind-rejection { color: var(--bl-warn); }
       .activity-row.kind-system { color: var(--bl-text-dim); }
+      .gallery-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .gallery-item {
+        display: grid;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid var(--bl-border-muted);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-bg-subtle);
+        color: var(--bl-text);
+        text-align: left;
+      }
+      .gallery-item:hover { border-color: var(--bl-accent); background: var(--bl-surface-hover); }
+      .gallery-item img {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+        display: block;
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+      }
+      .gallery-caption {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--bl-text-soft);
+        font-size: var(--bl-text-xs);
+      }
+      #photo-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 10002;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        background: var(--bl-overlay-strong);
+      }
+      #photo-lightbox.hidden { display: none; }
+      .lightbox-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px;
+        border-bottom: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+      }
+      .lightbox-title {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lightbox-body {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        place-items: center;
+        padding: 12px;
+      }
+      #photo-lightbox-img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-surface);
+      }
       .section-title {
         margin: 10px 0 6px;
         color: var(--bl-accent-strong);
@@ -263,7 +333,7 @@
         <button id="btn-refresh" type="button">Refresh</button>
         <button id="btn-mode" type="button">2D</button>
         <button id="btn-camera" type="button">Auto Camera</button>
-        <button id="btn-capture" type="button">📷 Download</button>
+        <button id="btn-capture" type="button">📷 Capture</button>
         <label for="theme-select">Theme</label>
         <select id="theme-select"></select>
         <span id="status">Ready</span>
@@ -339,11 +409,28 @@
             <div id="queue" class="muted">No queued actions.</div>
           </section>
           <section class="panel">
+            <h2>Photos</h2>
+            <div id="photo-gallery" class="gallery-grid muted">No photos yet.</div>
+          </section>
+          <section class="panel">
             <h2>Activity</h2>
             <div id="activity" class="option-list muted">No recent activity.</div>
           </section>
         </aside>
       </main>
+      <div id="photo-lightbox" class="hidden" role="dialog" aria-modal="true" aria-labelledby="photo-lightbox-title">
+        <div class="lightbox-bar">
+          <div>
+            <div id="photo-lightbox-title" class="lightbox-title">Photo</div>
+            <div id="photo-lightbox-meta" class="muted"></div>
+          </div>
+          <button id="btn-lightbox-download" type="button">Download</button>
+          <button id="btn-lightbox-close" type="button">Close</button>
+        </div>
+        <div class="lightbox-body">
+          <img id="photo-lightbox-img" alt="Selected gallery image">
+        </div>
+      </div>
     </div>
     <script src="/assets/bunnyland-ui.js"></script>
     <script type="module" src="/src/player.ts"></script>

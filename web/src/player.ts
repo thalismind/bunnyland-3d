@@ -21,6 +21,7 @@ import {
   fetchRecentEvents,
   filterActions,
   iconPreference,
+  imageCompletions,
   imageRequestMessage,
   inventoryEntries,
   latestImageCompletion,
@@ -73,6 +74,13 @@ const actionFilterClearButton = document.getElementById('action-filter-clear') a
 const actionsEl = document.getElementById('actions') as HTMLElement;
 const queueEl = document.getElementById('queue') as HTMLElement;
 const activityEl = document.getElementById('activity') as HTMLElement;
+const photoGalleryEl = document.getElementById('photo-gallery') as HTMLElement;
+const photoLightbox = document.getElementById('photo-lightbox') as HTMLElement;
+const photoLightboxTitle = document.getElementById('photo-lightbox-title') as HTMLElement;
+const photoLightboxMeta = document.getElementById('photo-lightbox-meta') as HTMLElement;
+const photoLightboxImg = document.getElementById('photo-lightbox-img') as HTMLImageElement;
+const lightboxDownloadButton = document.getElementById('btn-lightbox-download') as HTMLButtonElement;
+const lightboxCloseButton = document.getElementById('btn-lightbox-close') as HTMLButtonElement;
 const modeButton = document.getElementById('btn-mode') as HTMLButtonElement;
 const cameraButton = document.getElementById('btn-camera') as HTMLButtonElement;
 const captureButton = document.getElementById('btn-capture') as HTMLButtonElement;
@@ -85,6 +93,15 @@ const dialogClaimButton = document.getElementById('btn-dialog-claim') as HTMLBut
 const dialogSaveFallbackButton = document.getElementById('btn-dialog-save-fallback') as HTMLButtonElement;
 const dialogIdleButton = document.getElementById('btn-dialog-idle') as HTMLButtonElement;
 const dialogReleaseButton = document.getElementById('btn-dialog-release') as HTMLButtonElement;
+
+interface GalleryItem {
+  id: string;
+  src: string;
+  title: string;
+  detail: string;
+  filename: string;
+  createdAt: number;
+}
 
 let baseUrl = '';
 let characters: CharacterSummary[] = [];
@@ -102,6 +119,8 @@ let eventsPrimed = false;
 let eventImageUrl = '';
 let eventImageFailureEpoch = -1;
 let submittingAction = '';
+let galleryItems: GalleryItem[] = [];
+let activeGalleryId = '';
 
 const scene = new BunnylandScene(
   viewer,
@@ -185,6 +204,16 @@ async function refreshActivity(): Promise<void> {
       nameFor,
     });
     seenEventIds = drained.seenIds;
+    for (const image of imageCompletions(messages, baseUrl, 'event')) {
+      addGalleryItem({
+        id: `scene:${image.epoch}:${image.url}`,
+        src: image.url,
+        title: `Scene image${image.epoch ? ` @ ${image.epoch}` : ''}`,
+        detail: 'server scene image',
+        filename: `bunnyland-scene-${image.epoch || Date.now()}.png`,
+        createdAt: image.epoch || Date.now(),
+      }, false);
+    }
     const latest = latestImageCompletion(messages, baseUrl, 'event');
     if (latest && latest.url !== eventImageUrl) {
       eventImageUrl = latest.url;
@@ -226,6 +255,7 @@ function render(): void {
     actionsEl.textContent = 'No actions loaded.';
     queueEl.textContent = 'No queued actions.';
     renderSelection();
+    renderGallery();
     renderActivity();
     return;
   }
@@ -242,6 +272,7 @@ function render(): void {
   renderSelection();
   renderActions();
   renderQueue();
+  renderGallery();
   renderActivity();
 }
 
@@ -360,6 +391,17 @@ function renderActivity(): void {
     : '<div class="muted">No recent activity.</div>';
 }
 
+function renderGallery(): void {
+  photoGalleryEl.innerHTML = galleryItems.length
+    ? galleryItems.slice().reverse().map(item => `
+      <button class="gallery-item" type="button" data-gallery-id="${escapeHtml(item.id)}">
+        <img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.title)}">
+        <span class="gallery-caption">${escapeHtml(item.title)}</span>
+      </button>
+    `).join('')
+    : '<div class="muted">No photos yet.</div>';
+}
+
 async function doAction(action: ActionView): Promise<void> {
   if (!projection || !control) return;
   const fields = actionFields(action, projection);
@@ -427,6 +469,17 @@ async function requestImage(): Promise<void> {
   try {
     const result = await requestSceneImage(baseUrl, playerId, control);
     pushActivity({ text: imageRequestMessage(result), kind: 'system' });
+    const data = result as Record<string, unknown>;
+    if (typeof data.url === 'string') {
+      addGalleryItem({
+        id: `scene:immediate:${data.url}`,
+        src: mediaUrl(data.url),
+        title: 'Scene image',
+        detail: 'server scene image',
+        filename: `bunnyland-scene-${Date.now()}.png`,
+        createdAt: Date.now(),
+      }, true);
+    }
     await refresh();
   } catch (err) {
     pushActivity({ text: `📷 ${(err as Error).message}`, kind: 'rejection' });
@@ -700,10 +753,54 @@ function captureImage(): string {
   return scene.capturePng();
 }
 
-function downloadCapture(): void {
+function captureToGallery(): void {
+  const createdAt = Date.now();
+  addGalleryItem({
+    id: `capture:${createdAt}`,
+    src: captureImage(),
+    title: 'Canvas capture',
+    detail: 'local 3D canvas capture',
+    filename: `bunnyland-3d-player-${new Date(createdAt).toISOString().replace(/[:.]/g, '-')}.png`,
+    createdAt,
+  }, true);
+  pushActivity({ text: 'Canvas capture added to photos.', kind: 'system' });
+  render();
+}
+
+function addGalleryItem(item: GalleryItem, open: boolean): void {
+  const existing = galleryItems.find(entry => entry.id === item.id || entry.src === item.src);
+  if (!existing) {
+    galleryItems = [...galleryItems, item]
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-36);
+  }
+  if (open) openGalleryItem(existing?.id || item.id);
+  else renderGallery();
+}
+
+function openGalleryItem(id: string): void {
+  const item = galleryItems.find(entry => entry.id === id);
+  if (!item) return;
+  activeGalleryId = id;
+  photoLightboxTitle.textContent = item.title;
+  photoLightboxMeta.textContent = item.detail;
+  photoLightboxImg.src = item.src;
+  photoLightboxImg.alt = item.title;
+  photoLightbox.classList.remove('hidden');
+}
+
+function closeLightbox(): void {
+  activeGalleryId = '';
+  photoLightbox.classList.add('hidden');
+  photoLightboxImg.removeAttribute('src');
+}
+
+function downloadActivePhoto(): void {
+  const item = galleryItems.find(entry => entry.id === activeGalleryId);
+  if (!item) return;
   const link = document.createElement('a');
-  link.href = captureImage();
-  link.download = `bunnyland-3d-player-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+  link.href = item.src;
+  link.download = item.filename;
   link.click();
 }
 
@@ -774,6 +871,15 @@ dialogClaimButton.addEventListener('click', () => { void claimOrResume(); });
 dialogSaveFallbackButton.addEventListener('click', () => { void saveFallback(); });
 dialogIdleButton.addEventListener('click', () => { void idleController(); });
 dialogReleaseButton.addEventListener('click', () => { void releasePlayerClaim(); });
+photoGalleryEl.addEventListener('click', event => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-gallery-id]');
+  if (row?.dataset.galleryId) openGalleryItem(row.dataset.galleryId);
+});
+photoLightbox.addEventListener('click', event => {
+  if (event.target === photoLightbox) closeLightbox();
+});
+lightboxCloseButton.addEventListener('click', closeLightbox);
+lightboxDownloadButton.addEventListener('click', downloadActivePhoto);
 modeButton.addEventListener('click', () => {
   viewMode = viewMode === '3d' ? '2d' : '3d';
   scene.setMode(viewMode);
@@ -784,7 +890,10 @@ cameraButton.addEventListener('click', () => {
   scene.setManualCamera(manualCamera);
   cameraButton.textContent = manualCamera ? 'Manual Camera' : 'Auto Camera';
 });
-captureButton.addEventListener('click', downloadCapture);
+captureButton.addEventListener('click', captureToGallery);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !photoLightbox.classList.contains('hidden')) closeLightbox();
+});
 window.BunnylandUI?.bindThemeSelect(themeSelect);
 
 const server = serverFromUrl();

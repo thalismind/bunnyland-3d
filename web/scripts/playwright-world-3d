@@ -111,7 +111,32 @@ PLAYER_QUEUE = [
     }
 ]
 COMMAND_PAYLOADS = []
-RECENT_EVENTS = []
+OLD_SCENE_IMAGE_URL = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 100'%3E"
+    "%3Crect width='160' height='100' fill='%23233b2a'/%3E"
+    "%3Ccircle cx='56' cy='48' r='24' fill='%2389b4fa'/%3E"
+    "%3Ctext x='82' y='54' fill='%23ffffff' font-size='14'%3EOld scene%3C/text%3E"
+    "%3C/svg%3E"
+)
+NEW_SCENE_IMAGE_URL = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 100'%3E"
+    "%3Crect width='160' height='100' fill='%23203735'/%3E"
+    "%3Ccircle cx='104' cy='48' r='24' fill='%23f9e2af'/%3E"
+    "%3Ctext x='18' y='54' fill='%23ffffff' font-size='14'%3ENew scene%3C/text%3E"
+    "%3C/svg%3E"
+)
+RECENT_EVENTS = [{
+    "event_type": "ImageGenerationCompletedEvent",
+    "event": {
+        "event_id": "event:image:old",
+        "entity_id": "character:ash",
+        "purpose": "event",
+        "url": OLD_SCENE_IMAGE_URL,
+        "world_epoch": 10,
+        "visibility": "private",
+        "actor_id": "character:ash",
+    },
+}]
 FALLBACK_SAVED = False
 CONTROLLER_RELEASED = False
 CLAIM_RELEASED = False
@@ -275,7 +300,7 @@ def route_api(page):
                     "event_id": f"event:image:{len(RECENT_EVENTS)}",
                     "entity_id": "character:ash",
                     "purpose": "event",
-                    "url": "/media/generated-scene.png",
+                    "url": NEW_SCENE_IMAGE_URL,
                     "world_epoch": 22 + len(RECENT_EVENTS),
                     "visibility": "private",
                     "actor_id": "character:ash",
@@ -407,6 +432,13 @@ def download_capture_from_button(page, path: Path) -> None:
     download.save_as(path)
 
 
+def download_lightbox_photo(page, path: Path) -> None:
+    with page.expect_download() as download_info:
+        page.locator("#btn-lightbox-download").click()
+    download = download_info.value
+    download.save_as(path)
+
+
 def main() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     proc, base_url = ensure_server()
@@ -475,6 +507,13 @@ def main() -> None:
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
+            expect(page.locator("#photo-gallery .gallery-item")).to_have_count(1)
+            expect(page.locator("#photo-gallery")).to_contain_text("Scene image @ 10")
+            page.locator("#photo-gallery .gallery-item").first.click()
+            if "hidden" in (page.locator("#photo-lightbox").get_attribute("class") or ""):
+                raise AssertionError("older scene image did not open in the lightbox")
+            expect(page.locator("#photo-lightbox-title")).to_contain_text("Scene image")
+            page.locator("#btn-lightbox-close").click()
             expect(page.locator("#portrait-frame img")).to_have_count(1)
             expect(page.locator("#character-name")).to_contain_text("Ash")
             expect(page.locator("#character-info")).to_contain_text("Leporid")
@@ -529,12 +568,19 @@ def main() -> None:
                 raise AssertionError(f"player camera did not follow room move: {player_before!r} -> {player_after!r}")
             page.locator("#btn-request-image").click()
             expect(page.locator("#activity")).to_contain_text("image")
+            expect(page.locator("#photo-gallery .gallery-item")).to_have_count(2)
             page.locator("#btn-open-sheet").click()
             expect(page.locator("#activity")).to_contain_text("sheet")
             player_canvas = ARTIFACT_DIR / "world-3d-player-canvas.png"
-            download_capture_from_button(page, player_canvas)
+            page.locator("#btn-capture").click()
+            if "hidden" in (page.locator("#photo-lightbox").get_attribute("class") or ""):
+                raise AssertionError("canvas capture did not open in the lightbox")
+            expect(page.locator("#photo-lightbox-title")).to_contain_text("Canvas capture")
+            download_lightbox_photo(page, player_canvas)
             if not png_has_detail(player_canvas):
                 raise AssertionError("3D player canvas rendered blank pixels")
+            page.locator("#btn-lightbox-close").click()
+            expect(page.locator("#photo-gallery .gallery-item")).to_have_count(3)
             page.screenshot(path=ARTIFACT_DIR / "world-3d-player.png", full_page=True)
             page.locator("#btn-claim").click()
             page.locator("#btn-dialog-save-fallback").click()
