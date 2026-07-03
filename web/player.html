@@ -22,6 +22,7 @@
       }
       #api-url { width: 250px; }
       #character-select { min-width: 190px; }
+      #claim-timeout { width: 62px; }
       input, select, button {
         min-height: 28px;
         border: 1px solid var(--bl-border-control);
@@ -48,8 +49,23 @@
       .muted { color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
       #status.ok { color: var(--bl-ok); }
       #status.err { color: var(--bl-error); }
+      #target-line, #action-tools {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      #target-label {
+        min-width: 0;
+        flex: 1 1 auto;
+        color: var(--bl-text-soft);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       #action-filter { width: 100%; margin-bottom: 8px; }
-      .action-row, .queue-row {
+      .option-list { display: flex; flex-direction: column; gap: 6px; }
+      .action-row, .queue-row, .option-row {
         display: block;
         width: 100%;
         margin: 0 0 6px;
@@ -60,8 +76,9 @@
         color: var(--bl-text);
         text-align: left;
       }
-      .action-row:hover, .queue-row:hover { background: var(--bl-surface-hover); }
+      .action-row:hover, .queue-row:hover, .option-row:hover { background: var(--bl-surface-hover); }
       .action-row.unavailable { opacity: 0.68; }
+      .option-row.selected { border-color: var(--bl-accent); }
       .row-main {
         display: flex;
         justify-content: space-between;
@@ -69,6 +86,21 @@
         font-weight: bold;
       }
       .row-detail { margin-top: 3px; color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
+      .row-icon { margin-right: 5px; }
+      .cost.ap { color: var(--bl-warn); }
+      .cost.fp { color: var(--bl-info); }
+      .cost.free { color: var(--bl-text-dim); }
+      .activity-row {
+        padding: 7px 8px;
+        border: 1px solid var(--bl-border-muted);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-bg-subtle);
+        color: var(--bl-text);
+        font-size: var(--bl-text-sm);
+        line-height: 1.3;
+      }
+      .activity-row.kind-rejection { color: var(--bl-warn); }
+      .activity-row.kind-system { color: var(--bl-text-dim); }
       .section-title {
         margin: 10px 0 6px;
         color: var(--bl-accent-strong);
@@ -96,6 +128,17 @@
       .form-field input, .form-field select { width: 100%; }
       .form-error { min-height: 18px; color: var(--bl-error); font-size: var(--bl-text-sm); }
       .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px; border-top: 1px solid var(--bl-border); }
+      #claim-dialog {
+        max-width: min(440px, calc(100vw - 24px));
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-bg-strong);
+        color: var(--bl-text);
+      }
+      #claim-dialog::backdrop { background: var(--bl-overlay); }
+      .claim-dialog-form { display: grid; gap: 8px; }
+      .claim-dialog-form h3 { margin: 0 0 4px; }
+      .claim-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
       @media (max-width: 900px) {
         #main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 1fr) 330px; }
         #side { border-left: 0; border-top: 1px solid var(--bl-border); }
@@ -111,6 +154,9 @@
         <button id="btn-connect" type="button">Connect</button>
         <label for="character-select">Character</label>
         <select id="character-select"><option value="">Choose...</option></select>
+        <button id="btn-claim" type="button" disabled>Claim</button>
+        <button id="btn-request-image" type="button">📷 Image</button>
+        <button id="btn-open-sheet" type="button">▣ Sheet</button>
         <button id="btn-refresh" type="button">Refresh</button>
         <button id="btn-mode" type="button">2D</button>
         <button id="btn-camera" type="button">Auto Camera</button>
@@ -119,6 +165,28 @@
         <select id="theme-select"></select>
         <span id="status">Ready</span>
       </div>
+      <dialog id="claim-dialog">
+        <form method="dialog" class="claim-dialog-form">
+          <h3>Claim</h3>
+          <label for="claim-fallback">Idle controller</label>
+          <select id="claim-fallback">
+            <option value="suspend">Suspended</option>
+            <option value="llm">LLM</option>
+            <option value="controller">Existing controller</option>
+          </select>
+          <label for="claim-fallback-controller">Idle controller ID</label>
+          <input type="text" id="claim-fallback-controller" spellcheck="false" placeholder="entity_...">
+          <label for="claim-timeout">Idle timeout minutes</label>
+          <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+          <div class="claim-actions">
+            <button id="btn-dialog-claim" type="button">Claim</button>
+            <button id="btn-dialog-save-fallback" type="button">Save Idle</button>
+            <button id="btn-dialog-idle" type="button">Idle</button>
+            <button id="btn-dialog-release" type="button">Release</button>
+            <button type="submit">Close</button>
+          </div>
+        </form>
+      </dialog>
       <main id="main">
         <section id="viewer"></section>
         <aside id="side">
@@ -127,13 +195,32 @@
             <div id="room-meta" class="muted">Connect and choose a character.</div>
           </section>
           <section class="panel">
+            <h2>Room</h2>
+            <div id="members" class="option-list muted">No visible entities.</div>
+            <div class="section-title">Exits</div>
+            <div id="exits" class="option-list muted">No visible exits.</div>
+            <div class="section-title">Inventory</div>
+            <div id="inventory" class="option-list muted">No inventory loaded.</div>
+          </section>
+          <section class="panel">
             <h2>Actions</h2>
+            <div id="target-line">
+              <span id="target-label">Target: none</span>
+              <button id="btn-clear-target" type="button" disabled>Clear Target</button>
+            </div>
+            <div id="action-tools">
+              <label title="Show action and activity icons"><input id="show-action-icons" type="checkbox" checked> Icons</label>
+            </div>
             <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
             <div id="actions" class="muted">No actions loaded.</div>
           </section>
           <section class="panel">
             <h2>Queue</h2>
             <div id="queue" class="muted">No queued actions.</div>
+          </section>
+          <section class="panel">
+            <h2>Activity</h2>
+            <div id="activity" class="option-list muted">No recent activity.</div>
           </section>
         </aside>
       </main>

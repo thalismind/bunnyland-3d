@@ -1,46 +1,84 @@
 import { normalizeBase, serverFromUrl, setServerInUrl } from './api';
 import { BunnylandScene, type ViewMode } from './scene';
 import {
+  actionArguments,
   actionAvailable,
   actionCommandType,
   actionCost,
   actionFields,
+  actionIcon,
   actionLane,
   actionTitle,
   actionUnavailableReason,
+  allTargets,
   cancelCommand,
+  characterSheetHref,
   claimCharacter,
+  drainNarratedEvents,
   fetchCharacters,
   fetchProjection,
   fetchQueue,
+  fetchRecentEvents,
   filterActions,
+  iconPreference,
+  imageRequestMessage,
+  inventoryEntries,
+  latestImageCompletion,
+  latestImageFailure,
   playerSceneView,
   queuedCommandLabel,
   queuedCountdownSeconds,
+  releaseClaim,
+  releaseController,
+  requestSceneImage,
+  setIconPreference,
   submitAction,
+  updateControllerFallback,
   updateFog,
   type ActionView,
+  type ActivityLine,
   type CharacterProjection,
   type CharacterSummary,
+  type ClaimOptions,
   type ControlClaim,
   type QueuedProjection,
 } from './play';
+
+const ACTIVITY_LIMIT = 24;
 
 const viewer = document.getElementById('viewer') as HTMLElement;
 const apiInput = document.getElementById('api-url') as HTMLInputElement;
 const connectButton = document.getElementById('btn-connect') as HTMLButtonElement;
 const refreshButton = document.getElementById('btn-refresh') as HTMLButtonElement;
 const characterSelect = document.getElementById('character-select') as HTMLSelectElement;
+const claimButton = document.getElementById('btn-claim') as HTMLButtonElement;
+const requestImageButton = document.getElementById('btn-request-image') as HTMLButtonElement;
+const openSheetButton = document.getElementById('btn-open-sheet') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLElement;
 const roomTitleEl = document.getElementById('room-title') as HTMLElement;
 const roomMetaEl = document.getElementById('room-meta') as HTMLElement;
+const membersEl = document.getElementById('members') as HTMLElement;
+const exitsEl = document.getElementById('exits') as HTMLElement;
+const inventoryEl = document.getElementById('inventory') as HTMLElement;
+const targetLabelEl = document.getElementById('target-label') as HTMLElement;
+const clearTargetButton = document.getElementById('btn-clear-target') as HTMLButtonElement;
+const showActionIconsEl = document.getElementById('show-action-icons') as HTMLInputElement;
 const actionFilterEl = document.getElementById('action-filter') as HTMLInputElement;
 const actionsEl = document.getElementById('actions') as HTMLElement;
 const queueEl = document.getElementById('queue') as HTMLElement;
+const activityEl = document.getElementById('activity') as HTMLElement;
 const modeButton = document.getElementById('btn-mode') as HTMLButtonElement;
 const cameraButton = document.getElementById('btn-camera') as HTMLButtonElement;
 const captureButton = document.getElementById('btn-capture') as HTMLButtonElement;
 const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
+const claimDialog = document.getElementById('claim-dialog') as HTMLDialogElement;
+const claimFallbackEl = document.getElementById('claim-fallback') as HTMLSelectElement;
+const claimFallbackControllerEl = document.getElementById('claim-fallback-controller') as HTMLInputElement;
+const claimTimeoutEl = document.getElementById('claim-timeout') as HTMLInputElement;
+const dialogClaimButton = document.getElementById('btn-dialog-claim') as HTMLButtonElement;
+const dialogSaveFallbackButton = document.getElementById('btn-dialog-save-fallback') as HTMLButtonElement;
+const dialogIdleButton = document.getElementById('btn-dialog-idle') as HTMLButtonElement;
+const dialogReleaseButton = document.getElementById('btn-dialog-release') as HTMLButtonElement;
 
 let baseUrl = '';
 let characters: CharacterSummary[] = [];
@@ -49,16 +87,22 @@ let control: ControlClaim | null = null;
 let projection: CharacterProjection | null = null;
 let queue: QueuedProjection | null = null;
 let selectedTargetId = '';
+let showActionIcons = iconPreference(true);
 let viewMode: ViewMode = '3d';
 let manualCamera = false;
+let activityLines: ActivityLine[] = [];
+let seenEventIds = new Set<string>();
+let eventsPrimed = false;
+let eventImageUrl = '';
+let eventImageFailureEpoch = -1;
 
 const scene = new BunnylandScene(
   viewer,
   roomId => {
-    if (projection?.room.id !== roomId) status(`Remembered room: ${roomId}`, 'ok');
+    if (projection?.room.id !== roomId) pushActivity({ text: `Remembered room: ${roomId}`, kind: 'system' });
   },
   entityId => {
-    selectedTargetId = entityId;
+    selectTarget(entityId);
   },
 );
 
@@ -80,33 +124,69 @@ async function connect(rawBase: string): Promise<void> {
   } catch (err) {
     status(`connect failed: ${(err as Error).message}`, 'err');
   }
+  render();
 }
 
 async function selectCharacter(characterId: string): Promise<void> {
   if (!baseUrl || !characterId) return;
   playerId = characterId;
   selectedTargetId = '';
+  activityLines = [];
+  seenEventIds = new Set<string>();
+  eventsPrimed = false;
   status('claiming...');
   try {
-    control = await claimCharacter(baseUrl, characterId);
+    control = await claimCharacter(baseUrl, characterId, claimOptionsFromForm());
     await refresh();
     status(`playing ${projection?.characterName || characterId}`, 'ok');
   } catch (err) {
     status(`claim failed: ${(err as Error).message}`, 'err');
   }
+  render();
 }
 
 async function refresh(): Promise<void> {
   if (!baseUrl || !playerId || !control) return;
   try {
     projection = await fetchProjection(baseUrl, playerId, control);
+    if (projection.controller?.generation != null) control.generation = Number(projection.controller.generation || control.generation);
     queue = await fetchQueue(baseUrl, playerId, control);
     const fog = updateFog(baseUrl, projection);
     const view = playerSceneView(fog, projection);
     scene.loadPlayerRoom(view.layout, projection.room.id, view.entities);
+    if (selectedTargetId) scene.selectEntity(selectedTargetId, false);
+    await refreshActivity();
     render();
   } catch (err) {
     status(`refresh failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function refreshActivity(): Promise<void> {
+  if (!baseUrl || !projection) return;
+  try {
+    const messages = await fetchRecentEvents(baseUrl);
+    const drained = drainNarratedEvents(messages, {
+      seenIds: seenEventIds,
+      playerId,
+      roomOf,
+      nameFor,
+    });
+    seenEventIds = drained.seenIds;
+    const latest = latestImageCompletion(messages, baseUrl, 'event');
+    if (latest && latest.url !== eventImageUrl) {
+      eventImageUrl = latest.url;
+      if (eventsPrimed) pushActivity({ text: `📸 scene image ready: ${latest.url}`, kind: 'system' });
+    }
+    const failure = latestImageFailure(messages, 'event');
+    if (failure && failure.epoch !== eventImageFailureEpoch) {
+      eventImageFailureEpoch = failure.epoch;
+      if (eventsPrimed) pushActivity({ text: `⚠️ image request failed: ${failure.reason}`, kind: 'rejection' });
+    }
+    if (eventsPrimed) pushActivity(...drained.lines);
+    eventsPrimed = true;
+  } catch (_err) {
+    // Activity is opportunistic; stale event state should not block play.
   }
 }
 
@@ -119,11 +199,21 @@ function renderCharacters(): void {
 }
 
 function render(): void {
+  showActionIconsEl.checked = showActionIcons;
+  claimButton.disabled = !playerId;
+  claimButton.textContent = !playerId || !control ? 'Claim' : control.active === false ? 'Resume' : 'Idle';
+  requestImageButton.disabled = !playerId;
+  openSheetButton.disabled = !playerId;
   if (!projection) {
     roomTitleEl.textContent = 'No character selected';
     roomMetaEl.textContent = 'Connect and choose a character.';
+    membersEl.textContent = 'No visible entities.';
+    exitsEl.textContent = 'No visible exits.';
+    inventoryEl.textContent = 'No inventory loaded.';
     actionsEl.textContent = 'No actions loaded.';
     queueEl.textContent = 'No queued actions.';
+    renderSelection();
+    renderActivity();
     return;
   }
   const points = projection.points || {};
@@ -134,31 +224,80 @@ function render(): void {
     `${points.action ?? 0}/${points.action_max ?? 0} AP`,
     `${points.focus ?? 0}/${points.focus_max ?? 0} FP`,
   ].join(' / ');
+  renderRoom();
+  renderSelection();
   renderActions();
   renderQueue();
+  renderActivity();
+}
+
+function renderRoom(): void {
+  if (!projection) return;
+  membersEl.innerHTML = projection.room.entities.length
+    ? projection.room.entities.map(entity => {
+      const item = entity as Record<string, unknown>;
+      const id = String(item.id || '');
+      const name = String(item.name || item.label || id);
+      const kind = String(item.kind || (item.is_character ? 'character' : 'other'));
+      return `
+        <button class="option-row ${id === selectedTargetId ? 'selected' : ''}" type="button" data-target-id="${escapeHtml(id)}">
+          <span class="row-main"><span>${iconHtml(targetIcon(kind))}${escapeHtml(name)}${id === playerId ? ' (you)' : ''}</span><span>${escapeHtml(kind)}</span></span>
+        </button>
+      `;
+    }).join('')
+    : '<div class="muted">No visible entities.</div>';
+
+  exitsEl.innerHTML = projection.room.exits.length
+    ? projection.room.exits.map(exit => `
+      <button class="option-row" type="button" data-exit-id="${escapeHtml(exit.id)}">
+        <span class="row-main"><span>${iconHtml('🚪')}${escapeHtml(exit.direction || exit.label || exit.id)}</span><span>${exit.locked ? 'locked' : ''}</span></span>
+        <span class="row-detail">${escapeHtml(exit.label || exit.id)}</span>
+      </button>
+    `).join('')
+    : '<div class="muted">No visible exits.</div>';
+
+  const inventory = inventoryEntries(projection);
+  inventoryEl.innerHTML = inventory.length
+    ? inventory.map(item => `
+      <button class="option-row ${item.value === selectedTargetId ? 'selected' : ''}" type="button" data-target-id="${escapeHtml(item.value)}">
+        <span class="row-main"><span>${iconHtml(item.icon)}${escapeHtml(item.label)}</span><span>${escapeHtml(item.kind)}</span></span>
+      </button>
+    `).join('')
+    : '<div class="muted">Nothing carried.</div>';
+}
+
+function renderSelection(): void {
+  const label = selectedTargetId ? nameFor(selectedTargetId) || selectedTargetId : 'none';
+  targetLabelEl.textContent = `Target: ${label}`;
+  clearTargetButton.disabled = !selectedTargetId;
 }
 
 function renderActions(): void {
   if (!projection) return;
   const filtered = filterActions(projection.actions, actionFilterEl.value);
   const sections = ['world', 'focus'].map(lane => {
-    const rows = filtered.filter(action => actionLane(action) === lane).map(action => actionRow(action)).join('');
+    const rows = filtered
+      .map((action, index) => ({ action, index }))
+      .filter(item => actionLane(item.action) === lane)
+      .map(item => actionRow(item.action, item.index))
+      .join('');
     return `<div class="section-title">${lane === 'focus' ? 'Focus actions' : 'Room actions'}</div>${rows || '<div class="muted">No matching actions.</div>'}`;
   });
   actionsEl.innerHTML = sections.join('');
 }
 
-function actionRow(action: ActionView): string {
+function actionRow(action: ActionView, index: number): string {
   const cost = actionCost(action);
   const available = actionAvailable(action);
   const reason = actionUnavailableReason(action);
   const costText = cost.action || cost.focus
-    ? [cost.action ? `${cost.action} AP` : '', cost.focus ? `${cost.focus} FP` : ''].filter(Boolean).join(' + ')
-    : 'free';
+    ? [cost.action ? `<span class="cost ap">${cost.action} AP</span>` : '', cost.focus ? `<span class="cost fp">${cost.focus} FP</span>` : ''].filter(Boolean).join(' ')
+    : '<span class="cost free">free</span>';
+  const target = actionArguments(action).some(arg => arg.target_group) ? '<span class="cost free">target</span>' : '';
   return `
-    <button class="action-row ${available ? '' : 'unavailable'}" type="button" data-action="${escapeHtml(actionCommandType(action))}">
-      <span class="row-main"><span>${escapeHtml(actionTitle(action))}</span><span>${escapeHtml(costText)}</span></span>
-      <span class="row-detail">${escapeHtml(reason || actionCommandType(action))}</span>
+    <button class="action-row ${available ? '' : 'unavailable'}" type="button" data-action="${escapeHtml(actionCommandType(action))}" data-action-index="${index}">
+      <span class="row-main"><span>${iconHtml(actionIcon(action))}${escapeHtml(actionTitle(action))}</span><span>${costText}</span></span>
+      <span class="row-detail">${target}${target ? ' ' : ''}${escapeHtml(reason || actionCommandType(action))}</span>
     </button>
   `;
 }
@@ -178,6 +317,12 @@ function renderQueue(): void {
   );
 }
 
+function renderActivity(): void {
+  activityEl.innerHTML = activityLines.length
+    ? activityLines.map(line => `<div class="activity-row kind-${escapeHtml(line.kind)}">${iconHtml(line.icon || '')}${escapeHtml(line.text)}</div>`).join('')
+    : '<div class="muted">No recent activity.</div>';
+}
+
 async function doAction(action: ActionView): Promise<void> {
   if (!projection || !control) return;
   const fields = actionFields(action, projection);
@@ -185,7 +330,30 @@ async function doAction(action: ActionView): Promise<void> {
   if (payload == null) return;
   try {
     const result = await submitAction(baseUrl, projection, control, action, payload) as { queued?: boolean; reason?: string };
-    if (result?.queued === false) status(result.reason || 'Command rejected.', 'err');
+    if (result?.queued === false) pushActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
+    await refresh();
+  } catch (err) {
+    status(`submit failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function moveThroughExit(exitId: string): Promise<void> {
+  if (!projection || !control || !exitId) return;
+  const action = projection.actions.find(item => actionArguments(item).some(arg => arg.target_group === 'exits'));
+  const exitArg = action ? actionArguments(action).find(arg => arg.target_group === 'exits') : null;
+  if (!action || !exitArg) {
+    pushActivity({ text: 'No move action is available for that exit.', kind: 'rejection' });
+    renderActivity();
+    return;
+  }
+  await doActionWithPayload(action, { [exitArg.key]: exitId });
+}
+
+async function doActionWithPayload(action: ActionView, payload: Record<string, unknown>): Promise<void> {
+  if (!projection || !control) return;
+  try {
+    const result = await submitAction(baseUrl, projection, control, action, payload) as { queued?: boolean; reason?: string };
+    if (result?.queued === false) pushActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
     await refresh();
   } catch (err) {
     status(`submit failed: ${(err as Error).message}`, 'err');
@@ -196,10 +364,94 @@ async function cancelQueued(commandId: string): Promise<void> {
   if (!projection || !control || !commandId) return;
   try {
     const result = await cancelCommand(baseUrl, projection.characterId, commandId, control) as { cancelled?: boolean; reason?: string };
-    if (!result?.cancelled) status(result?.reason || 'Could not cancel queued command.', 'err');
+    if (!result?.cancelled) pushActivity({ text: result?.reason || 'Could not cancel queued command.', kind: 'rejection' });
     await refresh();
   } catch (err) {
     status(`cancel failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function requestImage(): Promise<void> {
+  if (!baseUrl || !playerId) {
+    pushActivity({ text: 'Select a character before requesting an image.', kind: 'system' });
+    renderActivity();
+    return;
+  }
+  try {
+    const result = await requestSceneImage(baseUrl, playerId, control);
+    pushActivity({ text: imageRequestMessage(result), kind: 'system' });
+    await refresh();
+  } catch (err) {
+    pushActivity({ text: `📷 ${(err as Error).message}`, kind: 'rejection' });
+    renderActivity();
+  }
+}
+
+function openSheet(): void {
+  if (!baseUrl || !playerId) {
+    pushActivity({ text: 'Select a character before opening a sheet.', kind: 'system' });
+    renderActivity();
+    return;
+  }
+  let characterId = playerId;
+  if (selectedTargetId && selectedTargetId !== playerId) {
+    const selected = projection?.room.entities.find(entity => String((entity as Record<string, unknown>).id || '') === selectedTargetId) as Record<string, unknown> | undefined;
+    if (selected && (selected.is_character || selected.kind === 'character')) characterId = selectedTargetId;
+  }
+  const href = characterSheetHref(baseUrl, characterId);
+  const opened = window.open(href, '_blank', 'noopener');
+  pushActivity({ text: opened ? `Opened sheet: ${href}` : `Sheet URL: ${href}`, kind: 'system' });
+  renderActivity();
+}
+
+async function claimOrResume(): Promise<void> {
+  if (!baseUrl || !playerId) return;
+  try {
+    control = await claimCharacter(baseUrl, playerId, claimOptionsFromForm());
+    await refresh();
+    status(`playing ${projection?.characterName || playerId}`, 'ok');
+    claimDialog.close();
+  } catch (err) {
+    status(`claim failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function saveFallback(): Promise<void> {
+  if (!baseUrl || !playerId || !control) return;
+  try {
+    await updateControllerFallback(baseUrl, playerId, control, claimOptionsFromForm());
+    pushActivity({ text: 'Idle fallback saved.', kind: 'system' });
+    renderActivity();
+  } catch (err) {
+    status(`fallback failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function idleController(): Promise<void> {
+  if (!baseUrl || !playerId || !control) return;
+  try {
+    control = await releaseController(baseUrl, playerId, control, claimOptionsFromForm());
+    pushActivity({ text: 'Character returned to idle controller.', kind: 'system' });
+    await refresh();
+    claimDialog.close();
+  } catch (err) {
+    status(`idle failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function releasePlayerClaim(): Promise<void> {
+  if (!baseUrl || !playerId || !control) return;
+  try {
+    await releaseClaim(baseUrl, playerId, control);
+    control = null;
+    projection = null;
+    queue = null;
+    selectedTargetId = '';
+    pushActivity({ text: 'Claim released.', kind: 'system' });
+    claimDialog.close();
+    render();
+  } catch (err) {
+    status(`release failed: ${(err as Error).message}`, 'err');
   }
 }
 
@@ -235,7 +487,11 @@ function actionForm(action: ActionView, fields: ReturnType<typeof actionFields>)
           error.textContent = `${field.label} is required.`;
           return;
         }
-        if (value) payload[field.key] = field.kind === 'number' ? Number(value) : value;
+        if (value) {
+          if (field.kind === 'number') payload[field.key] = Number(value);
+          else if (field.kind === 'boolean') payload[field.key] = value === 'true';
+          else payload[field.key] = value;
+        }
       }
       close(payload);
     };
@@ -257,7 +513,7 @@ function fieldHtml(field: ReturnType<typeof actionFields>[number], index: number
   if (field.candidates) {
     const options = ['<option value="">Choose...</option>', ...field.candidates.map(candidate => {
       const selected = candidate.value === selectedTargetId ? ' selected' : '';
-      return `<option value="${escapeHtml(candidate.value)}"${selected}>${escapeHtml(candidate.label)}</option>`;
+      return `<option value="${escapeHtml(candidate.value)}"${selected}>${escapeHtml(candidate.icon)} ${escapeHtml(candidate.label)}</option>`;
     })];
     return `<label class="form-field"><span>${label}</span><select data-field="${index}">${options.join('')}</select></label>`;
   }
@@ -265,6 +521,47 @@ function fieldHtml(field: ReturnType<typeof actionFields>[number], index: number
     return `<label class="form-field"><span>${label}</span><select data-field="${index}"><option value="">Choose...</option><option value="true">yes</option><option value="false">no</option></select></label>`;
   }
   return `<label class="form-field"><span>${label}</span><input data-field="${index}" type="${field.kind === 'number' ? 'number' : 'text'}"></label>`;
+}
+
+function selectTarget(entityId: string): void {
+  selectedTargetId = entityId || '';
+  if (selectedTargetId) scene.selectEntity(selectedTargetId, false);
+  render();
+}
+
+function clearTarget(): void {
+  selectedTargetId = '';
+  render();
+}
+
+function claimOptionsFromForm(): ClaimOptions {
+  const fallbackChoice = claimFallbackEl.value || 'suspend';
+  const fallbackController = fallbackChoice === 'controller'
+    ? claimFallbackControllerEl.value.trim() || 'suspend'
+    : fallbackChoice;
+  const minutes = Math.min(60, Math.max(5, Number(claimTimeoutEl.value || 30)));
+  return { fallbackController, timeoutSeconds: Math.round(minutes * 60) };
+}
+
+function roomOf(entityId: string): string | null {
+  if (!projection) return null;
+  if (entityId === playerId) return projection.room.id;
+  if (projection.room.entities.some(entity => String((entity as Record<string, unknown>).id || '') === entityId)) return projection.room.id;
+  return null;
+}
+
+function nameFor(entityId: string): string | null {
+  if (!projection) return characters.find(character => character.id === entityId)?.name || null;
+  if (entityId === playerId) return projection.characterName;
+  return allTargets(projection).find(item => item.value === entityId)?.label
+    || characters.find(character => character.id === entityId)?.name
+    || null;
+}
+
+function pushActivity(...lines: ActivityLine[]): void {
+  if (!lines.length) return;
+  activityLines.push(...lines);
+  activityLines = activityLines.slice(-ACTIVITY_LIMIT);
 }
 
 function captureImage(): string {
@@ -278,6 +575,18 @@ function downloadCapture(): void {
   link.click();
 }
 
+function targetIcon(kind: string): string {
+  if (kind === 'exit') return '🚪';
+  if (kind === 'character') return '🐰';
+  if (kind === 'item') return '✦';
+  if (kind === 'container') return '📦';
+  return '⬡';
+}
+
+function iconHtml(icon: string): string {
+  return showActionIcons && icon ? `<span class="row-icon">${escapeHtml(icon)}</span>` : '';
+}
+
 function escapeHtml(value: unknown): string {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -289,16 +598,45 @@ function escapeHtml(value: unknown): string {
 connectButton.addEventListener('click', () => { void connect(apiInput.value); });
 refreshButton.addEventListener('click', () => { void refresh(); });
 characterSelect.addEventListener('change', () => { void selectCharacter(characterSelect.value); });
+claimButton.addEventListener('click', () => {
+  if (!playerId) return;
+  dialogClaimButton.textContent = control?.active === false ? 'Resume' : 'Claim';
+  claimDialog.showModal();
+});
+requestImageButton.addEventListener('click', () => { void requestImage(); });
+openSheetButton.addEventListener('click', openSheet);
+clearTargetButton.addEventListener('click', clearTarget);
+showActionIconsEl.addEventListener('change', () => {
+  showActionIcons = showActionIconsEl.checked;
+  setIconPreference(showActionIcons);
+  render();
+});
 actionFilterEl.addEventListener('input', renderActions);
+membersEl.addEventListener('click', event => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-target-id]');
+  if (row?.dataset.targetId) selectTarget(row.dataset.targetId);
+});
+inventoryEl.addEventListener('click', event => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-target-id]');
+  if (row?.dataset.targetId) selectTarget(row.dataset.targetId);
+});
+exitsEl.addEventListener('click', event => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-exit-id]');
+  if (row?.dataset.exitId) void moveThroughExit(row.dataset.exitId);
+});
 actionsEl.addEventListener('click', event => {
-  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
-  const action = projection?.actions.find(item => actionCommandType(item) === row?.dataset.action);
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-action-index]');
+  const action = row ? filterActions(projection?.actions || [], actionFilterEl.value)[Number(row.dataset.actionIndex)] : null;
   if (action) void doAction(action);
 });
 queueEl.addEventListener('click', event => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-command-id]');
   if (row?.dataset.commandId) void cancelQueued(row.dataset.commandId);
 });
+dialogClaimButton.addEventListener('click', () => { void claimOrResume(); });
+dialogSaveFallbackButton.addEventListener('click', () => { void saveFallback(); });
+dialogIdleButton.addEventListener('click', () => { void idleController(); });
+dialogReleaseButton.addEventListener('click', () => { void releasePlayerClaim(); });
 modeButton.addEventListener('click', () => {
   viewMode = viewMode === '3d' ? '2d' : '3d';
   scene.setMode(viewMode);
@@ -314,6 +652,7 @@ window.BunnylandUI?.bindThemeSelect(themeSelect);
 
 const server = serverFromUrl();
 if (server) void connect(server);
+render();
 
 declare global {
   interface Window {
@@ -326,6 +665,7 @@ declare global {
       connect: (base: string) => Promise<void>;
       selectCharacter: (characterId: string) => Promise<void>;
       refresh: () => Promise<void>;
+      selectTarget: (entityId: string) => void;
       cameraState: () => ReturnType<BunnylandScene['cameraState']>;
       capture: () => string;
     };
@@ -337,6 +677,7 @@ window.__world3dPlayer = {
   connect,
   selectCharacter,
   refresh,
+  selectTarget,
   cameraState: () => scene.cameraState(),
   capture: captureImage,
 };

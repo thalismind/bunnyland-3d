@@ -5,6 +5,56 @@ const ROOM_SIZE = WORLD_3D_CONSTANTS.ROOM_WORLD_SIZE;
 const CLIENT_ID_KEY = 'bunnyland.3d.clientId';
 const CLAIM_KEY_PREFIX = 'bunnyland.3d.claim';
 const FOG_KEY_PREFIX = 'bunnyland.3d.fog';
+const ICON_PREF_KEY = 'bunnyland.3d.actionIcons';
+
+export const IMAGE_AFFORDANCE = {
+  REQUEST_EMOJI: '📷',
+  ACK_EMOJI: '👀',
+  DELIVER_EMOJI: '📸',
+  FAIL_EMOJI: '⚠️',
+  REQUEST_LABEL: 'Request image',
+};
+
+const KIND_ICON: Record<string, string> = {
+  room: '🏠',
+  character: '🐰',
+  container: '📦',
+  item: '✦',
+  door: '🚪',
+  food: '🍎',
+  water: '💧',
+  other: '⬡',
+};
+
+const ACTION_ICON_BY_COMMAND_TYPE: Record<string, string> = {
+  look: '👁️',
+  inspect: '🔎',
+  move: '➡️',
+  take: '🤲',
+  put: '📥',
+  drop: '📤',
+  open: '🚪',
+  close: '🚪',
+  wait: '⏳',
+  say: '💬',
+  tell: '🗣️',
+  remember: '🧠',
+  forget: '🧹',
+  eat: '🍽️',
+  drink: '💧',
+  craft: '🛠️',
+  attack: '⚔️',
+  defend: '🛡️',
+};
+
+const ACTION_ICON_KEYWORDS: [string, string][] = [
+  ['move', '➡️'], ['travel', '🧭'], ['enter', '🚪'], ['leave', '🚪'],
+  ['open', '🚪'], ['close', '🚪'], ['search', '🔎'], ['inspect', '🔎'],
+  ['say', '💬'], ['tell', '🗣️'], ['remember', '🧠'], ['take', '🤲'],
+  ['drop', '📤'], ['put', '📥'], ['craft', '🛠️'], ['eat', '🍽️'],
+  ['drink', '💧'], ['attack', '⚔️'], ['defend', '🛡️'], ['wait', '⏳'],
+  ['image', '📷'], ['camera', '📷'], ['cancel', '🚫'],
+];
 
 const DIRECTION_VECTORS = new Map<string, [number, number]>([
   ['north', [0, -1]], ['n', [0, -1]],
@@ -30,6 +80,7 @@ export interface ControlClaim {
   generation: number;
   claimId: string;
   claimSecret: string;
+  active?: boolean;
 }
 
 export interface ActionView {
@@ -69,10 +120,21 @@ export interface CharacterProjection {
     exits: { id: string; direction: string; label: string; locked: boolean }[];
     entities: unknown[];
   };
+  inventory: ProjectionItem[];
   points: Record<string, number>;
   controller: { controller_id?: string; generation?: number } | null;
+  portrait?: Record<string, unknown>;
+  sheet?: Record<string, unknown>;
   targetGroups: Record<string, TargetOption[]>;
   actions: ActionView[];
+}
+
+export interface ProjectionItem {
+  id: string;
+  label?: string;
+  name?: string;
+  kind?: string;
+  sprite?: Record<string, unknown>;
 }
 
 export interface QueuedProjection {
@@ -88,6 +150,12 @@ export interface QueuedCommand {
   lane?: string;
   payload?: Record<string, unknown>;
   cost?: { action?: number; focus?: number };
+}
+
+export interface ActivityLine {
+  text: string;
+  kind: 'event' | 'system' | 'rejection';
+  icon?: string;
 }
 
 export interface FogRoom {
@@ -146,6 +214,14 @@ export function storeClaim(base: string, control: ControlClaim): void {
   }
 }
 
+export function clearClaim(base: string, characterId: string): void {
+  try {
+    localStorage.removeItem(claimKey(base, characterId));
+  } catch (_err) {
+    // Best-effort continuity only.
+  }
+}
+
 export function claimHeaders(control: ControlClaim | null): Record<string, string> {
   return control?.claimSecret ? { 'X-Bunnyland-Claim-Secret': control.claimSecret } : {};
 }
@@ -169,7 +245,12 @@ export async function fetchCharacters(base: string): Promise<CharacterSummary[]>
   }).filter(character => character.id);
 }
 
-export async function claimCharacter(base: string, characterId: string): Promise<ControlClaim> {
+export interface ClaimOptions {
+  fallbackController?: string;
+  timeoutSeconds?: number;
+}
+
+export async function claimCharacter(base: string, characterId: string, options: ClaimOptions = {}): Promise<ControlClaim> {
   const stored = storedClaim(base, characterId);
   const data = await requestJson(base, '/world/controllers/web/claim', {
     method: 'POST',
@@ -178,20 +259,73 @@ export async function claimCharacter(base: string, characterId: string): Promise
       character_id: characterId,
       client_id: persistentClientId(),
       claim_id: stored?.claimId || undefined,
-      fallback_controller: 'suspend',
-      timeout_seconds: 1800,
+      fallback_controller: options.fallbackController || 'suspend',
+      timeout_seconds: options.timeoutSeconds || 1800,
       label: '3d-player',
     }),
   }) as Record<string, unknown>;
-  const control = {
+  const control: ControlClaim = {
     characterId: String(data.character_id || characterId),
     controllerId: String(data.controller_id || ''),
     generation: Number(data.controller_generation || data.generation || 0),
     claimId: String(data.claim_id || ''),
     claimSecret: String(data.claim_secret || ''),
+    active: true,
   };
   storeClaim(base, control);
   return control;
+}
+
+export async function updateControllerFallback(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<unknown> {
+  return requestJson(base, '/world/controllers/web/fallback', {
+    method: 'PATCH',
+    headers: claimHeaders(control),
+    body: JSON.stringify({
+      character_id: characterId,
+      client_id: persistentClientId(),
+      claim_id: control.claimId || undefined,
+      fallback_controller: options.fallbackController || 'suspend',
+      timeout_seconds: options.timeoutSeconds || 1800,
+    }),
+  });
+}
+
+export async function releaseController(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<ControlClaim> {
+  const data = await requestJson(base, '/world/controllers/web/release-controller', {
+    method: 'POST',
+    headers: claimHeaders(control),
+    body: JSON.stringify({
+      character_id: characterId,
+      client_id: persistentClientId(),
+      claim_id: control.claimId || undefined,
+      fallback_controller: options.fallbackController || 'suspend',
+      timeout_seconds: options.timeoutSeconds || 1800,
+    }),
+  }) as Record<string, unknown>;
+  const next: ControlClaim = {
+    characterId: String(data.character_id || characterId),
+    controllerId: String(data.controller_id || control.controllerId),
+    generation: Number(data.controller_generation || data.generation || control.generation || 0),
+    claimId: String(data.claim_id || control.claimId || ''),
+    claimSecret: String(data.claim_secret || control.claimSecret || ''),
+    active: false,
+  };
+  storeClaim(base, next);
+  return next;
+}
+
+export async function releaseClaim(base: string, characterId: string, control: ControlClaim): Promise<unknown> {
+  const result = await requestJson(base, '/world/controllers/web/release-claim', {
+    method: 'POST',
+    headers: claimHeaders(control),
+    body: JSON.stringify({
+      character_id: characterId,
+      client_id: persistentClientId(),
+      claim_id: control.claimId || undefined,
+    }),
+  });
+  clearClaim(base, characterId);
+  return result;
 }
 
 export async function fetchProjection(base: string, characterId: string, control: ControlClaim): Promise<CharacterProjection> {
@@ -244,6 +378,21 @@ export async function cancelCommand(base: string, characterId: string, commandId
   });
 }
 
+export async function fetchRecentEvents(base: string): Promise<unknown[]> {
+  const data = await requestJson(base, '/world/events/recent') as { events?: unknown[] };
+  return Array.isArray(data.events) ? data.events : [];
+}
+
+export async function requestSceneImage(base: string, characterId: string, control: ControlClaim | null): Promise<unknown> {
+  const params = new URLSearchParams();
+  if (control?.claimId) params.set('claim_id', control.claimId);
+  const query = params.toString();
+  return requestJson(base, `/world/character/${encodeURIComponent(characterId)}/scene-image${query ? `?${query}` : ''}`, {
+    method: 'POST',
+    headers: claimHeaders(control),
+  });
+}
+
 export function parseProjection(data: unknown): CharacterProjection {
   const raw = data as Record<string, unknown>;
   const room = (raw.room || {}) as Record<string, unknown>;
@@ -278,8 +427,11 @@ export function parseProjection(data: unknown): CharacterProjection {
       }).filter(exit => exit.id),
       entities: Array.isArray(room.entities) ? room.entities : [],
     },
+    inventory: Array.isArray(raw.inventory) ? raw.inventory as ProjectionItem[] : [],
     points: raw.points as Record<string, number> || {},
     controller: raw.controller as CharacterProjection['controller'] || null,
+    portrait: raw.portrait as Record<string, unknown> || {},
+    sheet: raw.sheet as Record<string, unknown> || {},
     targetGroups,
     actions: Array.isArray(raw.actions) ? raw.actions as ActionView[] : [],
   };
@@ -387,8 +539,37 @@ export function filterActions(actions: ActionView[], query: string): ActionView[
   }).map(item => item.action);
 }
 
+export function iconPreference(defaultValue = true): boolean {
+  try {
+    const value = localStorage.getItem(ICON_PREF_KEY);
+    return value == null ? defaultValue : value !== 'false';
+  } catch (_err) {
+    return defaultValue;
+  }
+}
+
+export function setIconPreference(value: boolean): void {
+  try {
+    localStorage.setItem(ICON_PREF_KEY, value ? 'true' : 'false');
+  } catch (_err) {
+    // Best-effort preference only.
+  }
+}
+
+export function actionIcon(action: ActionView): string {
+  const raw = actionCommandType(action).trim().toLowerCase().replaceAll('_', '-');
+  if (ACTION_ICON_BY_COMMAND_TYPE[raw]) return ACTION_ICON_BY_COMMAND_TYPE[raw];
+  const tokens = raw.split('-');
+  const match = ACTION_ICON_KEYWORDS.find(([token]) => tokens.includes(token));
+  return match ? match[1] : '•';
+}
+
 export function actionTitle(action: ActionView): string {
   return String(action.title || action.tool_name || action.command_type || 'Action');
+}
+
+export function actionArguments(action: ActionView): ActionArgument[] {
+  return Array.isArray(action.arguments) ? action.arguments : [];
 }
 
 export function actionTool(action: ActionView): string {
@@ -417,13 +598,44 @@ export function actionCost(action: ActionView): { action: number; focus: number 
 }
 
 export function actionFields(action: ActionView, projection: CharacterProjection): { key: string; label: string; kind: string; required: boolean; candidates: TargetOption[] | null }[] {
-  return (action.arguments || []).filter(arg => arg.key && (arg.required || arg.target_group)).map(arg => ({
+  return actionArguments(action).filter(arg => arg.key && (arg.required || arg.target_group)).map(arg => ({
     key: arg.key,
     label: arg.title || arg.key,
     kind: arg.kind || 'string',
     required: Boolean(arg.required),
     candidates: arg.target_group ? projection.targetGroups[arg.target_group] || [] : null,
   }));
+}
+
+export function allTargets(projection: CharacterProjection | null): TargetOption[] {
+  const targets: TargetOption[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown, label: unknown, kind = ''): void => {
+    const id = String(value || '');
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const type = String(kind || 'other');
+    targets.push({ value: id, label: String(label || id), kind: type, icon: targetIcon(type) });
+  };
+  for (const group of Object.values(projection?.targetGroups || {})) {
+    for (const item of group || []) add(item.value, item.label, item.kind);
+  }
+  for (const entity of projection?.room.entities || []) {
+    const item = entity as Record<string, unknown>;
+    add(item.id, item.name || item.label || item.id, String(item.kind || (item.is_character ? 'character' : 'other')));
+  }
+  for (const exit of projection?.room.exits || []) add(exit.id, exit.direction || exit.label || exit.id, 'exit');
+  for (const item of projection?.inventory || []) add(item.id, item.label || item.name || item.id, item.kind || 'item');
+  return targets;
+}
+
+export function inventoryEntries(projection: CharacterProjection | null): TargetOption[] {
+  return (projection?.inventory || []).map(item => ({
+    value: item.id,
+    label: item.label || item.name || item.id,
+    kind: item.kind || 'item',
+    icon: targetIcon(item.kind || 'item'),
+  })).filter(item => item.value);
 }
 
 export function queuedCountdownSeconds(queue: QueuedProjection | null): number | null {
@@ -438,6 +650,162 @@ export function queuedCommandLabel(command: QueuedCommand, actions: ActionView[]
   const costText = cost.action || cost.focus ? `${cost.action ? `${cost.action} AP` : ''}${cost.action && cost.focus ? ' + ' : ''}${cost.focus ? `${cost.focus} FP` : ''}` : 'free';
   const details = Object.entries(command.payload || {}).map(([key, value]) => `${key}: ${String(value)}`).join(', ');
   return [name, command.lane ? `[${command.lane}]` : '', costText, details].filter(Boolean).join(' - ');
+}
+
+export function imageRequestMessage(result: unknown): string {
+  const data = result as Record<string, unknown> | null;
+  if (!data || data.ok === false) return `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${String(data?.reason || 'image request failed')}`;
+  if (data.status === 'skipped') return `${IMAGE_AFFORDANCE.DELIVER_EMOJI} image ready`;
+  return `${IMAGE_AFFORDANCE.ACK_EMOJI} image requested`;
+}
+
+export function latestImageCompletion(messages: unknown[], base: string, purpose = ''): { url: string; purpose: string; epoch: number } | null {
+  let best: { url: string; purpose: string; epoch: number } | null = null;
+  for (const message of messages || []) {
+    const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
+    if (data.event_type !== 'ImageGenerationCompletedEvent') continue;
+    const event = (data.event || {}) as Record<string, unknown>;
+    if (!event.url) continue;
+    const item = {
+      url: mediaUrl(base, String(event.url)),
+      purpose: String(event.purpose || ''),
+      epoch: Number(event.world_epoch || 0),
+    };
+    if (purpose && item.purpose !== purpose) continue;
+    if (!best || item.epoch >= best.epoch) best = item;
+  }
+  return best;
+}
+
+export function latestImageFailure(messages: unknown[], purpose = ''): { reason: string; purpose: string; epoch: number } | null {
+  let best: { reason: string; purpose: string; epoch: number } | null = null;
+  for (const message of messages || []) {
+    const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
+    if (data.event_type !== 'ImageGenerationFailedEvent') continue;
+    const event = (data.event || {}) as Record<string, unknown>;
+    const item = {
+      reason: String(event.reason || 'image generation failed'),
+      purpose: String(event.purpose || ''),
+      epoch: Number(event.world_epoch || 0),
+    };
+    if (purpose && item.purpose !== purpose) continue;
+    if (!best || item.epoch >= best.epoch) best = item;
+  }
+  return best;
+}
+
+export function characterSheetHref(apiBase: string, characterId: string, page = 'character-sheet.html'): string {
+  const url = new URL(page, location.href);
+  const normalized = normalizeBase(apiBase);
+  if (normalized) url.searchParams.set('server', normalized);
+  else url.searchParams.delete('server');
+  url.hash = characterId || '';
+  if (url.origin !== location.origin) return url.toString();
+  return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
+}
+
+export function drainNarratedEvents(messages: unknown[], options: {
+  seenIds: Set<string>;
+  playerId: string;
+  roomOf: (id: string) => string | null;
+  nameFor: (id: string) => string | null;
+}): { lines: ActivityLine[]; seenIds: Set<string> } {
+  const current = new Set(options.seenIds);
+  const lines: ActivityLine[] = [];
+  for (const message of messages || []) {
+    const data = ((message as Record<string, unknown>).data || message || {}) as Record<string, unknown>;
+    const event = (data.event || {}) as Record<string, unknown>;
+    const eventId = String(event.event_id || '');
+    if (!eventId) continue;
+    current.add(eventId);
+    if (options.seenIds.has(eventId)) continue;
+    const eventType = String(data.event_type || 'Event');
+    if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
+    const actorId = String(event.actor_id || '');
+    const own = options.playerId && actorId === options.playerId;
+    if (own || perceivesEvent(event, options)) lines.push(renderEventLine(data, options));
+  }
+  return { lines, seenIds: current };
+}
+
+const UNNARRATED_EVENT_TYPES = new Set([
+  'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
+  'CommandCancelledEvent', 'CommandExecutedEvent', 'CommandExpiredEvent',
+  'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EntitySeenEvent',
+]);
+
+const SYSTEM_EVENT_TYPES = new Set(['ControllerChangedEvent', 'WorldPauseStatusChangedEvent']);
+
+const EVENT_ICON_BY_TYPE: Record<string, string> = {
+  ActorMovedEvent: '➡️',
+  RoomLookedEvent: '👁️',
+  CommandRejectedEvent: '⚠️',
+  ControllerChangedEvent: '🎮',
+  WorldPauseStatusChangedEvent: '⏸️',
+  CharacterClaimedEvent: '🎮',
+};
+
+const EVENT_BASE_KEYS = new Set([
+  'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
+  'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
+]);
+
+function renderEventLine(data: Record<string, unknown>, options: { playerId: string; nameFor: (id: string) => string | null }): ActivityLine {
+  const event = (data.event || {}) as Record<string, unknown>;
+  const eventType = String(data.event_type || 'Event');
+  if (eventType === 'ActorMovedEvent' && options.playerId && event.actor_id === options.playerId && event.arrival_summary) {
+    return { text: String(event.arrival_summary), kind: 'event', icon: eventIcon(eventType, event) };
+  }
+  if (eventType === 'RoomLookedEvent' && event.summary) {
+    return { text: String(event.summary), kind: 'event', icon: eventIcon(eventType, event) };
+  }
+  const actor = event.actor_id ? options.nameFor(String(event.actor_id)) : null;
+  const details: string[] = [];
+  for (const [key, value] of Object.entries(event)) {
+    if (EVENT_BASE_KEYS.has(key) || value == null || value === '' || (Array.isArray(value) && !value.length)) continue;
+    if (key.endsWith('_ids') && Array.isArray(value)) {
+      const names = value.map(item => options.nameFor(String(item))).filter(Boolean);
+      if (names.length) details.push(names.join(', '));
+    } else if (key.endsWith('_id')) {
+      const name = options.nameFor(String(value));
+      if (name) details.push(name);
+    } else {
+      details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
+    }
+  }
+  return {
+    text: `${actor ? `${actor}: ` : ''}${humanizeEventType(eventType)}${details.length ? ` - ${details.join('; ')}` : ''}`,
+    kind: eventType === 'CommandRejectedEvent' ? 'rejection' : SYSTEM_EVENT_TYPES.has(eventType) ? 'system' : 'event',
+    icon: eventIcon(eventType, event),
+  };
+}
+
+function humanizeEventType(eventType: string): string {
+  return eventType.replace(/Event$/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+}
+
+function eventIcon(eventType: string, event: Record<string, unknown>): string {
+  if (eventType === 'CommandRejectedEvent' && event.command_type) return actionIcon({ command_type: String(event.command_type) });
+  return EVENT_ICON_BY_TYPE[eventType] || '•';
+}
+
+function perceivesEvent(event: Record<string, unknown>, options: { playerId: string; roomOf: (id: string) => string | null }): boolean {
+  const visibility = event.visibility;
+  if (visibility === 'public') return true;
+  if (visibility === 'room') return Boolean(options.playerId) && event.room_id === options.roomOf(options.playerId);
+  if (visibility === 'directed') {
+    return Boolean(options.playerId) && (
+      event.actor_id === options.playerId || ((event.target_ids || []) as unknown[]).includes(options.playerId)
+    );
+  }
+  if (visibility === 'private') return Boolean(options.playerId) && event.actor_id === options.playerId;
+  return false;
+}
+
+function mediaUrl(base: string, url: string): string {
+  if (!url) return '';
+  if (/^https?:\/\//.test(url)) return url;
+  return `${normalizeBase(base)}${url}`;
 }
 
 function claimKey(base: string, characterId: string): string {
@@ -461,8 +829,6 @@ function oppositeDirection(direction: string): string {
 }
 
 function targetIcon(kind: string): string {
-  if (kind === 'exit') return '>';
-  if (kind === 'character') return '@';
-  if (kind === 'item') return '*';
-  return '+';
+  if (kind === 'exit') return KIND_ICON.door;
+  return KIND_ICON[kind] || KIND_ICON.other;
 }
