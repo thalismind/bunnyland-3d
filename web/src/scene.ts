@@ -122,7 +122,6 @@ export class BunnylandScene {
     this.center.set((layout.width * ROOM_SIZE) / 2, 0, (layout.height * ROOM_SIZE) / 2);
     this.cameraTarget.copy(this.center);
     this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
-    this.addGround(layout);
     this.addLinks(layout);
     for (const room of layout.rooms) this.addRoom(room);
     if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false);
@@ -156,16 +155,6 @@ export class BunnylandScene {
     this.updateEntitySelection();
     if (notify) this.onSelectEntity(entityId);
     return true;
-  }
-
-  private addGround(layout: WorldLayout): void {
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(layout.width * ROOM_SIZE, layout.height * ROOM_SIZE),
-      new THREE.MeshStandardMaterial({ color: 0x17211b, roughness: 0.92 }),
-    );
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(this.center.x, -0.02, this.center.z);
-    this.roomGroup.add(mesh);
   }
 
   private addLinks(layout: WorldLayout): void {
