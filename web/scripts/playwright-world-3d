@@ -447,7 +447,20 @@ def main() -> None:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1280, "height": 820})
             route_api(page)
-            page.goto(f"{base_url}/index.html?server={base_url}/mock", wait_until="networkidle")
+            page.goto(f"{base_url}/index.html", wait_until="networkidle")
+            expect(page.locator("#welcome-title")).to_contain_text("Play and inspect")
+            expect(page.locator('a[href="player.html"]').first).to_contain_text("Open 3D Player")
+            expect(page.locator('a[href="admin.html"]').first).to_contain_text("Open 3D Admin")
+            page.locator("#theme-select").select_option("anime-light")
+            welcome_theme = page.evaluate(
+                """() => ({
+                  current: document.documentElement.dataset.theme,
+                  anime: document.documentElement.classList.contains('bl-theme-anime-light')
+                })"""
+            )
+            if welcome_theme != {"current": "anime-light", "anime": True}:
+                raise AssertionError(f"welcome page did not use shared theme setup: {welcome_theme!r}")
+            page.goto(f"{base_url}/admin.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3d && window.__world3d.ready")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
             page.locator("#theme-select").select_option("anime-light")

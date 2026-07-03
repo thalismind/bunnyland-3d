@@ -24,6 +24,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: 'index.html',
+        admin: 'admin.html',
         player: 'player.html',
       },
     },

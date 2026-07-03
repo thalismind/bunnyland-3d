@@ -10,7 +10,7 @@ COPY --from=bunnyland-ui-web / /bunnyland-ui-web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
-COPY web/index.html web/player.html web/vite.config.ts web/tsconfig.json ./
+COPY web/index.html web/admin.html web/player.html web/vite.config.ts web/tsconfig.json ./
 COPY web/src ./src
 
 ENV BUNNYLAND_3D_BASE=/3d/

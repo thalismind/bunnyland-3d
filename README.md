@@ -38,11 +38,12 @@ npm install
 npm run dev
 ```
 
-Open the printed Vite URL and set the Bunnyland API server to `/api/` or a full server
-URL. The default `index.html` client is a 3D inspector: it renders `/world/overview`,
-then loads selected room contents from
-`/world/room/{id}`. If the server plugin is installed and projections include 3D fields,
-the client uses them; otherwise it falls back to deterministic room layout.
+Open the printed Vite URL for the 3D welcome page, then choose the player or admin
+client. Set the Bunnyland API server to `/api/` or a full server URL. The
+`admin.html` client is a 3D inspector: it renders `/world/overview`, then loads
+selected room contents from `/world/room/{id}`. If the server plugin is installed and
+projections include 3D fields, the client uses them; otherwise it falls back to
+deterministic room layout.
 
 The `player.html` client is the playable 3D view. It claims a character through the
 public web-controller API, follows the current room with the same animated camera focus,
@@ -78,8 +79,8 @@ If a deployment overrides the container command, keep `--module bunnyland_3d` in
 server arguments so the plugin components, projections, and systems are loaded.
 
 `Dockerfile.web` builds both 3D clients and copies them into the extended web image at
-`/usr/share/nginx/html/3d`. The inspector is available at `/3d/`, and the playable
-client is available at `/3d/player.html`.
+`/usr/share/nginx/html/3d`. The welcome page is available at `/3d/`, the inspector is
+available at `/3d/admin.html`, and the playable client is available at `/3d/player.html`.
 
 ## Full Check
 

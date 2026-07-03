@@ -4,7 +4,7 @@ WORKDIR /app/web
 COPY --from=bunnyland-ui-web / /bunnyland-ui-web
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY index.html player.html vite.config.ts tsconfig.json ./
+COPY index.html admin.html player.html vite.config.ts tsconfig.json ./
 COPY src ./src
 RUN npm run build
 

@@ -93,7 +93,7 @@ repos. This repo provides that pattern with:
 - `Dockerfile.server`, which starts from `ghcr.io/thalismind/bunnyland-server:main` by
   default and installs the plugin package into the existing server virtualenv.
 - `Dockerfile.web`, which starts from `ghcr.io/thalismind/bunnyland-web:main` by default
-  and adds the built 3D inspector and player clients under `/3d/`.
+  and adds the built 3D welcome page, inspector, and player clients under `/3d/`.
 
 Build the server image from this repo as the Docker context:
 
@@ -112,6 +112,8 @@ docker build -f Dockerfile.web \
 When extending the server command in compose or Kubernetes, include
 `--module bunnyland_3d`. Installing the Python package makes the module importable, but
 the Bunnyland server only applies out-of-tree plugins that are requested at startup.
+The 3D web image serves the client index at `/3d/`, the admin inspector at
+`/3d/admin.html`, and the playable client at `/3d/player.html`.
 
 ## CI
 

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bunnyland 3D Admin</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body,
+      #app {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      #app {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      #app > #toolbar {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+        overflow-x: auto;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+        font-size: var(--bl-text-md);
+        white-space: nowrap;
+      }
+
+      #api-url {
+        width: 260px;
+        flex: 0 0 260px;
+      }
+
+      #app > #toolbar > * {
+        flex: 0 0 auto;
+      }
+
+      input,
+      select,
+      button {
+        min-height: 28px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      #status.ok {
+        color: var(--bl-ok);
+      }
+
+      #status.err {
+        color: var(--bl-error);
+      }
+
+      #main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        min-height: 0;
+      }
+
+      #viewer {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      #viewer canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      #side {
+        min-height: 0;
+        overflow: auto;
+        border-left: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+      }
+
+      .panel {
+        padding: 10px;
+        border-bottom: 1px solid var(--bl-border);
+      }
+
+      .room-row,
+      .entity-row {
+        display: block;
+        width: 100%;
+        margin: 0 0 6px;
+        padding: 7px 8px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
+        text-align: left;
+      }
+
+      .room-row.active {
+        border-color: var(--bl-ok);
+      }
+
+      .entity-row.active {
+        border-color: var(--bl-warn);
+      }
+
+      .muted {
+        color: var(--bl-text-soft);
+        font-size: var(--bl-text-sm);
+      }
+
+      @media (max-width: 900px) {
+        #main {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: minmax(360px, 1fr) 280px;
+        }
+
+        #side {
+          border-left: 0;
+          border-top: 1px solid var(--bl-border);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="toolbar">
+        <strong>Bunnyland 3D Admin</strong>
+        <label for="api-url">Server</label>
+        <input id="api-url" value="/api/" spellcheck="false">
+        <button id="btn-load" type="button">Load</button>
+        <button id="btn-refresh" type="button">Refresh</button>
+        <button id="btn-mode" type="button">2D</button>
+        <button id="btn-camera" type="button">Auto Camera</button>
+        <button id="btn-capture" type="button">📷 Download</button>
+        <label for="theme-select">Theme</label>
+        <select id="theme-select"></select>
+        <span id="epoch"></span>
+        <span id="status">Ready</span>
+      </div>
+      <main id="main">
+        <section id="viewer"></section>
+        <aside id="side">
+          <section class="panel">
+            <h2 id="selected-title">No room selected</h2>
+            <div id="selected-meta" class="muted"></div>
+            <div id="selected-entities" class="muted">Load an overview.</div>
+          </section>
+          <section class="panel">
+            <h2>Rooms</h2>
+            <div id="room-list" class="muted">No overview loaded.</div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

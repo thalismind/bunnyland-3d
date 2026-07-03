@@ -13,166 +13,313 @@
         box-sizing: border-box;
       }
 
-      html,
-      body,
-      #app {
-        width: 100%;
-        height: 100%;
+      body {
+        min-height: 100vh;
+        height: auto;
         margin: 0;
-        overflow: hidden;
-      }
-
-      #app {
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr);
-      }
-
-      #app > #toolbar {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: nowrap;
-        gap: 8px;
-        align-items: center;
-        min-width: 0;
-        overflow-x: auto;
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--bl-border);
-        background: var(--bl-bg-strong);
-        font-size: var(--bl-text-md);
-        white-space: nowrap;
-      }
-
-      #api-url {
-        width: 260px;
-        flex: 0 0 260px;
-      }
-
-      #app > #toolbar > * {
-        flex: 0 0 auto;
-      }
-
-      input,
-      select,
-      button {
-        min-height: 28px;
-        border: 1px solid var(--bl-border-control);
-        border-radius: var(--bl-radius-sm);
-        background: var(--bl-surface);
-        color: var(--bl-text);
-      }
-
-      button {
-        cursor: pointer;
-      }
-
-      #status.ok {
-        color: var(--bl-ok);
-      }
-
-      #status.err {
-        color: var(--bl-error);
-      }
-
-      #main {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 320px;
-        min-height: 0;
-      }
-
-      #viewer {
-        position: relative;
-        min-width: 0;
-        min-height: 0;
-      }
-
-      #viewer canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-
-      #side {
-        min-height: 0;
         overflow: auto;
-        border-left: 1px solid var(--bl-border);
-        background: var(--bl-bg-strong);
+        background:
+          radial-gradient(circle at 15% 10%, var(--bl-accent-wash), transparent 28rem),
+          linear-gradient(180deg, var(--bl-bg-deep), var(--bl-bg) 360px, var(--bl-bg-strong));
       }
 
-      .panel {
-        padding: 10px;
-        border-bottom: 1px solid var(--bl-border);
+      .welcome-shell {
+        width: min(1060px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 26px 0 44px;
       }
 
-      .room-row,
-      .entity-row {
-        display: block;
-        width: 100%;
-        margin: 0 0 6px;
-        padding: 7px 8px;
-        border: 1px solid var(--bl-border-control);
-        border-radius: var(--bl-radius-sm);
-        background: var(--bl-surface);
+      .welcome-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 0 24px;
+      }
+
+      .welcome-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
         color: var(--bl-text);
-        text-align: left;
+        font-weight: bold;
+        font-size: 18px;
       }
 
-      .room-row.active {
-        border-color: var(--bl-ok);
-      }
-
-      .entity-row.active {
-        border-color: var(--bl-warn);
-      }
-
-      .muted {
+      .theme-field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         color: var(--bl-text-soft);
         font-size: var(--bl-text-sm);
       }
 
-      @media (max-width: 900px) {
-        #main {
-          grid-template-columns: minmax(0, 1fr);
-          grid-template-rows: minmax(360px, 1fr) 280px;
+      select {
+        min-height: 30px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
+      }
+
+      .welcome-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        gap: 22px;
+        align-items: stretch;
+        padding: 26px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-overlay-strong);
+        box-shadow: var(--bl-shadow-popover);
+      }
+
+      .eyebrow {
+        color: var(--bl-accent-strong);
+        font-size: var(--bl-text-xs);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      h1 {
+        margin-top: 8px;
+        color: var(--bl-text);
+        font-size: 34px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        color: var(--bl-text);
+        font-size: 20px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        color: var(--bl-accent-strong);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .lede {
+        margin-top: 14px;
+        color: var(--bl-text-soft);
+        font-size: 14px;
+        line-height: 1.7;
+        max-width: 720px;
+      }
+
+      .quick-links,
+      .card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .quick-links {
+        margin-top: 20px;
+      }
+
+      .button-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        padding: 7px 11px;
+        border: 1px solid var(--bl-border-control);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-surface);
+        color: var(--bl-text);
+        text-decoration: none;
+        font-size: var(--bl-text-sm);
+        white-space: nowrap;
+      }
+
+      .button-link:hover {
+        background: var(--bl-surface-hover);
+        border-color: var(--bl-accent);
+      }
+
+      .button-link.primary {
+        border-color: var(--bl-accent);
+        color: var(--bl-text-inverse);
+        background: var(--bl-accent-wash-strong);
+      }
+
+      .hero-panel {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 18px;
+        border: 1px solid var(--bl-border);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-bg);
+      }
+
+      .hero-panel p,
+      .client-card p,
+      .section-heading p {
+        color: var(--bl-text-soft);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .client-list {
+        list-style: none;
+        margin: 4px 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .client-list li {
+        color: var(--bl-text-soft);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .client-list strong {
+        color: var(--bl-text);
+      }
+
+      .section {
+        margin-top: 32px;
+      }
+
+      .section-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 16px;
+        margin-bottom: 10px;
+      }
+
+      .client-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .client-card {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 220px;
+        padding: 14px;
+        border: 1px solid var(--bl-border);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-overlay-strong);
+      }
+
+      .client-role {
+        margin-top: auto;
+        padding-top: 8px;
+        border-top: 1px solid var(--bl-border-muted);
+        color: var(--bl-text);
+        font-size: var(--bl-text-xs);
+        line-height: 1.5;
+      }
+
+      .client-role span {
+        color: var(--bl-accent-strong);
+        font-weight: bold;
+      }
+
+      @media (max-width: 820px) {
+        .welcome-hero,
+        .client-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .welcome-shell {
+          width: min(100% - 20px, 1060px);
+          padding-top: 12px;
         }
 
-        #side {
-          border-left: 0;
-          border-top: 1px solid var(--bl-border);
+        .welcome-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .welcome-hero {
+          padding: 18px;
+        }
+
+        h1 {
+          font-size: 26px;
         }
       }
     </style>
   </head>
   <body>
-    <div id="app">
-      <div id="toolbar">
-        <strong>Bunnyland 3D</strong>
-        <label for="api-url">Server</label>
-        <input id="api-url" value="/api/" spellcheck="false">
-        <button id="btn-load" type="button">Load</button>
-        <button id="btn-refresh" type="button">Refresh</button>
-        <button id="btn-mode" type="button">2D</button>
-        <button id="btn-camera" type="button">Auto Camera</button>
-        <button id="btn-capture" type="button">📷 Download</button>
-        <label for="theme-select">Theme</label>
-        <select id="theme-select"></select>
-        <span id="epoch"></span>
-        <span id="status">Ready</span>
-      </div>
-      <main id="main">
-        <section id="viewer"></section>
-        <aside id="side">
-          <section class="panel">
-            <h2 id="selected-title">No room selected</h2>
-            <div id="selected-meta" class="muted"></div>
-            <div id="selected-entities" class="muted">Load an overview.</div>
-          </section>
-          <section class="panel">
-            <h2>Rooms</h2>
-            <div id="room-list" class="muted">No overview loaded.</div>
-          </section>
-        </aside>
+    <div class="welcome-shell">
+      <header class="welcome-header">
+        <div class="welcome-brand">
+          <span>Bunnyland 3D</span>
+        </div>
+        <label class="theme-field" for="theme-select">
+          Theme
+          <select id="theme-select"></select>
+        </label>
+      </header>
+
+      <main>
+        <section class="welcome-hero" aria-labelledby="welcome-title">
+          <div>
+            <p class="eyebrow">Out-of-tree 3D clients</p>
+            <h1 id="welcome-title">Play and inspect Bunnyland worlds in 3D.</h1>
+            <p class="lede">This container adds Three.js clients to a Bunnyland deployment while keeping the 3D plugin and web code outside the base server and web repositories.</p>
+            <div class="quick-links" aria-label="3D clients">
+              <a class="button-link primary" href="player.html">Open 3D Player</a>
+              <a class="button-link" href="admin.html">Open 3D Admin</a>
+            </div>
+          </div>
+          <aside class="hero-panel" aria-label="3D client roles">
+            <div>
+              <p><strong>Choose the surface that matches the job:</strong></p>
+              <ul class="client-list">
+                <li><strong>3D Player</strong> follows a claimed character, keeps fog of war, shows actions, queues, portraits, stats, inventory, exits, and scene images.</li>
+                <li><strong>3D Admin</strong> renders the full world overview, room layout, server-provided 3D components, selectable room contents, and canvas captures.</li>
+              </ul>
+            </div>
+          </aside>
+        </section>
+
+        <section class="section" aria-labelledby="clients-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Clients</p>
+              <h2 id="clients-title">Open a 3D view.</h2>
+            </div>
+            <p>Both clients use the same Bunnyland API path as the base web container and accept a server query parameter for alternate servers.</p>
+          </div>
+          <div class="client-grid">
+            <article class="client-card">
+              <h3>3D Player</h3>
+              <p>A playable first-party client for claimed characters: fogged rooms stay remembered, visible contents update live, and movement follows the same animated room focus as the inspector.</p>
+              <div class="client-role"><span>Best for players:</span> action search, target selection, command queue management, vitals, portrait, inventory, exits, and the scene image gallery.</div>
+              <div class="card-actions">
+                <a class="button-link primary" href="player.html">Open Player</a>
+              </div>
+            </article>
+            <article class="client-card">
+              <h3>3D Admin</h3>
+              <p>A full-world 3D inspector for room layouts, server-enriched 3D components, selectable entities, room contents, camera controls, and downloadable canvas captures.</p>
+              <div class="client-role"><span>Best for admins:</span> checking world geometry, component projections, generated room spacing, movement paths, collision setup, and rendering regressions.</div>
+              <div class="card-actions">
+                <a class="button-link primary" href="admin.html">Open Admin</a>
+              </div>
+            </article>
+          </div>
+        </section>
       </main>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/welcome.ts"></script>
   </body>
 </html>
