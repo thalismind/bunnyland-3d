@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   server:
     name: Server Plugin
@@ -11,23 +14,22 @@ jobs:
     steps:
       - name: Checkout 3D plugin
         uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and test server plugin
+        uses: docker/build-push-action@v6
         with:
-          path: bunnyland-3d
-      - name: Checkout Bunnyland server
-        uses: actions/checkout@v4
+          context: .
+          file: Dockerfile.server
+          target: test
+          push: false
+      - name: Build server image
+        uses: docker/build-push-action@v6
         with:
-          repository: ${{ vars.BUNNYLAND_SERVER_REPOSITORY || 'ssube/bunnyland-server' }}
-          path: bunnyland-server
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Run server plugin tests
-        run: bunnyland-3d/scripts/test-server
-        env:
-          BUNNYLAND_SERVER_PATH: ${{ github.workspace }}/bunnyland-server
+          context: .
+          file: Dockerfile.server
+          target: runtime
+          push: false
 
   web:
     name: Web Client
@@ -35,27 +37,32 @@ jobs:
     steps:
       - name: Checkout 3D plugin
         uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install browser dependencies
-        run: |
-          python -m pip install playwright
-          python -m playwright install --with-deps chromium
-      - name: Install web dependencies
-        run: npm ci
-        working-directory: web
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build and test web client
-        run: npm run check
-        working-directory: web
-      - name: Capture 3D screenshots
-        run: npm run playwright
-        working-directory: web
-      - name: Upload screenshots
-        uses: actions/upload-artifact@v4
+        uses: docker/build-push-action@v6
         with:
-          name: bunnyland-3d-screenshots
-          path: web/artifacts/*.png
+          context: .
+          file: Dockerfile.web
+          target: test
+          push: false
+          build-contexts: |
+            bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main
+      - name: Run browser smoke
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          target: browser-test
+          push: false
+          build-contexts: |
+            bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          target: runtime
+          push: false
+          build-contexts: |
+            bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main

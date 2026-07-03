@@ -16,6 +16,18 @@ COPY web/src ./src
 ENV BUNNYLAND_3D_BASE=/3d/
 RUN npm run build
 
-FROM ${BUNNYLAND_WEB_IMAGE}
+FROM build AS test
+
+COPY web/test ./test
+RUN npm test
+
+FROM mcr.microsoft.com/playwright/python:v1.56.0-noble AS browser-test
+
+WORKDIR /app/web
+COPY --from=build /app/web/dist ./dist
+COPY web/scripts ./scripts
+RUN BUNNYLAND_3D_ARTIFACT_DIR=/tmp/bunnyland-3d-artifacts ./scripts/playwright-world-3d
+
+FROM ${BUNNYLAND_WEB_IMAGE} AS runtime
 
 COPY --from=build /app/web/dist /usr/share/nginx/html/3d
