@@ -29,7 +29,7 @@ from bunnyland_3d.systems import step_entities
 def test_out_of_tree_plugin_loads_and_contributes_ecs_types():
     plugins = load_modules(["bunnyland_3d"])
 
-    assert [plugin.id for plugin in plugins] == [f"bunnyland_3d.{PLUGIN_ID}"]
+    assert [plugin.id for plugin in plugins] == [PLUGIN_ID]
     plugin = plugins[0]
     assert Transform3DComponent in plugin.ecs.components
     assert Velocity3DComponent in plugin.ecs.components
@@ -43,7 +43,7 @@ def test_out_of_tree_plugin_applies_to_actor_without_server_repo_changes():
     actor = WorldActor()
     applied = apply_plugins(load_modules(["bunnyland_3d"]), actor)
 
-    assert applied[0].id == "bunnyland_3d.bunnyland_3d"
+    assert applied[0].id == "bunnyland.3d"
 
 
 def test_registered_movement_system_ticks_from_plugin():

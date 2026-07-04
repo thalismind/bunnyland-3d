@@ -14,7 +14,7 @@ from .components import (
 from .enrichment import Worldgen3DHook
 from .systems import Movement3DSystem
 
-PLUGIN_ID = "bunnyland_3d"
+PLUGIN_ID = "bunnyland.3d"
 
 
 def plugin() -> Plugin:
