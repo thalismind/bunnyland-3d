@@ -15,13 +15,13 @@ class Vector3:
     y: float = 0.0
     z: float = 0.0
 
-    def add(self, other: "Vector3") -> "Vector3":
+    def add(self, other: Vector3) -> Vector3:
         return Vector3(self.x + other.x, self.y + other.y, self.z + other.z)
 
-    def scale_by(self, value: float) -> "Vector3":
+    def scale_by(self, value: float) -> Vector3:
         return Vector3(self.x * value, self.y * value, self.z * value)
 
-    def with_axis(self, axis: str, value: float) -> "Vector3":
+    def with_axis(self, axis: str, value: float) -> Vector3:
         if axis == "x":
             return Vector3(value, self.y, self.z)
         if axis == "y":

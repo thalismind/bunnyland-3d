@@ -42,7 +42,9 @@ def _speed_limited(linear: Vector3, max_speed: float) -> Vector3:
 
 
 def _body_for(entity) -> CollisionBody | None:
-    if not entity.has_component(Transform3DComponent) or not entity.has_component(Collider3DComponent):
+    if not entity.has_component(Transform3DComponent) or not entity.has_component(
+        Collider3DComponent
+    ):
         return None
     return CollisionBody(
         id=str(entity.id),
@@ -71,11 +73,17 @@ def step_entities(world, entities, delta: float) -> None:
     all_entities = list(entities)
     bodies = [body for entity in all_entities if (body := _body_for(entity)) is not None]
     for entity in all_entities:
-        if not entity.has_component(Transform3DComponent) or not entity.has_component(Velocity3DComponent):
+        if not entity.has_component(Transform3DComponent) or not entity.has_component(
+            Velocity3DComponent
+        ):
             continue
         velocity = entity.get_component(Velocity3DComponent)
         transform = entity.get_component(Transform3DComponent)
-        collider = entity.get_component(Collider3DComponent) if entity.has_component(Collider3DComponent) else None
+        collider = (
+            entity.get_component(Collider3DComponent)
+            if entity.has_component(Collider3DComponent)
+            else None
+        )
         if collider is not None and collider.static:
             continue
 

@@ -6,13 +6,15 @@ from dataclasses import dataclass
 
 from .components import Collider3DComponent, RoomBounds3DComponent, Transform3DComponent, Vector3
 
+_UNIT_SCALE = Vector3(1, 1, 1)
+
 
 @dataclass(frozen=True)
 class Aabb:
     min: Vector3
     max: Vector3
 
-    def intersects(self, other: "Aabb") -> bool:
+    def intersects(self, other: Aabb) -> bool:
         return (
             self.min.x < other.max.x
             and self.max.x > other.min.x
@@ -43,7 +45,7 @@ class MotionResult:
 
 def collider_half_extents(
     collider: Collider3DComponent,
-    scale: Vector3 = Vector3(1, 1, 1),
+    scale: Vector3 = _UNIT_SCALE,
 ) -> Vector3:
     if collider.shape == "sphere":
         radius = max(0.0, collider.radius)
@@ -62,7 +64,7 @@ def collider_half_extents(
 def aabb_for(
     position: Vector3,
     collider: Collider3DComponent,
-    scale: Vector3 = Vector3(1, 1, 1),
+    scale: Vector3 = _UNIT_SCALE,
 ) -> Aabb:
     half = collider_half_extents(collider, scale)
     return Aabb(

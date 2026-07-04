@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from bunnyland.core import Contains, ContainmentMode, RoomComponent, WorldActor, spawn_entity
+from bunnyland.core import ContainmentMode, Contains, RoomComponent, WorldActor, spawn_entity
 from bunnyland.core.components import CharacterComponent, IdentityComponent, PortableComponent
 from bunnyland.core.events import (
     CharacterGeneratedEvent,

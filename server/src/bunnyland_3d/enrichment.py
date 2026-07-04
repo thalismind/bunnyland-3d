@@ -74,7 +74,9 @@ class Worldgen3DHook:
         if entity is None:
             return
         if not entity.has_component(Transform3DComponent):
-            replace_component(entity, Transform3DComponent(position=_room_position(self._room_index)))
+            replace_component(
+                entity, Transform3DComponent(position=_room_position(self._room_index))
+            )
         if not entity.has_component(RoomBounds3DComponent):
             height = 4.0 if event.indoor else 8.0
             replace_component(entity, RoomBounds3DComponent(size=Vector3(16.0, height, 16.0)))
