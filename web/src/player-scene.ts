@@ -866,6 +866,7 @@ export class PlayerScene {
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
+    this.raycaster.far = Infinity;
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const ids = [...new Set(
       this.raycaster.intersectObjects(this.entityGroup.children, true)

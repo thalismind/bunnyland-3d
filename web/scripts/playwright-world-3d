@@ -80,6 +80,13 @@ ROOMS = {
                     "transform3d": {"position": {"x": -0.4, "y": 0.0, "z": -0.2}},
                     "render3d": {"shape": "box", "color": "#f9e2af"},
                 },
+                {
+                    "id": "item:crate",
+                    "name": "Green Crate",
+                    "kind": "item",
+                    "transform3d": {"position": {"x": 12, "y": 0.0, "z": 10}},
+                    "render3d": {"shape": "box", "color": "#a6e3a1"},
+                },
             ],
         },
     },
@@ -663,8 +670,11 @@ def main() -> None:
             page.mouse.click(stacked_point["x"], stacked_point["y"])
             expect(page.locator("#target-label")).to_contain_text("Silver Clover")
             page.mouse.click(stacked_point["x"], stacked_point["y"])
-            page.locator("#btn-hud").click()
             expect(page.locator("#target-label")).to_contain_text("Ash")
+            distant_prop_point = page.evaluate("window.__world3dPlayer.entityScreenPoint('item:crate')")
+            page.mouse.click(distant_prop_point["x"], distant_prop_point["y"])
+            page.locator("#btn-hud").click()
+            expect(page.locator("#target-label")).to_contain_text("Green Crate")
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(1)
             expect(page.locator("#photo-gallery")).to_contain_text("Scene image @ 10")
             page.locator("#photo-gallery .gallery-item").first.click()
