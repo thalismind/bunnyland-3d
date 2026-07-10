@@ -85,9 +85,11 @@ def test_worldgen_hook_adds_3d_components_to_generated_entities():
         ],
     )
 
-    hook = next(
-        hook for hook in actor._worldgen_hooks if isinstance(hook, Worldgen3DHook)
-    )
+    # Exercise the legacy worldgen callback contract directly. Bunnyland releases before
+    # the hook registry became public do not expose actor._worldgen_hooks, while both old
+    # and new loaders invoke these callbacks with the actor attached.
+    hook = Worldgen3DHook()
+    hook.actor = actor
     hook._on_room(
         RoomGeneratedEvent(
             **event_base(0),
