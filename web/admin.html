@@ -129,6 +129,17 @@
         font-size: var(--bl-text-sm);
       }
 
+      .control-grid {
+        display: grid;
+        gap: 7px;
+      }
+
+      .control-grid label {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+      }
+
       @media (max-width: 900px) {
         #main {
           grid-template-columns: minmax(0, 1fr);
@@ -165,6 +176,23 @@
             <h2 id="selected-title">No room selected</h2>
             <div id="selected-meta" class="muted"></div>
             <div id="selected-entities" class="muted">Load an overview.</div>
+          </section>
+          <section class="panel control-grid">
+            <h2>Outdoor graphics</h2>
+            <div>
+              <button id="btn-preview-decoration" type="button">Preview</button>
+              <button id="btn-apply-decoration" type="button">Apply</button>
+              <button id="btn-reroll-decoration" type="button">Reroll</button>
+            </div>
+            <button id="btn-apply-outdoors" type="button">Apply to all outdoor rooms</button>
+            <label><input id="room-has-roof" type="checkbox"> Room has a roof</label>
+            <label>Texture target
+              <select id="texture-scope"><option value="room">This room</option><option value="biome">Biome default</option></select>
+            </label>
+            <label>Ground texture <input id="texture-albedo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <label>Normal map <input id="texture-normal" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <label>Skybox <input id="texture-skybox" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <div id="decoration-result" class="muted">Select a room to manage its graphics.</div>
           </section>
           <section class="panel">
             <h2>Rooms</h2>

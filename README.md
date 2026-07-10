@@ -37,6 +37,7 @@ The plugin exposes `bunnyland_3d.bunnyland_plugins()` and contributes:
 - `Collider3DComponent` - collision radius/height metadata.
 - `Render3DComponent` - client-facing bundled asset, variant, shape, color, and visibility hints.
 - `RoomBounds3DComponent` - room dimensions used by simulation and clients.
+- outdoor environment, grouped-prop, light, particle-emitter, and recipe ownership components.
 - `Movement3DSystem` - advances velocity/transform state and clamps movement through the
   collision/bounds helpers.
 - `Worldgen3DHook` - enriches generated worlds with default 3D room bounds, transforms,
@@ -91,9 +92,10 @@ server plugin is installed and projections include 3D fields, the client uses th
 it falls back to deterministic room layout. The inspector supports room/entity selection, 2D
 and 3D modes, automatic or manual camera control, theme selection, and canvas PNG capture.
 
-`player.html` is the v2 playable 3D view. It requires the v2 server plugin capability and
+`player.html` is the playable 3D view. It requires scene schema v3 and
 renders the current room at character scale with a third-person camera, local WASD roaming,
-collision, animated bundled avatars, biome dressing, clickable targets, and proximity exit
+collision, animated bundled avatars, ECS-backed outdoor biome dressing, procedural or
+uploaded terrain textures, roof-aware skyboxes, clickable targets, and proximity exit
 prompts. Local roaming is presentation-only: confirmed exits and every other world change
 still use normal server actions. Detailed actions, queues, activity, photos, and the remembered
 map live in a collapsible HUD.

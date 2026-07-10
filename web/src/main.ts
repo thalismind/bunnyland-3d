@@ -1,7 +1,7 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
 import { bindThemeSelect } from '@bunnyland/ui-web/theme';
 import { escapeHtml } from '@bunnyland/ui-web/widgets';
-import { normalizeBase, sendAdmin, sendJson, serverFromUrl, setServerInUrl } from './api';
+import { normalizeBase, sendAdmin, sendAdminRequest, sendJson, serverFromUrl, setServerInUrl } from './api';
 import { layoutOverview, roomEntities, roomSummary, snapshot3d, type WorldLayout } from './adapter.mjs';
 import { BunnylandScene, type ViewMode } from './scene';
 
@@ -17,6 +17,9 @@ const modeButton = document.getElementById('btn-mode') as HTMLButtonElement;
 const cameraButton = document.getElementById('btn-camera') as HTMLButtonElement;
 const captureButton = document.getElementById('btn-capture') as HTMLButtonElement;
 const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
+const roofInput = document.getElementById('room-has-roof') as HTMLInputElement;
+const textureScope = document.getElementById('texture-scope') as HTMLSelectElement;
+const decorationResult = document.getElementById('decoration-result') as HTMLElement;
 
 let baseUrl = '';
 let auth = { authorization: '', secret: '' };
@@ -80,8 +83,62 @@ async function selectRoom(roomId: string): Promise<void> {
     selectedEntities = entities;
     scene.loadRoomEntities(roomId, entities);
     renderSelected(entities);
+    const playerScene = await sendAdmin(baseUrl, `/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
+      room?: { indoor?: boolean; environment3d?: { has_roof?: boolean } | null };
+    };
+    roofInput.checked = playerScene.room?.environment3d?.has_roof ?? Boolean(playerScene.room?.indoor);
   } catch (err) {
     selectedEntitiesEl.textContent = `Room detail failed: ${(err as Error).message}`;
+  }
+}
+
+async function decorationAction(action: 'preview' | 'apply' | 'reroll'): Promise<void> {
+  if (!baseUrl || !selectedRoomId) return;
+  try {
+    const method = action === 'preview' ? 'GET' : 'POST';
+    const result = await sendAdminRequest(
+      baseUrl,
+      `/admin/3d/room/${encodeURIComponent(selectedRoomId)}/decoration/${action}`,
+      auth,
+      { method },
+    );
+    decorationResult.textContent = JSON.stringify(result);
+    status(`${action} complete`, 'ok');
+  } catch (err) {
+    status(`${action} failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function setRoomRoof(): Promise<void> {
+  if (!baseUrl || !selectedRoomId) return;
+  try {
+    await sendAdminRequest(baseUrl, `/admin/3d/room/${encodeURIComponent(selectedRoomId)}/roof`, auth, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ has_roof: roofInput.checked }),
+    });
+    status(roofInput.checked ? 'roof enabled' : 'skybox enabled', 'ok');
+  } catch (err) {
+    status(`roof update failed: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function uploadTexture(slot: 'albedo' | 'normal' | 'skybox', file: File): Promise<void> {
+  if (!baseUrl || !selectedRoomId || !layout) return;
+  const room = roomSummary(layout, selectedRoomId);
+  const target = textureScope.value === 'biome' ? room?.biome || '' : selectedRoomId;
+  if (!target) return;
+  try {
+    const result = await sendAdminRequest(
+      baseUrl,
+      `/admin/3d/texture/${textureScope.value}/${encodeURIComponent(target)}/${slot}`,
+      auth,
+      { method: 'POST', headers: { 'content-type': file.type }, body: file },
+    );
+    decorationResult.textContent = JSON.stringify(result);
+    status(`${slot} uploaded`, 'ok');
+  } catch (err) {
+    status(`${slot} upload failed: ${(err as Error).message}`, 'err');
   }
 }
 
@@ -156,6 +213,26 @@ cameraButton.addEventListener('click', () => {
   cameraButton.textContent = manualCamera ? 'Manual Camera' : 'Auto Camera';
 });
 captureButton.addEventListener('click', downloadCapture);
+document.getElementById('btn-preview-decoration')?.addEventListener('click', () => { void decorationAction('preview'); });
+document.getElementById('btn-apply-decoration')?.addEventListener('click', () => { void decorationAction('apply'); });
+document.getElementById('btn-reroll-decoration')?.addEventListener('click', () => { void decorationAction('reroll'); });
+document.getElementById('btn-apply-outdoors')?.addEventListener('click', async () => {
+  try {
+    const result = await sendAdminRequest(baseUrl, '/admin/3d/decoration/apply-outdoors', auth, { method: 'POST' });
+    decorationResult.textContent = JSON.stringify(result);
+    status('outdoor rooms decorated', 'ok');
+  } catch (err) {
+    status(`backfill failed: ${(err as Error).message}`, 'err');
+  }
+});
+roofInput.addEventListener('change', () => { void setRoomRoof(); });
+for (const slot of ['albedo', 'normal', 'skybox'] as const) {
+  const input = document.getElementById(`texture-${slot}`) as HTMLInputElement;
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (file) void uploadTexture(slot, file);
+  });
+}
 bindThemeSelect(themeSelect);
 
 const server = serverFromUrl();

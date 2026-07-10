@@ -19,6 +19,9 @@ When loaded, it contributes:
 - `Collider3DComponent` for collision metadata;
 - `Render3DComponent` for bundled asset, variant, shape, color, and visibility hints;
 - `RoomBounds3DComponent` for room dimensions;
+- `Environment3DComponent` for surfaces, atmosphere, roof state, and skyboxes;
+- grouped prop, light, particle, and decoration-source components linked to rooms by
+  `HasDecoration3D` presentation edges;
 - `Movement3DSystem` for movement and bounds clamping;
 - `Worldgen3DHook` for seeding generated worlds with 3D metadata.
 
@@ -46,10 +49,25 @@ The player client uses public controller and projection APIs. The admin inspecto
 admin world data such as `/world/overview` and `/world/snapshot`; protect the API the same
 way you protect the rest of `/admin/*` and world inspection surfaces.
 
-The v2 player first checks `/3d/v2/capabilities`, then loads the current room from
+The player first checks `/3d/v2/capabilities`, then loads the current room from
 `/3d/v2/room/{room_id}`. The latter follows the same visible-entity boundary as the public
-room projection and adds only presentation metadata. Deploy matching v2 server and web
+room projection and adds only presentation metadata. Scene schema v3 includes outdoor
+environments and decoration groups. Deploy matching server and web
 images together.
+
+## Outdoor decoration
+
+Select an outdoor room in `/3d/admin.html` and use **Preview** before **Apply**. Recipes are
+available for meadow, forest, garden, marsh, desert, and wasteland rooms; other rooms with
+`indoor=false` use a restrained fallback. **Reroll** changes generated placement while
+preserving instance exclusions and manual overrides. **Apply to all outdoor rooms** is
+idempotent and skips every room with `indoor=true`.
+
+The roof checkbox is independent of the biome and indoor flag. A room without a roof renders
+a skybox; a roofed room uses the enclosed-room path. Ground albedo, normal maps, and
+equirectangular skyboxes accept PNG, JPEG, or WebP files through the existing media store.
+Uploads can target the selected room or become the default for its biome. Take a world
+snapshot before a whole-world apply, because these controls create persistent ECS entities.
 
 ## Build the images
 

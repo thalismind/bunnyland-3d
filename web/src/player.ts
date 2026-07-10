@@ -963,6 +963,7 @@ declare global {
       entityScreenPoint: (entityId: string) => ReturnType<PlayerScene['entityScreenPoint']>;
       exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
+      visualState: () => ReturnType<PlayerScene['visualState']>;
       avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
       capture: () => string;
     };
@@ -979,6 +980,7 @@ window.__world3dPlayer = {
   entityScreenPoint: entityId => scene.entityScreenPoint(entityId),
   exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
+  visualState: () => scene.visualState(),
   avatarState: () => scene.cameraState().avatar,
   capture: captureImage,
 };

@@ -237,7 +237,7 @@ def player_projection():
 
 
 def player_3d_scene(room_id: str):
-    room = ROOMS[room_id]["room"]
+    room = ROOMS.get(room_id, ROOMS["room:meadow"])["room"]
     biome = "meadow" if room_id == "room:meadow" else "marsh"
     exits = [
         {"id": "room:pond", "direction": "east", "label": "Mirror Pond", "locked": False},
@@ -273,18 +273,57 @@ def player_3d_scene(room_id: str):
     })
     return {
         "ok": True,
-        "schema_version": 2,
+        "schema_version": 3,
         "world_epoch": 21,
         "room": {
             "id": room_id,
             "title": room["title"],
             "biome": biome,
-            "indoor": True,
+            "indoor": False,
             "bounds3d": {"origin": {"x": 0, "y": 0, "z": 0}, "size": {"x": 16, "y": 8, "z": 16}},
             "render3d": {"color": "#668a4d" if biome == "meadow" else "#406c61", "asset_key": f"room.{biome}"},
+            "environment3d": {
+                "sky_color": "#96c9ee",
+                "fog_color": "#78a982",
+                "fog_density": 0.012,
+                "ambient_color": "#dff4ff",
+                "ambient_intensity": 1.5,
+                "sun_color": "#fff0c2",
+                "sun_intensity": 2.0,
+                "has_roof": False,
+                "surface_recipe": biome,
+                "albedo_url": "",
+                "normal_url": "",
+                "skybox_url": "",
+                "texture_scale": 4,
+            },
         },
         "exits": exits,
         "entities": entities,
+        "decorations": [
+            {
+                "id": "decoration:flora",
+                "prop_group3d": {
+                    "recipe_key": biome,
+                    "asset_key": "procedural.grass" if biome == "meadow" else "procedural.reed",
+                    "color": "#82b85f",
+                    "instances": [
+                        {"id": f"i{index}", "position": {"x": 1.5 + index * 2.2, "y": 0, "z": 2 + (index % 2) * 10}, "rotation_y": index * 0.7, "scale": 0.7 + index * 0.08}
+                        for index in range(6)
+                    ],
+                },
+            },
+            {
+                "id": "decoration:light",
+                "transform3d": {"position": {"x": 8, "y": 2.4, "z": 8}},
+                "light3d": {"kind": "point", "color": "#ffd88f", "intensity": 1.25, "range": 9, "decay": 2, "cone": 0.7, "cast_shadow": False},
+            },
+            {
+                "id": "decoration:particles",
+                "transform3d": {"position": {"x": 8, "y": 0.2, "z": 8}},
+                "particle_emitter3d": {"preset": "pollen", "seed": 42, "count": 24, "bounds": {"x": 14, "y": 4, "z": 14}, "color": "#fff0a8", "size": 0.08, "speed": 0.2, "opacity": 0.65},
+            },
+        ],
     }
 
 
@@ -342,8 +381,8 @@ def route_api(page):
     page.route("**/mock/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "plugin_id": "bunnyland.3d",
-        "plugin_version": "0.2.0",
-        "scene_schema_version": 2,
+        "plugin_version": "0.3.0",
+        "scene_schema_version": 3,
         "asset_schema_version": 1,
     }))
 
@@ -352,6 +391,13 @@ def route_api(page):
         route.fulfill(status=200, json=player_3d_scene(room_id))
 
     page.route("**/mock/3d/v2/room/*", scene_route)
+    page.route("**/mock/admin/3d/**", lambda route: route.fulfill(status=200, json={
+        "ok": True,
+        "status": "preview" if route.request.method == "GET" else "applied",
+        "recipe": "meadow",
+        "instances": 92,
+        "has_roof": bool((route.request.post_data_json or {}).get("has_roof")) if route.request.post_data else False,
+    }))
     page.route("**/mock/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
     page.route("**/mock/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
     page.route("**/mock/world/characters", lambda route: route.fulfill(status=200, json={
@@ -556,6 +602,10 @@ def main() -> None:
             page.goto(f"{base_url}/admin.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3d && window.__world3d.ready")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
+            page.locator("#btn-preview-decoration").click()
+            expect(page.locator("#decoration-result")).to_contain_text('"instances":92')
+            page.locator("#room-has-roof").check()
+            expect(page.locator("#status")).to_contain_text("roof enabled")
             page.locator("#theme-select").select_option("anime-light")
             theme = page.evaluate(
                 """() => ({
@@ -630,6 +680,9 @@ def main() -> None:
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
+            visual_state = page.evaluate("window.__world3dPlayer.visualState()")
+            if visual_state != {"propInstances": 6, "particles": 24, "localLights": 1, "skybox": True}:
+                raise AssertionError(f"outdoor ECS graphics were not rendered: {visual_state!r}")
             layout = page.evaluate(
                 """() => {
                   const side = document.querySelector('#side');
@@ -661,9 +714,9 @@ def main() -> None:
             exits = page.evaluate("window.__world3dPlayer.exitStates()")
             east_exit = next(exit_state for exit_state in exits if exit_state["side"] == "east")
             north_exit = next(exit_state for exit_state in exits if exit_state["side"] == "north")
-            if abs(abs(east_exit["rotationY"]) - 1.5708) > 0.01 or abs(east_exit["x"] - 16) > 0.01:
+            if abs(abs(east_exit["rotationY"]) - 1.5708) > 0.01 or abs(east_exit["x"] - 15.75) > 0.01:
                 raise AssertionError(f"east door did not align with its wall: {east_exit!r}")
-            if abs(north_exit["rotationY"]) > 0.01 or abs(north_exit["z"]) > 0.01:
+            if abs(north_exit["rotationY"]) > 0.01 or abs(north_exit["z"] - 0.25) > 0.01:
                 raise AssertionError(f"north door did not align with its wall: {north_exit!r}")
             page.locator("#btn-hud").click()
             stacked_point = page.evaluate("window.__world3dPlayer.entityScreenPoint('item:clover')")

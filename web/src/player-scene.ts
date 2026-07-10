@@ -44,6 +44,52 @@ export interface PlayerSceneEntity {
   collider3d?: Collider3DView;
 }
 
+export interface Environment3DView {
+  sky_color?: string;
+  fog_color?: string;
+  fog_density?: number;
+  ambient_color?: string;
+  ambient_intensity?: number;
+  sun_color?: string;
+  sun_intensity?: number;
+  has_roof?: boolean;
+  surface_recipe?: string;
+  albedo_url?: string;
+  normal_url?: string;
+  skybox_url?: string;
+  texture_scale?: number;
+}
+
+export interface PlayerSceneDecoration {
+  id: string;
+  transform3d?: Transform3DView;
+  prop_group3d?: {
+    recipe_key: string;
+    asset_key: string;
+    color: string;
+    instances: Array<{ id: string; position: Vector3View; rotation_y: number; scale: number }>;
+  };
+  light3d?: {
+    kind: 'point' | 'spot' | 'directional';
+    color: string;
+    intensity: number;
+    range: number;
+    decay: number;
+    cone: number;
+    cast_shadow: boolean;
+  };
+  particle_emitter3d?: {
+    preset: 'pollen' | 'fireflies' | 'spores' | 'dust' | 'mist';
+    seed: number;
+    count: number;
+    bounds: Vector3View;
+    color: string;
+    size: number;
+    speed: number;
+    opacity: number;
+  };
+}
+
 export interface PlayerSceneExit {
   id: string;
   direction: string;
@@ -65,9 +111,11 @@ export interface PlayerRoomScene {
       size?: Partial<Vector3View>;
     } | null;
     render3d?: Render3DView | null;
+    environment3d?: Environment3DView | null;
   };
   exits: PlayerSceneExit[];
   entities: PlayerSceneEntity[];
+  decorations?: PlayerSceneDecoration[];
 }
 
 interface Bounds2D {
@@ -118,6 +166,10 @@ const PLAYER_SPEED = 3.4;
 const EXIT_RANGE = 1.65;
 const PLAYER_RADIUS = 0.36;
 const MAX_FRAME_DELTA = 0.05;
+const MAX_PROP_INSTANCES = 2000;
+const MAX_PARTICLES = 1500;
+const MAX_LOCAL_LIGHTS = 8;
+const MAX_SHADOW_LIGHTS = 2;
 
 const BIOME_PALETTES: Record<string, { ground: number; fog: number; accent: number }> = {
   cave: { ground: 0x4c4037, fog: 0x171514, accent: 0xc69568 },
@@ -127,6 +179,8 @@ const BIOME_PALETTES: Record<string, { ground: number; fog: number; accent: numb
   meadow: { ground: 0x668a4d, fog: 0x1b2d1a, accent: 0xf0d36d },
   station: { ground: 0x45546e, fog: 0x151b27, accent: 0x7eb5e8 },
   unknown: { ground: 0x576070, fog: 0x181c24, accent: 0xaab5c8 },
+  desert: { ground: 0xb78d55, fog: 0x8f684b, accent: 0xe1b875 },
+  wasteland: { ground: 0x756a4c, fog: 0x514d43, accent: 0xa18c65 },
 };
 
 function finite(value: unknown, fallback: number): number {
@@ -188,6 +242,7 @@ export class PlayerScene {
   private readonly pointer = new THREE.Vector2();
   private readonly loader = new GLTFLoader();
   private readonly assetCache = new Map<string, Promise<GLTF>>();
+  private readonly textureLoader = new THREE.TextureLoader();
   private assetManifest: Promise<AssetManifest> | null = null;
   private readonly entities = new Map<string, TrackedEntity>();
   private readonly exits: TrackedExit[] = [];
@@ -215,6 +270,7 @@ export class PlayerScene {
   private lastFrame = performance.now();
   private loadGeneration = 0;
   private enabled = true;
+  private particleTime = 0;
 
   constructor(
     private readonly container: HTMLElement,
@@ -259,6 +315,7 @@ export class PlayerScene {
     this.bounds = this.readBounds(data);
     this.clearRoom();
     this.applyEnvironment(data);
+    this.addDecorations(data.decorations || []);
     this.addExits(data.exits, data.room.indoor);
     for (const entity of data.entities) this.addEntity(entity, generation);
 
@@ -342,6 +399,20 @@ export class PlayerScene {
     return this.renderer.domElement.toDataURL('image/png');
   }
 
+  visualState(): { propInstances: number; particles: number; localLights: number; skybox: boolean } {
+    let propInstances = 0;
+    let particles = 0;
+    let localLights = 0;
+    let skybox = false;
+    this.environment.traverse(object => {
+      if (object.userData.decorationProps) propInstances += (object as THREE.InstancedMesh).count;
+      if (object.userData.particleEmitter) particles += (object as THREE.Points).geometry.getAttribute('position').count;
+      if (object.userData.localLight) localLights += 1;
+      if (object.userData.skybox) skybox = true;
+    });
+    return { propInstances, particles, localLights, skybox };
+  }
+
   private readBounds(data: PlayerRoomScene): Bounds2D {
     const origin = data.room.bounds3d?.origin || {};
     const size = data.room.bounds3d?.size || {};
@@ -374,26 +445,60 @@ export class PlayerScene {
 
   private applyEnvironment(data: PlayerRoomScene): void {
     const palette = BIOME_PALETTES[data.room.biome] || BIOME_PALETTES.unknown;
+    const environment = data.room.environment3d;
     const roomColor = color(data.room.render3d?.color, palette.ground);
-    this.scene.background = new THREE.Color(palette.fog);
-    this.scene.fog = new THREE.FogExp2(palette.fog, data.room.indoor ? 0.032 : 0.018);
+    const fogColor = color(environment?.fog_color, palette.fog);
+    const hasRoof = environment?.has_roof ?? data.room.indoor;
+    this.scene.background = new THREE.Color(color(environment?.sky_color, fogColor));
+    this.scene.fog = new THREE.FogExp2(fogColor, finite(environment?.fog_density, data.room.indoor ? 0.032 : 0.018));
 
     const width = this.bounds.maxX - this.bounds.minX;
     const depth = this.bounds.maxZ - this.bounds.minZ;
     const centerX = (this.bounds.minX + this.bounds.maxX) / 2;
     const centerZ = (this.bounds.minZ + this.bounds.maxZ) / 2;
+    const floorMaterial = new THREE.MeshStandardMaterial({
+      color: roomColor,
+      roughness: 0.93,
+      metalness: data.room.biome === 'station' ? 0.22 : 0,
+      map: this.proceduralSurface(environment?.surface_recipe || data.room.biome, roomColor, finite(environment?.texture_scale, 4)),
+    });
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(width, depth, 1, 1),
-      new THREE.MeshStandardMaterial({ color: roomColor, roughness: 0.93, metalness: data.room.biome === 'station' ? 0.22 : 0 }),
+      floorMaterial,
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(centerX, this.bounds.ground, centerZ);
     floor.receiveShadow = true;
     this.environment.add(floor);
 
-    const hemisphere = new THREE.HemisphereLight(0xcfe8ff, data.room.indoor ? 0x342c26 : 0x31512f, data.room.indoor ? 1.35 : 1.65);
+    this.loadMaterialTexture(environment?.albedo_url, true, texture => {
+      if (floor.parent) {
+        floorMaterial.map?.dispose();
+        floorMaterial.map = texture;
+        floorMaterial.color.set(0xffffff);
+        floorMaterial.needsUpdate = true;
+      } else texture.dispose();
+    }, finite(environment?.texture_scale, 4));
+    this.loadMaterialTexture(environment?.normal_url, false, texture => {
+      if (floor.parent) {
+        floorMaterial.normalMap = texture;
+        floorMaterial.normalScale.set(0.65, 0.65);
+        floorMaterial.needsUpdate = true;
+      } else texture.dispose();
+    }, finite(environment?.texture_scale, 4));
+
+    if (!hasRoof) this.addSkybox(environment, color(environment?.sky_color, fogColor));
+
+    const hemisphere = new THREE.HemisphereLight(
+      color(environment?.ambient_color, 0xcfe8ff),
+      data.room.indoor ? 0x342c26 : 0x31512f,
+      finite(environment?.ambient_intensity, data.room.indoor ? 1.35 : 1.65),
+    );
     this.environment.add(hemisphere);
-    const sun = new THREE.DirectionalLight(data.room.indoor ? 0xffe4c2 : 0xfff1d2, data.room.indoor ? 1.55 : 2.2);
+    const sun = new THREE.DirectionalLight(
+      color(environment?.sun_color, data.room.indoor ? 0xffe4c2 : 0xfff1d2),
+      finite(environment?.sun_intensity, data.room.indoor ? 1.55 : 2.2),
+    );
     sun.position.set(centerX - 5, this.bounds.ground + 10, centerZ + 4);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -403,8 +508,102 @@ export class PlayerScene {
     sun.shadow.camera.bottom = -12;
     this.environment.add(sun);
 
-    if (data.room.indoor) this.addIndoorWalls(data.exits, roomColor);
-    this.addDressing(data.room.id, data.room.biome, data.room.indoor, palette.accent);
+    if (hasRoof) this.addIndoorWalls(data.exits, roomColor);
+  }
+
+  private proceduralSurface(recipe: string, baseColor: number, repeat: number): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = `#${baseColor.toString(16).padStart(6, '0')}`;
+    context.fillRect(0, 0, 128, 128);
+    const random = randomFrom(hash(`surface:${recipe}`));
+    const marks = recipe === 'desert' ? 90 : recipe === 'marsh' ? 180 : 240;
+    for (let index = 0; index < marks; index += 1) {
+      const lightness = random() > 0.5 ? 1.16 : 0.78;
+      const tint = new THREE.Color(baseColor).multiplyScalar(lightness);
+      context.fillStyle = `#${tint.getHexString()}`;
+      context.globalAlpha = 0.12 + random() * 0.2;
+      const size = recipe === 'desert' ? 1 + random() * 7 : 1 + random() * 3;
+      context.beginPath();
+      context.arc(random() * 128, random() * 128, size, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.globalAlpha = 1;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(repeat, repeat);
+    return texture;
+  }
+
+  private loadMaterialTexture(url: string | undefined, srgb: boolean, apply: (texture: THREE.Texture) => void, repeat = 1): void {
+    if (!url) return;
+    const resolved = new URL(url, window.location.origin);
+    if (!/^https?:$/.test(resolved.protocol) || !/\/media\/[a-z0-9]+\/[a-z0-9]+\.(png|jpg|webp)$/.test(resolved.pathname)) return;
+    this.textureLoader.load(resolved.href, texture => {
+      texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(repeat, repeat);
+      apply(texture);
+    }, undefined, error => console.warn(`Bunnyland 3D texture fallback for ${url}:`, error));
+  }
+
+  private addSkybox(environment: Environment3DView | null | undefined, skyColor: number): void {
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: this.proceduralSkybox(skyColor),
+      side: THREE.BackSide,
+      fog: false,
+    });
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 18), material);
+    sky.userData.skybox = true;
+    sky.position.set(
+      (this.bounds.minX + this.bounds.maxX) / 2,
+      this.bounds.ground,
+      (this.bounds.minZ + this.bounds.maxZ) / 2,
+    );
+    this.environment.add(sky);
+    this.loadMaterialTexture(environment?.skybox_url, true, texture => {
+      if (sky.parent) {
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.repeat.set(1, 1);
+        material.map = texture;
+        material.color.set(0xffffff);
+        material.needsUpdate = true;
+      } else texture.dispose();
+    });
+  }
+
+  private proceduralSkybox(skyColor: number): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const context = canvas.getContext('2d')!;
+    const zenith = new THREE.Color(skyColor).multiplyScalar(0.7);
+    const horizon = new THREE.Color(skyColor).lerp(new THREE.Color(0xffe2b8), 0.32);
+    const gradient = context.createLinearGradient(0, 0, 0, 256);
+    gradient.addColorStop(0, `#${zenith.getHexString()}`);
+    gradient.addColorStop(0.72, `#${new THREE.Color(skyColor).getHexString()}`);
+    gradient.addColorStop(1, `#${horizon.getHexString()}`);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 512, 256);
+    context.fillStyle = 'rgba(255, 245, 218, 0.76)';
+    context.beginPath();
+    context.arc(392, 72, 18, 0, Math.PI * 2);
+    context.fill();
+    const random = randomFrom(hash(`sky:${skyColor}`));
+    context.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    for (let index = 0; index < 18; index += 1) {
+      context.beginPath();
+      context.ellipse(random() * 512, 115 + random() * 70, 18 + random() * 38, 3 + random() * 7, 0, 0, Math.PI * 2);
+      context.fill();
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
   }
 
   private addIndoorWalls(exits: PlayerSceneExit[], roomColor: number): void {
@@ -456,35 +655,114 @@ export class PlayerScene {
     vertical('east', this.bounds.maxX);
   }
 
-  private addDressing(roomId: string, biome: string, indoor: boolean, accent: number): void {
-    const random = randomFrom(hash(`${roomId}:${biome}`));
-    const count = indoor ? 8 : 18;
-    const material = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.9 });
-    const geometry = indoor
-      ? new THREE.BoxGeometry(1, 0.8, 1)
-      : new THREE.ConeGeometry(0.48, 1.7, 5);
-    const props = new THREE.InstancedMesh(geometry, material, count);
-    const dummy = new THREE.Object3D();
-    for (let index = 0; index < count; index += 1) {
-      const alongX = random() > 0.5;
-      const edge = random() > 0.5;
-      const x = alongX
-        ? this.bounds.minX + 0.7 + random() * (this.bounds.maxX - this.bounds.minX - 1.4)
-        : edge ? this.bounds.minX + 0.65 : this.bounds.maxX - 0.65;
-      const z = alongX
-        ? edge ? this.bounds.minZ + 0.65 : this.bounds.maxZ - 0.65
-        : this.bounds.minZ + 0.7 + random() * (this.bounds.maxZ - this.bounds.minZ - 1.4);
-      const scale = 0.35 + random() * 0.55;
-      dummy.position.set(x, this.bounds.ground + (indoor ? scale * 0.4 : scale * 0.85), z);
-      dummy.rotation.set(0, random() * Math.PI * 2, 0);
-      dummy.scale.setScalar(scale);
-      dummy.updateMatrix();
-      props.setMatrixAt(index, dummy.matrix);
+  private addDecorations(decorations: PlayerSceneDecoration[]): void {
+    let instances = 0;
+    let particles = 0;
+    let lights = 0;
+    let shadowLights = 0;
+    for (const decoration of decorations) {
+      if (decoration.prop_group3d && instances < MAX_PROP_INSTANCES) {
+        const available = MAX_PROP_INSTANCES - instances;
+        const group = decoration.prop_group3d;
+        const source = group.instances.slice(0, available);
+        instances += source.length;
+        const geometry = this.propGeometry(group.asset_key);
+        const material = new THREE.MeshStandardMaterial({
+          color: color(group.color, 0x7ca85c), roughness: 0.88, vertexColors: false,
+        });
+        const mesh = new THREE.InstancedMesh(geometry, material, source.length);
+        const dummy = new THREE.Object3D();
+        source.forEach((instance, index) => {
+          dummy.position.set(instance.position.x, this.bounds.ground + this.propHeight(group.asset_key, instance.scale), instance.position.z);
+          dummy.rotation.set(0, instance.rotation_y, 0);
+          dummy.scale.setScalar(instance.scale);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(index, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.decorationProps = true;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.environment.add(mesh);
+      }
+      if (decoration.light3d && lights < MAX_LOCAL_LIGHTS) {
+        const view = decoration.light3d;
+        const position = decoration.transform3d?.position || {};
+        const shouldShadow = view.cast_shadow && shadowLights < MAX_SHADOW_LIGHTS;
+        let light: THREE.Light;
+        if (view.kind === 'spot') {
+          const spot = new THREE.SpotLight(color(view.color, 0xffd38a), view.intensity, view.range, view.cone, 0.3, view.decay);
+          spot.castShadow = shouldShadow;
+          light = spot;
+        } else if (view.kind === 'directional') {
+          const directional = new THREE.DirectionalLight(color(view.color, 0xffd38a), view.intensity);
+          directional.castShadow = shouldShadow;
+          light = directional;
+        } else {
+          const point = new THREE.PointLight(color(view.color, 0xffd38a), view.intensity, view.range, view.decay);
+          point.castShadow = shouldShadow;
+          light = point;
+        }
+        light.position.set(finite(position.x, 8), finite(position.y, 2.4), finite(position.z, 8));
+        light.userData.localLight = true;
+        this.environment.add(light);
+        lights += 1;
+        if (shouldShadow) shadowLights += 1;
+      }
+      if (decoration.particle_emitter3d && particles < MAX_PARTICLES) {
+        const emitter = decoration.particle_emitter3d;
+        const count = Math.min(emitter.count, MAX_PARTICLES - particles);
+        particles += count;
+        this.addParticleEmitter(emitter, count, decoration.transform3d?.position);
+      }
     }
-    props.instanceMatrix.needsUpdate = true;
-    props.castShadow = true;
-    props.receiveShadow = true;
-    this.environment.add(props);
+  }
+
+  private propGeometry(assetKey: string): THREE.BufferGeometry {
+    if (assetKey.endsWith('rock')) return new THREE.DodecahedronGeometry(0.46, 0);
+    if (assetKey.endsWith('flower')) return new THREE.SphereGeometry(0.2, 7, 5);
+    if (assetKey.endsWith('hedge') || assetKey.endsWith('scrap')) return new THREE.BoxGeometry(0.8, 0.8, 0.55);
+    if (assetKey.endsWith('reed')) return new THREE.CylinderGeometry(0.055, 0.08, 1.5, 5);
+    if (assetKey.endsWith('cactus')) return new THREE.CapsuleGeometry(0.18, 0.9, 3, 6);
+    if (assetKey.endsWith('tree')) return new THREE.ConeGeometry(0.72, 2.6, 7);
+    if (assetKey.endsWith('fern')) return new THREE.ConeGeometry(0.48, 0.65, 6);
+    if (assetKey.endsWith('scrub')) return new THREE.TetrahedronGeometry(0.48, 1);
+    return new THREE.ConeGeometry(0.16, 0.72, 5);
+  }
+
+  private propHeight(assetKey: string, scale: number): number {
+    if (assetKey.endsWith('tree')) return 1.3 * scale;
+    if (assetKey.endsWith('reed')) return 0.75 * scale;
+    if (assetKey.endsWith('cactus')) return 0.63 * scale;
+    if (assetKey.endsWith('grass')) return 0.36 * scale;
+    return 0.32 * scale;
+  }
+
+  private addParticleEmitter(
+    emitter: NonNullable<PlayerSceneDecoration['particle_emitter3d']>,
+    count: number,
+    position: Partial<Vector3View> | undefined,
+  ): void {
+    const random = randomFrom(emitter.seed);
+    const values = new Float32Array(count * 3);
+    for (let index = 0; index < count; index += 1) {
+      values[index * 3] = finite(position?.x, 8) + (random() - 0.5) * emitter.bounds.x;
+      values[index * 3 + 1] = this.bounds.ground + random() * emitter.bounds.y;
+      values[index * 3 + 2] = finite(position?.z, 8) + (random() - 0.5) * emitter.bounds.z;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+    const material = new THREE.PointsMaterial({
+      color: color(emitter.color, 0xf6e9a6),
+      size: emitter.size,
+      transparent: true,
+      opacity: emitter.opacity,
+      depthWrite: false,
+      blending: emitter.preset === 'fireflies' ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    const points = new THREE.Points(geometry, material);
+    points.userData.particleEmitter = { ...emitter, baseY: this.bounds.ground };
+    this.environment.add(points);
   }
 
   private addExits(exits: PlayerSceneExit[], indoor: boolean): void {
@@ -755,6 +1033,26 @@ export class PlayerScene {
     }
   }
 
+  private updateParticles(delta: number): void {
+    this.particleTime += delta;
+    this.environment.traverse(object => {
+      if (!(object instanceof THREE.Points) || !object.userData.particleEmitter) return;
+      const emitter = object.userData.particleEmitter as NonNullable<PlayerSceneDecoration['particle_emitter3d']> & { baseY: number };
+      const attribute = object.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let index = 0; index < attribute.count; index += 1) {
+        const phase = index * 1.618 + emitter.seed * 0.0001;
+        let y = attribute.getY(index) + delta * emitter.speed * (emitter.preset === 'dust' ? 0.18 : 0.55);
+        if (y > emitter.baseY + emitter.bounds.y) y = emitter.baseY;
+        attribute.setY(index, y);
+        attribute.setX(index, attribute.getX(index) + Math.sin(this.particleTime + phase) * delta * emitter.speed * 0.08);
+        attribute.setZ(index, attribute.getZ(index) + Math.cos(this.particleTime * 0.8 + phase) * delta * emitter.speed * 0.08);
+      }
+      attribute.needsUpdate = true;
+      const material = object.material as THREE.PointsMaterial;
+      if (emitter.preset === 'fireflies') material.opacity = emitter.opacity * (0.6 + 0.4 * Math.sin(this.particleTime * 2.4));
+    });
+  }
+
   private updateNearbyExit(): void {
     let nearest: TrackedExit | null = null;
     let nearestDistance = EXIT_RANGE;
@@ -819,6 +1117,7 @@ export class PlayerScene {
     this.lastFrame = now;
     this.moveAvatar(delta);
     this.updateAnimation(delta);
+    this.updateParticles(delta);
     this.updateNearbyExit();
     this.updateCamera(delta);
     this.renderer.render(this.scene, this.camera);

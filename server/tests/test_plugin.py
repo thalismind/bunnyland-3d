@@ -13,14 +13,23 @@ from bunnyland.persistence import WorldMeta
 from bunnyland.plugins import apply_plugins, load_modules
 from bunnyland.server.app import create_app
 
+from bunnyland_3d.api import room_scene_view
 from bunnyland_3d.components import (
     Collider3DComponent,
+    DecorationSource3DComponent,
+    Environment3DComponent,
+    HasDecoration3D,
+    Light3DComponent,
+    ParticleEmitter3DComponent,
+    PropGroup3DComponent,
+    PropInstanceOverride,
     Render3DComponent,
     RoomBounds3DComponent,
     Transform3DComponent,
     Vector3,
     Velocity3DComponent,
 )
+from bunnyland_3d.decorations import apply_outdoor_recipe, preview_outdoor_recipe
 from bunnyland_3d.enrichment import Worldgen3DHook
 from bunnyland_3d.plugin import PLUGIN_ID
 from bunnyland_3d.projection import entity_3d_view, world_3d_view
@@ -37,6 +46,11 @@ def test_out_of_tree_plugin_loads_and_contributes_ecs_types():
     assert Collider3DComponent in plugin.ecs.components
     assert Render3DComponent in plugin.ecs.components
     assert RoomBounds3DComponent in plugin.ecs.components
+    assert PropGroup3DComponent in plugin.ecs.components
+    assert Light3DComponent in plugin.ecs.components
+    assert ParticleEmitter3DComponent in plugin.ecs.components
+    assert DecorationSource3DComponent in plugin.ecs.components
+    assert HasDecoration3D in plugin.ecs.edges
     assert Worldgen3DHook in plugin.content.worldgen_hooks
 
 
@@ -267,10 +281,124 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
     scene = client.get(f"/3d/v2/room/{room.id}")
 
     assert capability.status_code == 200
-    assert capability.json()["scene_schema_version"] == 2
+    assert capability.json()["scene_schema_version"] == 3
     assert scene.status_code == 200
     data = scene.json()
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
     assert data["room"]["bounds3d"]["size"] == {"x": 16.0, "y": 4.0, "z": 16.0}
     assert [entity["id"] for entity in data["entities"]] == [str(visible.id)]
     assert data["entities"][0]["render3d"]["asset_key"] == "avatar.leporid"
+
+
+def test_outdoor_decoration_is_ecs_backed_idempotent_and_not_room_content():
+    actor = WorldActor()
+    room = spawn_entity(
+        actor.world,
+        [
+            RoomComponent(title="Wildflower Rise", biome="meadow", indoor=False),
+            RoomBounds3DComponent(size=Vector3(16, 8, 16)),
+        ],
+    )
+
+    preview = preview_outdoor_recipe(room)
+    first = apply_outdoor_recipe(actor.world, room)
+    decoration_ids = [target for _edge, target in room.get_relationships(HasDecoration3D)]
+    second = apply_outdoor_recipe(actor.world, room)
+
+    assert preview["status"] == "preview"
+    assert first["instances"] == preview["instances"]
+    assert second["status"] == "applied"
+    assert decoration_ids == [target for _edge, target in room.get_relationships(HasDecoration3D)]
+    assert len(decoration_ids) == 4
+    assert room.get_relationships(Contains) == []
+    assert room.get_component(Environment3DComponent).has_roof is False
+    scene = room_scene_view(actor, str(room.id))
+    assert len(scene["decorations"]) == 4
+    flora = next(item for item in scene["decorations"] if item.get("prop_group3d"))
+    assert flora["prop_group3d"]["instances"] == next(
+        item["prop_group3d"]["instances"]
+        for item in room_scene_view(actor, str(room.id))["decorations"]
+        if item.get("prop_group3d")
+    )
+
+
+def test_reroll_changes_seed_but_preserves_group_overrides():
+    actor = WorldActor()
+    room = spawn_entity(actor.world, [RoomComponent(title="Reeds", biome="marsh")])
+    apply_outdoor_recipe(actor.world, room)
+    flora_id = next(
+        target for edge, target in room.get_relationships(HasDecoration3D) if edge.role == "flora"
+    )
+    flora = actor.world.get_entity(flora_id)
+    original = flora.get_component(PropGroup3DComponent)
+    replacement = PropGroup3DComponent(
+        recipe_key=original.recipe_key,
+        seed=original.seed,
+        asset_key=original.asset_key,
+        count=original.count,
+        color=original.color,
+        excluded_instance_ids=("i2",),
+        overrides=(PropInstanceOverride(instance_id="i3", scale=2.0),),
+    )
+    flora.remove_component(PropGroup3DComponent)
+    flora.add_component(replacement)
+
+    apply_outdoor_recipe(actor.world, room, reroll=True)
+    rerolled = flora.get_component(PropGroup3DComponent)
+
+    assert rerolled.seed != original.seed
+    assert rerolled.excluded_instance_ids == ("i2",)
+    assert rerolled.overrides[0].scale == 2.0
+
+
+def test_indoor_room_decoration_is_skipped_without_mutation():
+    actor = WorldActor()
+    room = spawn_entity(
+        actor.world, [RoomComponent(title="Glasshouse", biome="garden", indoor=True)]
+    )
+
+    result = apply_outdoor_recipe(actor.world, room)
+
+    assert result["status"] == "skipped"
+    assert not room.has_component(Environment3DComponent)
+    assert room.get_relationships(HasDecoration3D) == []
+
+
+def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
+    testclient = pytest.importorskip("fastapi.testclient")
+    monkeypatch.setenv("BUNNYLAND_MEDIA_DIR", str(tmp_path))
+    actor = WorldActor()
+    plugins = load_modules(["bunnyland_3d"])
+    apply_plugins(plugins, actor)
+    room = spawn_entity(
+        actor.world,
+        [
+            RoomComponent(title="Sun Field", biome="meadow"),
+            RoomBounds3DComponent(size=Vector3(16, 8, 16)),
+        ],
+    )
+    client = testclient.TestClient(
+        create_app(actor, meta=WorldMeta(seed="graphics"), plugins=plugins, admin_token="secret")
+    )
+    headers = {"X-Bunnyland-Admin-Secret": "secret"}
+
+    assert (
+        client.get(f"/admin/3d/room/{room.id}/decoration/preview", headers=headers).status_code
+        == 200
+    )
+    applied = client.post(f"/admin/3d/room/{room.id}/decoration/apply", headers=headers)
+    roofed = client.put(f"/admin/3d/room/{room.id}/roof", headers=headers, json={"has_roof": True})
+    uploaded = client.post(
+        f"/admin/3d/texture/room/{room.id}/skybox",
+        headers={**headers, "content-type": "image/png"},
+        content=b"not-decoded-by-media-store",
+    )
+    scene = client.get(f"/3d/v2/room/{room.id}").json()
+
+    assert applied.status_code == 200
+    assert roofed.json()["has_roof"] is True
+    assert uploaded.status_code == 200
+    assert scene["room"]["environment3d"]["has_roof"] is True
+    assert scene["room"]["environment3d"]["skybox_url"].startswith("/media/textures3d/")
+    assert len(scene["decorations"]) == 4
+    assert scene["entities"] == []

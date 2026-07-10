@@ -1,4 +1,4 @@
-import { claimHeaders, normalizeBase, requestSceneImage, sendJson } from '@bunnyland/ui-web/api';
+import { claimHeaders, mediaUrl, normalizeBase, requestSceneImage, sendJson } from '@bunnyland/ui-web/api';
 import {
   actionArguments,
   actionAvailable,
@@ -122,16 +122,22 @@ export interface ThreeDCapabilities {
 
 export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
   const data = await sendJson(base, '/3d/v2/capabilities') as ThreeDCapabilities;
-  if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 2) {
-    throw new Error('Bunnyland 3D v2 server plugin is required');
+  if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 3) {
+    throw new Error('Bunnyland 3D scene schema v3 is required');
   }
   return data;
 }
 
 export async function fetch3dRoomScene(base: string, roomId: string): Promise<PlayerRoomScene> {
   const data = await sendJson(base, `/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
-  if (Number(data.schema_version) !== 2 || data.room?.id !== roomId) {
+  if (Number(data.schema_version) !== 3 || data.room?.id !== roomId) {
     throw new Error('Server returned an incompatible Bunnyland 3D room scene');
+  }
+  const environment = data.room.environment3d;
+  if (environment) {
+    for (const key of ['albedo_url', 'normal_url', 'skybox_url'] as const) {
+      if (environment[key]) environment[key] = mediaUrl(base, environment[key]!);
+    }
   }
   return data;
 }

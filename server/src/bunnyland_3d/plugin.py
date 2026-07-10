@@ -6,7 +6,14 @@ from bunnyland.plugins import ContentContribution, EcsContribution, Plugin, Runt
 
 from .api import install_3d_routes
 from .components import (
+    BiomeStyle3DComponent,
     Collider3DComponent,
+    DecorationSource3DComponent,
+    Environment3DComponent,
+    HasDecoration3D,
+    Light3DComponent,
+    ParticleEmitter3DComponent,
+    PropGroup3DComponent,
     Render3DComponent,
     RoomBounds3DComponent,
     Transform3DComponent,
@@ -16,7 +23,7 @@ from .enrichment import Worldgen3DHook
 from .systems import Movement3DSystem
 
 PLUGIN_ID = "bunnyland.3d"
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.3.0"
 
 
 def plugin() -> Plugin:
@@ -32,7 +39,14 @@ def plugin() -> Plugin:
                 Collider3DComponent,
                 Render3DComponent,
                 RoomBounds3DComponent,
+                Environment3DComponent,
+                BiomeStyle3DComponent,
+                PropGroup3DComponent,
+                Light3DComponent,
+                ParticleEmitter3DComponent,
+                DecorationSource3DComponent,
             ),
+            edges=(HasDecoration3D,),
             systems=(Movement3DSystem,),
         ),
         content=ContentContribution(worldgen_hooks=(Worldgen3DHook,)),

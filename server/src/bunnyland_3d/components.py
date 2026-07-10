@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from relics import Component
+from relics import Component, Edge
 
 
 @dataclass(frozen=True)
@@ -95,8 +95,115 @@ class RoomBounds3DComponent(Component):
     origin: Vector3 = Vector3()
 
 
+@dataclass(frozen=True)
+class Environment3DComponent(Component):
+    """Outdoor room atmosphere and optional surface media overrides."""
+
+    sky_color: str = Field(default="#9bc7e8", pattern=r"^#[0-9a-fA-F]{6}$")
+    fog_color: str = Field(default="#789c86", pattern=r"^#[0-9a-fA-F]{6}$")
+    fog_density: float = Field(default=0.012, ge=0.0, le=0.2)
+    ambient_color: str = Field(default="#d8efff", pattern=r"^#[0-9a-fA-F]{6}$")
+    ambient_intensity: float = Field(default=1.5, ge=0.0, le=8.0)
+    sun_color: str = Field(default="#fff1d2", pattern=r"^#[0-9a-fA-F]{6}$")
+    sun_intensity: float = Field(default=2.0, ge=0.0, le=8.0)
+    has_roof: bool = False
+    surface_recipe: str = Field(default="meadow", pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    albedo_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    normal_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    skybox_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    texture_scale: float = Field(default=4.0, ge=0.25, le=32.0)
+
+
+@dataclass(frozen=True)
+class BiomeStyle3DComponent(Component):
+    """Persistent uploaded texture defaults for one biome."""
+
+    biome: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    albedo_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    normal_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    skybox_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+
+
+@dataclass(frozen=True)
+class PropInstanceOverride:
+    """A manual adjustment to one stable generated instance."""
+
+    instance_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    position: Vector3 | None = None
+    rotation_y: float | None = None
+    scale: float | None = Field(default=None, ge=0.05, le=8.0)
+
+
+@dataclass(frozen=True)
+class PropGroup3DComponent(Component):
+    """One ECS entity representing many static, noninteractive prop instances."""
+
+    recipe_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    seed: int = Field(ge=0, le=2**31 - 1)
+    asset_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._/-]*$")
+    count: int = Field(default=24, ge=0, le=2000)
+    color: str = Field(default="#7ca85c", pattern=r"^#[0-9a-fA-F]{6}$")
+    min_scale: float = Field(default=0.5, ge=0.05, le=8.0)
+    max_scale: float = Field(default=1.2, ge=0.05, le=8.0)
+    margin: float = Field(default=0.6, ge=0.0, le=8.0)
+    excluded_instance_ids: tuple[str, ...] = ()
+    overrides: tuple[PropInstanceOverride, ...] = ()
+
+
+@dataclass(frozen=True)
+class Light3DComponent(Component):
+    """A projected local light; transform position comes from Transform3DComponent."""
+
+    kind: Literal["point", "spot", "directional"] = "point"
+    color: str = Field(default="#ffd38a", pattern=r"^#[0-9a-fA-F]{6}$")
+    intensity: float = Field(default=2.0, ge=0.0, le=20.0)
+    range: float = Field(default=7.0, ge=0.1, le=100.0)
+    decay: float = Field(default=2.0, ge=0.0, le=4.0)
+    cone: float = Field(default=0.7, ge=0.05, le=1.5)
+    cast_shadow: bool = False
+
+
+@dataclass(frozen=True)
+class ParticleEmitter3DComponent(Component):
+    """A bounded, deterministic ambient particle field."""
+
+    preset: Literal["pollen", "fireflies", "spores", "dust", "mist"] = "pollen"
+    seed: int = Field(ge=0, le=2**31 - 1)
+    count: int = Field(default=100, ge=0, le=1500)
+    bounds: Vector3 = Vector3(14.0, 4.0, 14.0)
+    color: str = Field(default="#f6e9a6", pattern=r"^#[0-9a-fA-F]{6}$")
+    size: float = Field(default=0.08, ge=0.01, le=2.0)
+    speed: float = Field(default=0.2, ge=0.0, le=5.0)
+    opacity: float = Field(default=0.65, ge=0.0, le=1.0)
+
+
+@dataclass(frozen=True)
+class DecorationSource3DComponent(Component):
+    """Ownership marker for idempotent recipe-managed presentation entities."""
+
+    room_id: str
+    recipe_key: str
+    role: Literal["flora", "detail", "light", "particles"]
+    recipe_version: int = Field(default=1, ge=1)
+
+
+@dataclass(frozen=True)
+class HasDecoration3D(Edge):
+    """Presentation-only room-to-decoration relationship."""
+
+    role: Literal["flora", "detail", "light", "particles"] = "detail"
+
+
 __all__ = [
     "Collider3DComponent",
+    "BiomeStyle3DComponent",
+    "DecorationSource3DComponent",
+    "Environment3DComponent",
+    "HasDecoration3D",
+    "Light3DComponent",
+    "ParticleEmitter3DComponent",
+    "PropGroup3DComponent",
+    "PropInstanceOverride",
     "Render3DComponent",
     "RoomBounds3DComponent",
     "Transform3DComponent",

@@ -28,13 +28,16 @@ recent activity panels update together.
 ## Read the room
 
 The center of the page is the room view. The client shows your current room, visible room
-contents, exits, and nearby rooms remembered from earlier visits.
+contents, exits, and nearby rooms remembered from earlier visits. Decorated outdoor rooms
+also show biome-specific terrain, grouped flora and static props, ambient particles, local
+lights, fog, and a skybox when the room has no roof. Grouped scenery is deliberately
+noninteractive; selectable or collidable props remain ordinary ECS entities.
 
 The server remains authoritative. If a target is hidden, blocked by fog, in another room, or
 otherwise unavailable, the client either hides the action or shows the server's rejection
 after you try it.
 
-The player requires the v2 3D server plugin. If capability negotiation fails, it shows a
+The player requires scene schema v3 from the 3D server plugin. If capability negotiation fails, it shows a
 compatibility error and does not enable character selection. Ask the server administrator to
 install the matching add-on image and keep `--module bunnyland_3d` in the server command.
 

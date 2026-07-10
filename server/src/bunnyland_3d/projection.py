@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import random
+
 from .components import (
     Collider3DComponent,
+    DecorationSource3DComponent,
+    Environment3DComponent,
+    Light3DComponent,
+    ParticleEmitter3DComponent,
+    PropGroup3DComponent,
     Render3DComponent,
     RoomBounds3DComponent,
     Transform3DComponent,
@@ -13,6 +20,56 @@ from .components import (
 
 def vector_view(vector: Vector3) -> dict[str, float]:
     return {"x": vector.x, "y": vector.y, "z": vector.z}
+
+
+def _prop_instances(group: PropGroup3DComponent, bounds: RoomBounds3DComponent) -> list[dict]:
+    randomizer = random.Random(group.seed)
+    overrides = {item.instance_id: item for item in group.overrides}
+    excluded = set(group.excluded_instance_ids)
+    result = []
+    width = max(0.0, bounds.size.x - group.margin * 2)
+    depth = max(0.0, bounds.size.z - group.margin * 2)
+    ground_cover = group.asset_key.rsplit(".", 1)[-1] in {
+        "grass",
+        "flower",
+        "reed",
+        "fern",
+        "scrub",
+    }
+    for index in range(group.count):
+        instance_id = f"i{index}"
+        if ground_cover:
+            x = bounds.origin.x + group.margin + randomizer.random() * width
+            z = bounds.origin.z + group.margin + randomizer.random() * depth
+        elif randomizer.random() < 0.5:
+            x = bounds.origin.x + group.margin + randomizer.random() * width
+            z = bounds.origin.z + (
+                group.margin if randomizer.random() < 0.5 else bounds.size.z - group.margin
+            )
+        else:
+            x = bounds.origin.x + (
+                group.margin if randomizer.random() < 0.5 else bounds.size.x - group.margin
+            )
+            z = bounds.origin.z + group.margin + randomizer.random() * depth
+        position = Vector3(x, bounds.origin.y, z)
+        rotation_y = randomizer.random() * 6.283185307179586
+        scale = group.min_scale + randomizer.random() * (group.max_scale - group.min_scale)
+        if instance_id in excluded:
+            continue
+        override = overrides.get(instance_id)
+        if override is not None:
+            position = override.position or position
+            rotation_y = override.rotation_y if override.rotation_y is not None else rotation_y
+            scale = override.scale if override.scale is not None else scale
+        result.append(
+            {
+                "id": instance_id,
+                "position": vector_view(position),
+                "rotation_y": rotation_y,
+                "scale": scale,
+            }
+        )
+    return result
 
 
 def entity_3d_view(entity) -> dict:
@@ -52,14 +109,90 @@ def entity_3d_view(entity) -> dict:
             "origin": vector_view(bounds.origin),
             "size": vector_view(bounds.size),
         }
+    if entity.has_component(Environment3DComponent):
+        environment = entity.get_component(Environment3DComponent)
+        view["environment3d"] = {
+            "sky_color": environment.sky_color,
+            "fog_color": environment.fog_color,
+            "fog_density": environment.fog_density,
+            "ambient_color": environment.ambient_color,
+            "ambient_intensity": environment.ambient_intensity,
+            "sun_color": environment.sun_color,
+            "sun_intensity": environment.sun_intensity,
+            "has_roof": environment.has_roof,
+            "surface_recipe": environment.surface_recipe,
+            "albedo_url": environment.albedo_url,
+            "normal_url": environment.normal_url,
+            "skybox_url": environment.skybox_url,
+            "texture_scale": environment.texture_scale,
+        }
+    if entity.has_component(PropGroup3DComponent):
+        group = entity.get_component(PropGroup3DComponent)
+        view["prop_group3d"] = {
+            "recipe_key": group.recipe_key,
+            "asset_key": group.asset_key,
+            "color": group.color,
+            "instances": [],
+        }
+    if entity.has_component(Light3DComponent):
+        light = entity.get_component(Light3DComponent)
+        view["light3d"] = {
+            "kind": light.kind,
+            "color": light.color,
+            "intensity": light.intensity,
+            "range": light.range,
+            "decay": light.decay,
+            "cone": light.cone,
+            "cast_shadow": light.cast_shadow,
+        }
+    if entity.has_component(ParticleEmitter3DComponent):
+        emitter = entity.get_component(ParticleEmitter3DComponent)
+        view["particle_emitter3d"] = {
+            "preset": emitter.preset,
+            "seed": emitter.seed,
+            "count": emitter.count,
+            "bounds": vector_view(emitter.bounds),
+            "color": emitter.color,
+            "size": emitter.size,
+            "speed": emitter.speed,
+            "opacity": emitter.opacity,
+        }
+    if entity.has_component(DecorationSource3DComponent):
+        source = entity.get_component(DecorationSource3DComponent)
+        view["decoration_source3d"] = {
+            "recipe_key": source.recipe_key,
+            "recipe_version": source.recipe_version,
+            "role": source.role,
+        }
+    return view
+
+
+def decoration_3d_view(entity, bounds: RoomBounds3DComponent) -> dict:
+    view = entity_3d_view(entity)
+    if entity.has_component(PropGroup3DComponent):
+        view["prop_group3d"]["instances"] = _prop_instances(
+            entity.get_component(PropGroup3DComponent), bounds
+        )
     return view
 
 
 def world_3d_view(world) -> dict:
-    entities = world.query().with_any(
-        [Transform3DComponent, Render3DComponent, RoomBounds3DComponent]
-    ).execute_entities()
+    entities = (
+        world.query()
+        .with_any(
+            [
+                Transform3DComponent,
+                Render3DComponent,
+                RoomBounds3DComponent,
+                Environment3DComponent,
+                PropGroup3DComponent,
+                Light3DComponent,
+                ParticleEmitter3DComponent,
+            ]
+        )
+        .execute_entities()
+    )
     return {"schema_version": 1, "entities": [entity_3d_view(entity) for entity in entities]}
 
 
-__all__ = ["entity_3d_view", "vector_view", "world_3d_view"]
+__all__ = ["decoration_3d_view", "entity_3d_view", "vector_view", "world_3d_view"]
