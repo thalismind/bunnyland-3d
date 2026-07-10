@@ -17,7 +17,7 @@ When loaded, it contributes:
 - `Transform3DComponent` for room-local position and orientation;
 - `Velocity3DComponent` for per-tick motion;
 - `Collider3DComponent` for collision metadata;
-- `Render3DComponent` for client-facing model, color, and scale hints;
+- `Render3DComponent` for bundled asset, variant, shape, color, and visibility hints;
 - `RoomBounds3DComponent` for room dimensions;
 - `Movement3DSystem` for movement and bounds clamping;
 - `Worldgen3DHook` for seeding generated worlds with 3D metadata.
@@ -45,6 +45,11 @@ The web image copies the built client into `/usr/share/nginx/html/3d`.
 The player client uses public controller and projection APIs. The admin inspector loads
 admin world data such as `/world/overview` and `/world/snapshot`; protect the API the same
 way you protect the rest of `/admin/*` and world inspection surfaces.
+
+The v2 player first checks `/3d/v2/capabilities`, then loads the current room from
+`/3d/v2/room/{room_id}`. The latter follows the same visible-entity boundary as the public
+room projection and adds only presentation metadata. Deploy matching v2 server and web
+images together.
 
 ## Build the images
 
@@ -100,8 +105,8 @@ After deployment:
 2. Open `/3d/admin.html`, set the server to `/api`, and load the world overview.
 3. Select a room and confirm room contents appear.
 4. Toggle 2D/3D mode and automatic/manual camera.
-5. Open `/3d/player.html`, claim a test character, submit a cheap action, and cancel a queued
-   action.
+5. Open `/3d/player.html`, claim a test character, walk with WASD, confirm an exit prompt,
+   submit a cheap action, and cancel a queued action.
 6. Capture a canvas PNG and confirm it is not blank.
 
 If the view falls back to deterministic layout, confirm the server was started with

@@ -40,17 +40,100 @@
         white-space: nowrap;
       }
       #main {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 360px;
+        position: relative;
+        overflow: hidden;
         min-height: 0;
       }
-      #viewer { min-width: 0; min-height: 0; }
+      #viewer { position: absolute; inset: 0; min-width: 0; min-height: 0; }
       #viewer canvas { display: block; width: 100%; height: 100%; }
       #side {
-        min-height: 0;
+        position: absolute;
+        z-index: 20;
+        inset: 12px 12px 12px auto;
+        width: min(380px, calc(100% - 24px));
         overflow: auto;
-        border-left: 1px solid var(--bl-border);
+        border: 1px solid var(--bl-border);
+        border-radius: var(--bl-radius-md);
         background: var(--bl-bg-strong);
+        box-shadow: var(--bl-shadow-popover);
+        transition: transform 180ms ease, opacity 180ms ease;
+      }
+      #side.closed {
+        pointer-events: none;
+        opacity: 0;
+        transform: translateX(calc(100% + 24px));
+      }
+      #scene-summary {
+        position: absolute;
+        z-index: 12;
+        top: 14px;
+        left: 14px;
+        max-width: min(420px, calc(100% - 90px));
+        padding: 10px 12px;
+        border: 1px solid var(--bl-border);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-overlay-strong);
+        color: var(--bl-text);
+        box-shadow: var(--bl-shadow-popover);
+        pointer-events: none;
+      }
+      #hud-character { font-size: 16px; font-weight: 800; }
+      #hud-room, #hud-points { margin-top: 3px; color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
+      #control-hint {
+        position: absolute;
+        z-index: 11;
+        left: 14px;
+        bottom: 14px;
+        padding: 7px 9px;
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-overlay-strong);
+        color: var(--bl-text-soft);
+        font-size: var(--bl-text-xs);
+        pointer-events: none;
+      }
+      #exit-prompt {
+        position: absolute;
+        z-index: 15;
+        left: 50%;
+        bottom: 28px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transform: translateX(-50%);
+        padding: 9px 10px 9px 14px;
+        border: 1px solid var(--bl-accent);
+        border-radius: var(--bl-radius-md);
+        background: var(--bl-overlay-strong);
+        color: var(--bl-text);
+        box-shadow: var(--bl-shadow-popover);
+      }
+      #exit-prompt.hidden { display: none; }
+      #remembered-map {
+        display: grid;
+        gap: 5px;
+        align-items: stretch;
+        min-height: 80px;
+      }
+      .map-room {
+        display: grid;
+        place-items: center;
+        min-height: 42px;
+        padding: 4px;
+        border: 1px solid var(--bl-border-muted);
+        border-radius: var(--bl-radius-sm);
+        background: var(--bl-bg-subtle);
+        color: var(--bl-text-dim);
+        font-size: 12px;
+        text-align: center;
+      }
+      .map-room span {
+        display: block;
+        max-width: 76px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .map-room.current { border-color: var(--bl-accent); color: var(--bl-accent-strong); }
       }
       .panel { padding: 10px; border-bottom: 1px solid var(--bl-border); }
       .panel h2 { margin: 0 0 8px; font-size: 18px; }
@@ -318,8 +401,11 @@
       .claim-dialog-form h3 { margin: 0 0 4px; }
       .claim-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
       @media (max-width: 900px) {
-        #main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 1fr) 330px; }
-        #side { border-left: 0; border-top: 1px solid var(--bl-border); }
+        #side { inset: 8px 8px 8px auto; width: min(360px, calc(100% - 16px)); }
+        #control-hint { display: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #side { transition: none; }
       }
     </style>
   </head>
@@ -335,9 +421,8 @@
         <button id="btn-claim" type="button" disabled>Claim</button>
         <button id="btn-request-image" type="button">📷 image</button>
         <button id="btn-refresh" type="button">Refresh</button>
-        <button id="btn-mode" type="button">2D</button>
-        <button id="btn-camera" type="button">Auto Camera</button>
         <button id="btn-capture" type="button">📷 Capture</button>
+        <button id="btn-hud" type="button" aria-controls="side" aria-expanded="true">Panels</button>
         <label for="theme-select">Theme</label>
         <select id="theme-select"></select>
         <span id="status">Ready</span>
@@ -366,6 +451,16 @@
       </dialog>
       <main id="main">
         <section id="viewer"></section>
+        <div id="scene-summary" aria-live="polite">
+          <div id="hud-character">No character selected</div>
+          <div id="hud-room">Connect to a v2 server to begin.</div>
+          <div id="hud-points"></div>
+        </div>
+        <div id="control-hint">WASD move · right-drag orbit · wheel zoom · click target</div>
+        <div id="exit-prompt" class="hidden" aria-live="polite">
+          <span id="exit-prompt-text">Travel?</span>
+          <button id="btn-exit-prompt" type="button">E · Travel</button>
+        </div>
         <aside id="side">
           <section class="panel">
             <div class="portrait-panel">
@@ -384,6 +479,10 @@
           <section class="panel">
             <h2 id="room-title">No room</h2>
             <div id="room-meta" class="muted">Connect and choose a character.</div>
+          </section>
+          <section class="panel">
+            <h2>Remembered map</h2>
+            <div id="remembered-map" class="muted">No rooms remembered.</div>
           </section>
           <section class="panel">
             <h2>Room</h2>

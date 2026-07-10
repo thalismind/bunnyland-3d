@@ -43,6 +43,8 @@ def entity_3d_view(entity) -> dict:
             "opacity": render.opacity,
             "label": render.label,
             "visible": render.visible,
+            "asset_key": render.asset_key,
+            "variant_key": render.variant_key,
         }
     if entity.has_component(RoomBounds3DComponent):
         bounds = entity.get_component(RoomBounds3DComponent)

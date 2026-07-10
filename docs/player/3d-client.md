@@ -34,14 +34,19 @@ The server remains authoritative. If a target is hidden, blocked by fog, in anot
 otherwise unavailable, the client either hides the action or shows the server's rejection
 after you try it.
 
-3D metadata improves placement and scale when the server was started with the 3D plugin. If a
-world does not have 3D components yet, the client falls back to deterministic layout so the
-room is still playable.
+The player requires the v2 3D server plugin. If capability negotiation fails, it shows a
+compatibility error and does not enable character selection. Ask the server administrator to
+install the matching add-on image and keep `--module bunnyland_3d` in the server command.
 
 ## Move and act
 
-Click an exit in your current room to queue a normal `move` action. The move spends action
-points the same way it does in the terminal, Discord, REPL, or Toon client.
+Use **WASD** to walk around the current room. This local pose is visual only and remains in
+place across ordinary refreshes. The server transform is used again when you enter a new room
+or if the local pose becomes invalid.
+
+Walk close to an exit to reveal its prompt, then press **E** or click **Travel** to queue the
+normal `move` action. The move spends action points the same way it does in the terminal,
+Discord, REPL, or Toon client.
 
 Click a visible character, item, or prop to select it as the current target. The action panel
 then filters and labels actions around that target. You can also search actions directly from
@@ -54,16 +59,19 @@ Actions use the same verbs as every other Bunnyland client:
 - queued actions appear in the queue panel and can be cancelled before they run;
 - the server can still reject an action if the target or world state changed.
 
-## Use the camera controls
+## Use the camera and HUD
 
-The 3D view normally keeps the current room and selected target framed automatically.
+The third-person camera follows your locally controlled avatar.
 
 Use the view controls to:
 
-- switch between 3D and 2D layout views;
-- toggle automatic or manual camera control;
+- right-drag the room view to orbit;
+- use the wheel to change follow distance;
+- click a visible character or object to target it;
 - capture the current canvas as a PNG;
-- change the shared Bunnyland theme.
+- use **Panels** to show or hide detailed character, room, action, queue, photo, and activity
+  controls;
+- read the remembered-room map in the panels without leaving the character view.
 
 The capture button downloads the current canvas only. It is useful for player notes,
 feedback, and bug reports. Server-generated scene images are separate and appear in the

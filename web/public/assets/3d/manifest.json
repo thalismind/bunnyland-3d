@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "assets": {
+    "avatar.leporid": {
+      "path": "avatar-leporid.gltf",
+      "clips": [
+        "Idle",
+        "Walk"
+      ],
+      "variants": [
+        "default",
+        "scout",
+        "gardener"
+      ]
+    },
+    "prop.generic": {
+      "path": "prop-generic.gltf"
+    },
+    "prop.lantern": {
+      "path": "prop-lantern.gltf"
+    }
+  }
+}

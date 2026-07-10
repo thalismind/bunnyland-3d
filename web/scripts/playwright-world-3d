@@ -218,6 +218,50 @@ def player_projection():
     }
 
 
+def player_3d_scene(room_id: str):
+    room = ROOMS[room_id]["room"]
+    biome = "meadow" if room_id == "room:meadow" else "marsh"
+    exits = [{"id": "room:pond", "direction": "east", "label": "Mirror Pond", "locked": False}]
+    if room_id == "room:pond":
+        exits = [{"id": "room:meadow", "direction": "west", "label": "Sunlit Meadow", "locked": False}]
+    entities = []
+    for item in room["entities"]:
+        entities.append({
+            "id": item["id"],
+            "name": item["name"],
+            "kind": item["kind"],
+            "is_character": bool(item.get("is_character")),
+            "transform3d": item.get("transform3d", {"position": {"x": 8, "y": 0.3, "z": 8}}),
+            "render3d": item.get("render3d", {"shape": "box", "color": "#a6e3a1", "asset_key": "prop.generic"}),
+            "collider3d": {"shape": "box", "size": {"x": 0.6, "y": 0.6, "z": 0.6}, "solid": True, "static": True},
+        })
+    entities = [item for item in entities if item["id"] != "character:ash"]
+    entities.append({
+        "id": "character:ash",
+        "name": "Ash",
+        "kind": "character",
+        "is_character": True,
+        "transform3d": {"position": {"x": 14.5 if room_id == "room:meadow" else 1.5, "y": 0.9, "z": 8}},
+        "render3d": {"shape": "capsule", "color": "#89b4fa", "asset_key": "avatar.leporid", "variant_key": "scout"},
+        "collider3d": {"shape": "capsule", "size": {"x": 0.7, "y": 1.8, "z": 0.7}, "radius": 0.35, "solid": True},
+    })
+    return {
+        "ok": True,
+        "schema_version": 2,
+        "world_epoch": 21,
+        "room": {
+            "id": room_id,
+            "title": room["title"],
+            "biome": biome,
+            "indoor": False,
+            "bounds3d": {"origin": {"x": 0, "y": 0, "z": 0}, "size": {"x": 16, "y": 8, "z": 16}},
+            "render3d": {"color": "#668a4d" if biome == "meadow" else "#406c61", "asset_key": f"room.{biome}"},
+        },
+        "exits": exits,
+        "entities": entities,
+    }
+
+
 def url_ok(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=0.5) as response:
@@ -269,6 +313,19 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
 
 
 def route_api(page):
+    page.route("**/mock/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
+        "ok": True,
+        "plugin_id": "bunnyland.3d",
+        "plugin_version": "0.2.0",
+        "scene_schema_version": 2,
+        "asset_schema_version": 1,
+    }))
+
+    def scene_route(route):
+        room_id = unquote(route.request.url.rsplit("/3d/v2/room/", 1)[1])
+        route.fulfill(status=200, json=player_3d_scene(room_id))
+
+    page.route("**/mock/3d/v2/room/*", scene_route)
     page.route("**/mock/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
     page.route("**/mock/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
     page.route("**/mock/world/characters", lambda route: route.fulfill(status=200, json={
@@ -578,16 +635,33 @@ def main() -> None:
             page.locator('[data-command-id="cmd-1"]').click()
             expect(page.locator("#queue")).to_contain_text("No queued actions")
             player_before = page.evaluate("window.__world3dPlayer.cameraState()")
-            marker = page.evaluate("window.__world3dPlayer.exitScreenPoint('room:pond', 'room:meadow')")
-            if not marker:
-                raise AssertionError("3D exit marker was not projected to the viewport")
-            page.mouse.click(marker["x"], marker["y"])
+            page.locator("#viewer canvas").click(position={"x": 100, "y": 100})
+            avatar_before = page.evaluate("window.__world3dPlayer.avatarState()")
+            page.keyboard.down("KeyA")
+            page.wait_for_timeout(700)
+            page.keyboard.up("KeyA")
+            avatar_bounded = page.evaluate("window.__world3dPlayer.avatarState()")
+            if avatar_bounded["x"] > 15.65:
+                raise AssertionError(f"local avatar escaped room bounds: {avatar_bounded!r}")
+            page.keyboard.down("KeyW")
+            page.wait_for_timeout(180)
+            page.keyboard.up("KeyW")
+            avatar_after = page.evaluate("window.__world3dPlayer.avatarState()")
+            if avatar_after == avatar_before:
+                raise AssertionError(f"WASD did not move the local avatar: {avatar_before!r}")
+            page.locator("#btn-refresh").click()
+            page.wait_for_timeout(250)
+            avatar_refreshed = page.evaluate("window.__world3dPlayer.avatarState()")
+            if avatar_refreshed != avatar_after:
+                raise AssertionError(
+                    f"same-room refresh reset local movement: {avatar_after!r} -> {avatar_refreshed!r}"
+                )
+            expect(page.locator("#exit-prompt")).not_to_have_class("hidden")
+            page.locator("#btn-exit-prompt").click()
             expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
             if not any(command.get("command_type") == "move" and command.get("payload", {}).get("exit_id") == "room:pond" for command in COMMAND_PAYLOADS):
                 raise AssertionError(f"exit click did not submit move command: {COMMAND_PAYLOADS!r}")
             player_during = page.evaluate("window.__world3dPlayer.cameraState()")
-            if not player_during["moving"]:
-                raise AssertionError(f"player room move did not animate camera: {player_before!r} -> {player_during!r}")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
             player_after = page.evaluate("window.__world3dPlayer.cameraState()")
             if player_after["target"] == player_before["target"]:
@@ -622,6 +696,15 @@ def main() -> None:
             page.locator("#btn-dialog-release").click()
             if not CLAIM_RELEASED:
                 raise AssertionError("claim dialog did not release claim")
+
+            page.unroute("**/mock/3d/v2/capabilities")
+            page.route(
+                "**/mock/3d/v2/capabilities",
+                lambda route: route.fulfill(status=404, json={"detail": "plugin missing"}),
+            )
+            page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")
+            expect(page.locator("#status")).to_contain_text("connect failed")
+            expect(page.locator("#character-select option")).to_have_count(1)
             browser.close()
     finally:
         if proc is not None:

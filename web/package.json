@@ -1,10 +1,11 @@
 {
   "name": "bunnyland-3d-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "assets": "node scripts/generate-3d-assets.mjs",
     "build": "tsc -p tsconfig.json && vite build",
     "test": "node --test",
     "check": "npm run build && npm test",

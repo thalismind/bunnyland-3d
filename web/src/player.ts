@@ -3,7 +3,7 @@ import { mediaUrl as sharedMediaUrl, normalizeBase, serverFromUrl, setServerInUr
 import { bindThemeSelect } from '@bunnyland/ui-web/theme';
 import { escapeHtml } from '@bunnyland/ui-web/widgets';
 import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
-import { BunnylandScene, type ViewMode } from './scene';
+import { PlayerScene, type PlayerSceneExit } from './player-scene';
 import {
   actionArguments,
   actionAvailable,
@@ -20,6 +20,8 @@ import {
   claimCharacter,
   drainNarratedEvents,
   fetchCharacters,
+  fetch3dCapabilities,
+  fetch3dRoomScene,
   fetchProjection,
   fetchQueue,
   fetchRecentEvents,
@@ -30,7 +32,6 @@ import {
   inventoryEntries,
   latestImageCompletion,
   latestImageFailure,
-  playerSceneView,
   queuedCommandLabel,
   queuedCountdownSeconds,
   releaseClaim,
@@ -46,6 +47,7 @@ import {
   type CharacterSummary,
   type ClaimOptions,
   type ControlClaim,
+  type FogState,
   type QueuedProjection,
 } from './play';
 
@@ -85,9 +87,16 @@ const photoLightboxMeta = document.getElementById('photo-lightbox-meta') as HTML
 const photoLightboxImg = document.getElementById('photo-lightbox-img') as HTMLImageElement;
 const lightboxDownloadButton = document.getElementById('btn-lightbox-download') as HTMLButtonElement;
 const lightboxCloseButton = document.getElementById('btn-lightbox-close') as HTMLButtonElement;
-const modeButton = document.getElementById('btn-mode') as HTMLButtonElement;
-const cameraButton = document.getElementById('btn-camera') as HTMLButtonElement;
 const captureButton = document.getElementById('btn-capture') as HTMLButtonElement;
+const exitPromptEl = document.getElementById('exit-prompt') as HTMLElement;
+const exitPromptTextEl = document.getElementById('exit-prompt-text') as HTMLElement;
+const exitPromptButton = document.getElementById('btn-exit-prompt') as HTMLButtonElement;
+const rememberedMapEl = document.getElementById('remembered-map') as HTMLElement;
+const hudButton = document.getElementById('btn-hud') as HTMLButtonElement;
+const sideEl = document.getElementById('side') as HTMLElement;
+const hudCharacterEl = document.getElementById('hud-character') as HTMLElement;
+const hudRoomEl = document.getElementById('hud-room') as HTMLElement;
+const hudPointsEl = document.getElementById('hud-points') as HTMLElement;
 const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
 const claimDialog = document.getElementById('claim-dialog') as HTMLDialogElement;
 const claimFallbackEl = document.getElementById('claim-fallback') as HTMLSelectElement;
@@ -106,8 +115,6 @@ let projection: CharacterProjection | null = null;
 let queue: QueuedProjection | null = null;
 let selectedTargetId = '';
 let showActionIcons = iconPreference(true);
-let viewMode: ViewMode = '3d';
-let manualCamera = false;
 let activityLines: ActivityLine[] = [];
 let seenEventIds = new Set<string>();
 let eventsPrimed = false;
@@ -116,19 +123,16 @@ let eventImageFailureEpoch = -1;
 let submittingAction = '';
 let galleryItems: GalleryItem[] = [];
 let activeGalleryId = '';
+let nearbyExit: PlayerSceneExit | null = null;
 
-const scene = new BunnylandScene(
+const scene = new PlayerScene(
   viewer,
-  roomId => {
-    if (projection?.room.id !== roomId) pushActivity({ text: `Remembered room: ${roomId}`, kind: 'system' });
-  },
   entityId => {
     selectTarget(entityId);
   },
-  (exitId, sourceRoomId) => {
-    if (projection?.room.id === sourceRoomId) void moveThroughExit(exitId);
-    else pushActivity({ text: `Remembered exit from ${nameFor(sourceRoomId) || sourceRoomId}`, kind: 'system' });
-    render();
+  exit => {
+    nearbyExit = exit;
+    renderExitPrompt();
   },
 );
 
@@ -143,11 +147,14 @@ async function connect(rawBase: string): Promise<void> {
   apiInput.value = baseUrl;
   status('loading characters...');
   try {
+    await fetch3dCapabilities(baseUrl);
     characters = await fetchCharacters(baseUrl);
     renderCharacters();
     setServerInUrl(baseUrl);
     status(`loaded ${characters.length} characters`, 'ok');
   } catch (err) {
+    characters = [];
+    renderCharacters();
     status(`connect failed: ${(err as Error).message}`, 'err');
   }
   render();
@@ -178,9 +185,10 @@ async function refresh(): Promise<void> {
     if (projection.controller?.generation != null) control.generation = Number(projection.controller.generation || control.generation);
     queue = await fetchQueue(baseUrl, playerId, control);
     const fog = updateFog(baseUrl, projection);
-    const view = playerSceneView(fog, projection);
-    scene.loadPlayerRoom(view.layout, projection.room.id, view.entities);
-    if (selectedTargetId) scene.selectEntity(selectedTargetId, false);
+    renderRememberedMap(fog);
+    const roomScene = await fetch3dRoomScene(baseUrl, projection.room.id);
+    await scene.loadRoom(roomScene, playerId);
+    if (selectedTargetId) scene.selectEntity(selectedTargetId);
     await refreshActivity();
     render();
   } catch (err) {
@@ -241,6 +249,9 @@ function render(): void {
   requestImageButton.disabled = !playerId;
   openSheetButton.disabled = !playerId;
   if (!projection) {
+    hudCharacterEl.textContent = 'No character selected';
+    hudRoomEl.textContent = 'Connect to a Bunnyland 3D v2 server to begin.';
+    hudPointsEl.textContent = '';
     renderCharacterPanel();
     roomTitleEl.textContent = 'No character selected';
     roomMetaEl.textContent = 'Connect and choose a character.';
@@ -255,6 +266,9 @@ function render(): void {
     return;
   }
   const points = projection.points || {};
+  hudCharacterEl.textContent = projection.characterName;
+  hudRoomEl.textContent = projection.room.title;
+  hudPointsEl.textContent = `AP ${points.action ?? 0}/${points.action_max ?? 0} · FP ${points.focus ?? 0}/${points.focus_max ?? 0}`;
   renderCharacterPanel();
   roomTitleEl.textContent = projection.room.title;
   roomMetaEl.textContent = [
@@ -269,6 +283,44 @@ function render(): void {
   renderQueue();
   renderGallery();
   renderActivity();
+}
+
+function renderExitPrompt(): void {
+  if (!nearbyExit) {
+    exitPromptEl.classList.add('hidden');
+    return;
+  }
+  const label = nearbyExit.label || nearbyExit.direction || nearbyExit.id;
+  exitPromptTextEl.textContent = nearbyExit.locked ? `${label} is locked` : `Travel to ${label}?`;
+  exitPromptButton.textContent = nearbyExit.locked ? 'Locked' : 'E · Travel';
+  exitPromptButton.disabled = nearbyExit.locked;
+  exitPromptEl.classList.remove('hidden');
+}
+
+async function confirmNearbyExit(): Promise<void> {
+  if (!nearbyExit || nearbyExit.locked) return;
+  const exitId = nearbyExit.id;
+  nearbyExit = null;
+  renderExitPrompt();
+  await moveThroughExit(exitId);
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(element?.closest('input, select, textarea, button, dialog, [contenteditable="true"]'));
+}
+
+function renderRememberedMap(fog: FogState): void {
+  if (!rememberedMapEl) return;
+  const minX = Math.min(...fog.rooms.map(room => room.gridX), 0);
+  const minY = Math.min(...fog.rooms.map(room => room.gridY), 0);
+  const maxX = Math.max(...fog.rooms.map(room => room.gridX), 0);
+  const maxY = Math.max(...fog.rooms.map(room => room.gridY), 0);
+  rememberedMapEl.style.gridTemplateColumns = `repeat(${Math.max(1, maxX - minX + 1)}, minmax(36px, 1fr))`;
+  rememberedMapEl.innerHTML = fog.rooms.map(room => {
+    const current = room.id === projection?.room.id;
+    return `<div class="map-room ${current ? 'current' : ''}" style="grid-column:${room.gridX - minX + 1};grid-row:${room.gridY - minY + 1}" title="${escapeHtml(room.title)}">${escapeHtml(current ? '●' : '○')}<span>${escapeHtml(room.title)}</span></div>`;
+  }).join('');
 }
 
 function renderRoom(): void {
@@ -545,6 +597,7 @@ async function releasePlayerClaim(): Promise<void> {
 
 function actionForm(action: ActionView, fields: ReturnType<typeof actionFields>): Promise<Record<string, unknown> | null> {
   return new Promise(resolve => {
+    scene.setEnabled(false);
     const backdrop = document.createElement('div');
     backdrop.id = 'action-form-backdrop';
     backdrop.innerHTML = `
@@ -563,6 +616,7 @@ function actionForm(action: ActionView, fields: ReturnType<typeof actionFields>)
     const close = (value: Record<string, unknown> | null): void => {
       document.removeEventListener('keydown', onKey);
       backdrop.remove();
+      scene.setEnabled(true);
       resolve(value);
     };
     const submit = (): void => {
@@ -613,7 +667,7 @@ function fieldHtml(field: ReturnType<typeof actionFields>[number], index: number
 
 function selectTarget(entityId: string): void {
   selectedTargetId = entityId || '';
-  if (selectedTargetId) scene.selectEntity(selectedTargetId, false);
+  if (selectedTargetId) scene.selectEntity(selectedTargetId);
   render();
 }
 
@@ -769,12 +823,14 @@ function openGalleryItem(id: string): void {
   photoLightboxImg.src = item.src;
   photoLightboxImg.alt = item.title;
   photoLightbox.classList.remove('hidden');
+  scene.setEnabled(false);
 }
 
 function closeLightbox(): void {
   activeGalleryId = '';
   photoLightbox.classList.add('hidden');
   photoLightboxImg.removeAttribute('src');
+  scene.setEnabled(true);
 }
 
 function downloadActivePhoto(): void {
@@ -804,8 +860,10 @@ characterSelect.addEventListener('change', () => { void selectCharacter(characte
 claimButton.addEventListener('click', () => {
   if (!playerId) return;
   dialogClaimButton.textContent = control?.active === false ? 'Resume' : 'Claim';
+  scene.setEnabled(false);
   claimDialog.showModal();
 });
+claimDialog.addEventListener('close', () => scene.setEnabled(true));
 requestImageButton.addEventListener('click', () => { void requestImage(); });
 openSheetButton.addEventListener('click', openSheet);
 clearTargetButton.addEventListener('click', clearTarget);
@@ -854,19 +912,19 @@ photoLightbox.addEventListener('click', event => {
 });
 lightboxCloseButton.addEventListener('click', closeLightbox);
 lightboxDownloadButton.addEventListener('click', downloadActivePhoto);
-modeButton.addEventListener('click', () => {
-  viewMode = viewMode === '3d' ? '2d' : '3d';
-  scene.setMode(viewMode);
-  modeButton.textContent = viewMode === '3d' ? '2D' : '3D';
-});
-cameraButton.addEventListener('click', () => {
-  manualCamera = !manualCamera;
-  scene.setManualCamera(manualCamera);
-  cameraButton.textContent = manualCamera ? 'Manual Camera' : 'Auto Camera';
-});
 captureButton.addEventListener('click', captureToGallery);
+hudButton.addEventListener('click', () => {
+  const closed = sideEl.classList.toggle('closed');
+  hudButton.setAttribute('aria-expanded', String(!closed));
+  if (!closed) sideEl.focus();
+});
+exitPromptButton.addEventListener('click', () => { void confirmNearbyExit(); });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !photoLightbox.classList.contains('hidden')) closeLightbox();
+  if (event.code === 'KeyE' && nearbyExit && !isTypingTarget(event.target)) {
+    event.preventDefault();
+    void confirmNearbyExit();
+  }
 });
 bindThemeSelect(themeSelect);
 
@@ -882,9 +940,9 @@ declare global {
       selectCharacter: (characterId: string) => Promise<void>;
       refresh: () => Promise<void>;
       selectTarget: (entityId: string) => void;
-      exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<BunnylandScene['exitScreenPoint']>;
-      themeState: () => ReturnType<BunnylandScene['themeState']>;
-      cameraState: () => ReturnType<BunnylandScene['cameraState']>;
+      exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<PlayerScene['exitScreenPoint']>;
+      cameraState: () => ReturnType<PlayerScene['cameraState']>;
+      avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
       capture: () => string;
     };
   }
@@ -896,8 +954,8 @@ window.__world3dPlayer = {
   selectCharacter,
   refresh,
   selectTarget,
-  exitScreenPoint: (exitId, sourceRoomId = '') => scene.exitScreenPoint(exitId, sourceRoomId),
-  themeState: () => scene.themeState(),
+  exitScreenPoint: exitId => scene.exitScreenPoint(exitId),
   cameraState: () => scene.cameraState(),
+  avatarState: () => scene.cameraState().avatar,
   capture: captureImage,
 };

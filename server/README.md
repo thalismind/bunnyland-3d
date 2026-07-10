@@ -10,5 +10,11 @@ The plugin entrypoint is `bunnyland_3d.bunnyland_plugins()`. When loaded by Bunn
 - `Render3DComponent`
 - `RoomBounds3DComponent`
 - `Movement3DSystem`
+- player-safe v2 capability and room-scene HTTP projections
+
+`Render3DComponent.asset_key` and `variant_key` are logical keys into the web client's
+bundled manifest. They are validated identifiers, not remote URLs. The player negotiates
+`GET /3d/v2/capabilities` and loads visible presentation state from
+`GET /3d/v2/room/{room_id}`.
 
 The code intentionally lives outside `bunnyland-server` to exercise and document the out-of-tree plugin path.

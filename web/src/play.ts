@@ -42,6 +42,7 @@ import {
   type QueuedProjection,
 } from '@bunnyland/ui-web/play';
 import { roomEntities, WORLD_3D_CONSTANTS, type LayoutRoom, type RoomRenderEntity, type WorldLayout } from './adapter.mjs';
+import type { PlayerRoomScene } from './player-scene';
 
 export {
   actionArguments,
@@ -109,6 +110,30 @@ export interface FogState {
 export interface PlayerSceneView {
   layout: WorldLayout;
   entities: RoomRenderEntity[];
+}
+
+export interface ThreeDCapabilities {
+  ok: boolean;
+  plugin_id: string;
+  plugin_version: string;
+  scene_schema_version: number;
+  asset_schema_version: number;
+}
+
+export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
+  const data = await sendJson(base, '/3d/v2/capabilities') as ThreeDCapabilities;
+  if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 2) {
+    throw new Error('Bunnyland 3D v2 server plugin is required');
+  }
+  return data;
+}
+
+export async function fetch3dRoomScene(base: string, roomId: string): Promise<PlayerRoomScene> {
+  const data = await sendJson(base, `/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
+  if (Number(data.schema_version) !== 2 || data.room?.id !== roomId) {
+    throw new Error('Server returned an incompatible Bunnyland 3D room scene');
+  }
+  return data;
 }
 
 export async function claimCharacter(base: string, characterId: string, options: ClaimOptions = {}): Promise<ControlClaim> {

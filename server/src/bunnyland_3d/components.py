@@ -75,6 +75,16 @@ class Render3DComponent(Component):
     opacity: float = Field(default=1.0, ge=0.0, le=1.0)
     label: str = ""
     visible: bool = True
+    asset_key: str = Field(
+        default="",
+        max_length=80,
+        pattern=r"^$|^[a-z0-9][a-z0-9._/-]*$",
+    )
+    variant_key: str = Field(
+        default="",
+        max_length=80,
+        pattern=r"^$|^[a-z0-9][a-z0-9._/-]*$",
+    )
 
 
 @dataclass(frozen=True)

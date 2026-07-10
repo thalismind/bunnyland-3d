@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from bunnyland.plugins import ContentContribution, EcsContribution, Plugin
+from bunnyland.plugins import ContentContribution, EcsContribution, Plugin, RuntimeContribution
 
+from .api import install_3d_routes
 from .components import (
     Collider3DComponent,
     Render3DComponent,
@@ -15,13 +16,14 @@ from .enrichment import Worldgen3DHook
 from .systems import Movement3DSystem
 
 PLUGIN_ID = "bunnyland.3d"
+PLUGIN_VERSION = "0.2.0"
 
 
 def plugin() -> Plugin:
     return Plugin(
         id=PLUGIN_ID,
         name="Bunnyland 3D",
-        version="0.1.0",
+        version=PLUGIN_VERSION,
         default_enabled=True,
         ecs=EcsContribution(
             components=(
@@ -34,6 +36,7 @@ def plugin() -> Plugin:
             systems=(Movement3DSystem,),
         ),
         content=ContentContribution(worldgen_hooks=(Worldgen3DHook,)),
+        runtime=RuntimeContribution(server_routers=(install_3d_routes,)),
     )
 
 
@@ -41,4 +44,4 @@ def bunnyland_plugins() -> list[Plugin]:
     return [plugin()]
 
 
-__all__ = ["PLUGIN_ID", "bunnyland_plugins", "plugin"]
+__all__ = ["PLUGIN_ID", "PLUGIN_VERSION", "bunnyland_plugins", "plugin"]

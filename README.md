@@ -35,7 +35,7 @@ The plugin exposes `bunnyland_3d.bunnyland_plugins()` and contributes:
 - `Transform3DComponent` - entity position and orientation in room-local 3D space.
 - `Velocity3DComponent` - per-tick motion state.
 - `Collider3DComponent` - collision radius/height metadata.
-- `Render3DComponent` - client-facing model, color, and scale hints.
+- `Render3DComponent` - client-facing bundled asset, variant, shape, color, and visibility hints.
 - `RoomBounds3DComponent` - room dimensions used by simulation and clients.
 - `Movement3DSystem` - advances velocity/transform state and clamps movement through the
   collision/bounds helpers.
@@ -91,11 +91,17 @@ server plugin is installed and projections include 3D fields, the client uses th
 it falls back to deterministic room layout. The inspector supports room/entity selection, 2D
 and 3D modes, automatic or manual camera control, theme selection, and canvas PNG capture.
 
-`player.html` is the playable 3D view. It claims a character through the public
-web-controller API, follows the current room with animated camera focus, shows searchable
-actions, displays queued commands with click-to-cancel controls, and can request server scene
-images. Remembered rooms are stored in browser `localStorage` per server and character, so
-fogged rooms remain visible after refresh while their contents stay hidden until revisited.
+`player.html` is the v2 playable 3D view. It requires the v2 server plugin capability and
+renders the current room at character scale with a third-person camera, local WASD roaming,
+collision, animated bundled avatars, biome dressing, clickable targets, and proximity exit
+prompts. Local roaming is presentation-only: confirmed exits and every other world change
+still use normal server actions. Detailed actions, queues, activity, photos, and the remembered
+map live in a collapsible HUD.
+
+The plugin serves `/3d/v2/capabilities` and `/3d/v2/room/{room_id}`. The room-scene route
+adds 3D fields only to entities already admitted by Bunnyland's public room projection; it
+does not expose raw or hidden ECS contents. The player refuses to start against an older
+plugin instead of silently showing a misleading fallback scene.
 
 The camera capture button downloads the current canvas as a PNG. Playwright smoke tests also
 save full-page screenshots with the toolbar/sidebar visible under `web/artifacts/`.

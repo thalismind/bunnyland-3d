@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-
+import pytest
 from bunnyland.core import ContainmentMode, Contains, RoomComponent, WorldActor, spawn_entity
 from bunnyland.core.components import CharacterComponent, IdentityComponent, PortableComponent
 from bunnyland.core.events import (
@@ -10,7 +9,9 @@ from bunnyland.core.events import (
     RoomGeneratedEvent,
     event_base,
 )
+from bunnyland.persistence import WorldMeta
 from bunnyland.plugins import apply_plugins, load_modules
+from bunnyland.server.app import create_app
 
 from bunnyland_3d.components import (
     Collider3DComponent,
@@ -84,44 +85,41 @@ def test_worldgen_hook_adds_3d_components_to_generated_entities():
         ],
     )
 
-    asyncio.run(
-        actor.bus.publish(
-            RoomGeneratedEvent(
-                **event_base(0),
-                seed="preview",
-                entity_id=str(room.id),
-                entity_key="room:dock",
-                entity_kind="room",
-                room_key="dock",
-                biome="station",
-                indoor=True,
-            )
+    hook = next(
+        hook for hook in actor._worldgen_hooks if isinstance(hook, Worldgen3DHook)
+    )
+    hook._on_room(
+        RoomGeneratedEvent(
+            **event_base(0),
+            seed="preview",
+            entity_id=str(room.id),
+            entity_key="room:dock",
+            entity_kind="room",
+            room_key="dock",
+            biome="station",
+            indoor=True,
         )
     )
-    asyncio.run(
-        actor.bus.publish(
-            CharacterGeneratedEvent(
-                **event_base(0),
-                seed="preview",
-                entity_id=str(character.id),
-                entity_key="character:iris",
-                entity_kind="character",
-                character_key="iris",
-                room_id=str(room.id),
-            )
+    hook._on_character(
+        CharacterGeneratedEvent(
+            **event_base(0),
+            seed="preview",
+            entity_id=str(character.id),
+            entity_key="character:iris",
+            entity_kind="character",
+            character_key="iris",
+            room_id=str(room.id),
         )
     )
-    asyncio.run(
-        actor.bus.publish(
-            ObjectGeneratedEvent(
-                **event_base(0),
-                seed="preview",
-                entity_id=str(item.id),
-                entity_key="item:beacon",
-                entity_kind="object",
-                object_key="beacon",
-                room_id=str(room.id),
-            )
+    hook._on_object(
+        ObjectGeneratedEvent(
+            **event_base(0),
+            seed="preview",
+            entity_id=str(item.id),
+            entity_key="item:beacon",
+            entity_kind="object",
+            object_key="beacon",
+            room_id=str(room.id),
         )
     )
 
@@ -129,7 +127,11 @@ def test_worldgen_hook_adds_3d_components_to_generated_entities():
     assert room.get_component(RoomBounds3DComponent).size == Vector3(16, 4, 16)
     assert room.get_component(Render3DComponent).color == "#4f6f9f"
     assert character.get_component(Collider3DComponent).shape == "capsule"
-    assert character.get_component(Render3DComponent).shape == "sphere"
+    assert character.get_component(Render3DComponent).shape == "capsule"
+    assert character.get_component(Render3DComponent).asset_key == "avatar.leporid"
+    character_position = character.get_component(Transform3DComponent).position
+    assert 0 < character_position.x < 16
+    assert 0 < character_position.z < 16
     assert item.get_component(Collider3DComponent).static
     assert item.get_component(Render3DComponent).shape == "box"
 
@@ -193,7 +195,13 @@ def test_projection_includes_3d_components():
         [
             Transform3DComponent(position=Vector3(1, 2, 3)),
             Collider3DComponent(shape="sphere", radius=0.75),
-            Render3DComponent(shape="sphere", color="#a6e3a1", label="Orb"),
+            Render3DComponent(
+                shape="sphere",
+                color="#a6e3a1",
+                label="Orb",
+                asset_key="prop.orb",
+                variant_key="moss",
+            ),
         ],
     )
 
@@ -203,4 +211,64 @@ def test_projection_includes_3d_components():
     assert view["transform3d"]["position"] == {"x": 1.0, "y": 2.0, "z": 3.0}
     assert view["collider3d"]["shape"] == "sphere"
     assert view["render3d"]["label"] == "Orb"
+    assert view["render3d"]["asset_key"] == "prop.orb"
+    assert view["render3d"]["variant_key"] == "moss"
     assert world_view["entities"][0]["id"] == str(entity.id)
+
+
+def test_render_keys_reject_remote_or_malformed_assets():
+    with pytest.raises(ValueError):
+        Render3DComponent(asset_key="https://example.com/model.glb")
+
+
+def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
+    testclient = pytest.importorskip("fastapi.testclient")
+    actor = WorldActor()
+    plugins = load_modules(["bunnyland_3d"])
+    apply_plugins(plugins, actor)
+    room = spawn_entity(
+        actor.world,
+        [
+            RoomComponent(title="Lantern Field", biome="meadow"),
+            RoomBounds3DComponent(size=Vector3(16, 4, 16)),
+            Render3DComponent(color="#7ca85c", asset_key="room.meadow"),
+        ],
+    )
+    visible = spawn_entity(
+        actor.world,
+        [
+            IdentityComponent(name="Iris", kind="character"),
+            CharacterComponent(),
+            Transform3DComponent(position=Vector3(8, 0.9, 8)),
+            Collider3DComponent(shape="capsule", size=Vector3(0.7, 1.8, 0.7)),
+            Render3DComponent(shape="capsule", asset_key="avatar.leporid"),
+        ],
+    )
+    hidden = spawn_entity(
+        actor.world,
+        [
+            IdentityComponent(name="Secret", kind="item"),
+            Transform3DComponent(position=Vector3(3, 0.3, 3)),
+            Render3DComponent(asset_key="prop.generic"),
+        ],
+    )
+    room.add_relationship(Contains(mode=ContainmentMode.ROOM_CONTENT), visible.id)
+    room.add_relationship(
+        Contains(mode=ContainmentMode.ROOM_CONTENT, visible=False),
+        hidden.id,
+    )
+
+    client = testclient.TestClient(
+        create_app(actor, meta=WorldMeta(seed="v2"), plugins=tuple(plugins))
+    )
+    capability = client.get("/3d/v2/capabilities")
+    scene = client.get(f"/3d/v2/room/{room.id}")
+
+    assert capability.status_code == 200
+    assert capability.json()["scene_schema_version"] == 2
+    assert scene.status_code == 200
+    data = scene.json()
+    assert data["schema_version"] == 2
+    assert data["room"]["bounds3d"]["size"] == {"x": 16.0, "y": 4.0, "z": 16.0}
+    assert [entity["id"] for entity in data["entities"]] == [str(visible.id)]
+    assert data["entities"][0]["render3d"]["asset_key"] == "avatar.leporid"
