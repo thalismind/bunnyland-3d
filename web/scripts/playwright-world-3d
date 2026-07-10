@@ -214,6 +214,17 @@ def player_projection():
                 "available": False,
                 "unavailable_reason": "not enough focus",
             },
+        ] + [
+            {
+                "command_type": f"explore-{index}",
+                "tool_name": f"explore-{index}",
+                "title": f"Explore detail {index + 1}",
+                "lane": "world",
+                "cost": {"action": 0, "focus": 0},
+                "arguments": [],
+                "available": True,
+            }
+            for index in range(18)
         ],
     }
 
@@ -221,19 +232,27 @@ def player_projection():
 def player_3d_scene(room_id: str):
     room = ROOMS[room_id]["room"]
     biome = "meadow" if room_id == "room:meadow" else "marsh"
-    exits = [{"id": "room:pond", "direction": "east", "label": "Mirror Pond", "locked": False}]
+    exits = [
+        {"id": "room:pond", "direction": "east", "label": "Mirror Pond", "locked": False},
+        {"id": "room:north", "direction": "north", "label": "North Gate", "locked": True},
+    ]
     if room_id == "room:pond":
         exits = [{"id": "room:meadow", "direction": "west", "label": "Sunlit Meadow", "locked": False}]
     entities = []
     for item in room["entities"]:
+        transform = item.get("transform3d", {"position": {"x": 8, "y": 0.3, "z": 8}})
+        collider = {"shape": "box", "size": {"x": 0.6, "y": 0.6, "z": 0.6}, "solid": True, "static": True}
+        if room_id == "room:meadow" and item["id"] == "item:clover":
+            transform = {"position": {"x": 14.5, "y": 0.3, "z": 8}}
+            collider["solid"] = False
         entities.append({
             "id": item["id"],
             "name": item["name"],
             "kind": item["kind"],
             "is_character": bool(item.get("is_character")),
-            "transform3d": item.get("transform3d", {"position": {"x": 8, "y": 0.3, "z": 8}}),
+            "transform3d": transform,
             "render3d": item.get("render3d", {"shape": "box", "color": "#a6e3a1", "asset_key": "prop.generic"}),
-            "collider3d": {"shape": "box", "size": {"x": 0.6, "y": 0.6, "z": 0.6}, "solid": True, "static": True},
+            "collider3d": collider,
         })
     entities = [item for item in entities if item["id"] != "character:ash"]
     entities.append({
@@ -253,7 +272,7 @@ def player_3d_scene(room_id: str):
             "id": room_id,
             "title": room["title"],
             "biome": biome,
-            "indoor": False,
+            "indoor": True,
             "bounds3d": {"origin": {"x": 0, "y": 0, "z": 0}, "size": {"x": 16, "y": 8, "z": 16}},
             "render3d": {"color": "#668a4d" if biome == "meadow" else "#406c61", "asset_key": f"room.{biome}"},
         },
@@ -587,9 +606,65 @@ def main() -> None:
             page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
             expect(page.locator("#status")).to_contain_text("loaded 1 characters")
+            expect(page.locator("#empty-state-title")).to_contain_text("Pick a character to start")
+            empty_state = page.evaluate(
+                """() => {
+                  const main = document.querySelector('#main').getBoundingClientRect();
+                  const state = document.querySelector('#empty-state').getBoundingClientRect();
+                  return {
+                    dx: Math.abs((main.left + main.width / 2) - (state.left + state.width / 2)),
+                    dy: Math.abs((main.top + main.height / 2) - (state.top + state.height / 2)),
+                    textAlign: getComputedStyle(document.querySelector('#empty-state')).textAlign,
+                  };
+                }"""
+            )
+            if empty_state["dx"] > 2 or empty_state["dy"] > 2 or empty_state["textAlign"] != "center":
+                raise AssertionError(f"player empty state was not centered: {empty_state!r}")
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
+            layout = page.evaluate(
+                """() => {
+                  const side = document.querySelector('#side');
+                  const panel = side.querySelector('.panel');
+                  const actions = document.querySelector('#actions');
+                  const queuePanel = document.querySelector('.queue-panel');
+                  const actionsPanel = document.querySelector('.actions-panel');
+                  return {
+                    sideOverflowX: getComputedStyle(side).overflowX,
+                    sideScrollWidth: side.scrollWidth,
+                    sideClientWidth: side.clientWidth,
+                    panelPaddingLeft: parseFloat(getComputedStyle(panel).paddingLeft),
+                    actionsOverflowY: getComputedStyle(actions).overflowY,
+                    actionsScrollHeight: actions.scrollHeight,
+                    actionsClientHeight: actions.clientHeight,
+                    queueTop: queuePanel.getBoundingClientRect().top,
+                    actionsTop: actionsPanel.getBoundingClientRect().top,
+                  };
+                }"""
+            )
+            if layout["sideOverflowX"] != "hidden" or layout["sideScrollWidth"] > layout["sideClientWidth"] + 1:
+                raise AssertionError(f"player sidebar overflowed horizontally: {layout!r}")
+            if layout["panelPaddingLeft"] < 10:
+                raise AssertionError(f"player sidebar panels lacked padding: {layout!r}")
+            if layout["actionsOverflowY"] != "auto" or layout["actionsScrollHeight"] <= layout["actionsClientHeight"]:
+                raise AssertionError(f"player actions did not have an internal scrollbar: {layout!r}")
+            if layout["queueTop"] >= layout["actionsTop"]:
+                raise AssertionError(f"pending actions were not placed before the action list: {layout!r}")
+            exits = page.evaluate("window.__world3dPlayer.exitStates()")
+            east_exit = next(exit_state for exit_state in exits if exit_state["side"] == "east")
+            north_exit = next(exit_state for exit_state in exits if exit_state["side"] == "north")
+            if abs(abs(east_exit["rotationY"]) - 1.5708) > 0.01 or abs(east_exit["x"] - 16) > 0.01:
+                raise AssertionError(f"east door did not align with its wall: {east_exit!r}")
+            if abs(north_exit["rotationY"]) > 0.01 or abs(north_exit["z"]) > 0.01:
+                raise AssertionError(f"north door did not align with its wall: {north_exit!r}")
+            page.locator("#btn-hud").click()
+            stacked_point = page.evaluate("window.__world3dPlayer.entityScreenPoint('item:clover')")
+            page.mouse.click(stacked_point["x"], stacked_point["y"])
+            expect(page.locator("#target-label")).to_contain_text("Silver Clover")
+            page.mouse.click(stacked_point["x"], stacked_point["y"])
+            page.locator("#btn-hud").click()
+            expect(page.locator("#target-label")).to_contain_text("Ash")
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(1)
             expect(page.locator("#photo-gallery")).to_contain_text("Scene image @ 10")
             page.locator("#photo-gallery .gallery-item").first.click()
@@ -704,6 +779,7 @@ def main() -> None:
             )
             page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")
             expect(page.locator("#status")).to_contain_text("connect failed")
+            expect(page.locator("#empty-state-title")).to_contain_text("Connect to a server")
             expect(page.locator("#character-select option")).to_have_count(1)
             browser.close()
     finally:

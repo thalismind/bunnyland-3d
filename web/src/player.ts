@@ -97,6 +97,11 @@ const sideEl = document.getElementById('side') as HTMLElement;
 const hudCharacterEl = document.getElementById('hud-character') as HTMLElement;
 const hudRoomEl = document.getElementById('hud-room') as HTMLElement;
 const hudPointsEl = document.getElementById('hud-points') as HTMLElement;
+const sceneSummaryEl = document.getElementById('scene-summary') as HTMLElement;
+const emptyStateEl = document.getElementById('empty-state') as HTMLElement;
+const emptyStateTitleEl = document.getElementById('empty-state-title') as HTMLElement;
+const emptyStateDetailEl = document.getElementById('empty-state-detail') as HTMLElement;
+const controlHintEl = document.getElementById('control-hint') as HTMLElement;
 const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
 const claimDialog = document.getElementById('claim-dialog') as HTMLDialogElement;
 const claimFallbackEl = document.getElementById('claim-fallback') as HTMLSelectElement;
@@ -124,6 +129,7 @@ let submittingAction = '';
 let galleryItems: GalleryItem[] = [];
 let activeGalleryId = '';
 let nearbyExit: PlayerSceneExit | null = null;
+let connectionReady = false;
 
 const scene = new PlayerScene(
   viewer,
@@ -145,14 +151,17 @@ async function connect(rawBase: string): Promise<void> {
   baseUrl = normalizeBase(rawBase);
   if (!baseUrl) return;
   apiInput.value = baseUrl;
+  connectionReady = false;
   status('loading characters...');
   try {
     await fetch3dCapabilities(baseUrl);
     characters = await fetchCharacters(baseUrl);
+    connectionReady = true;
     renderCharacters();
     setServerInUrl(baseUrl);
     status(`loaded ${characters.length} characters`, 'ok');
   } catch (err) {
+    connectionReady = false;
     characters = [];
     renderCharacters();
     status(`connect failed: ${(err as Error).message}`, 'err');
@@ -249,6 +258,13 @@ function render(): void {
   requestImageButton.disabled = !playerId;
   openSheetButton.disabled = !playerId;
   if (!projection) {
+    emptyStateTitleEl.textContent = connectionReady ? 'Pick a character to start' : 'Connect to a server';
+    emptyStateDetailEl.textContent = connectionReady
+      ? 'Choose a character from the toolbar and claim control.'
+      : 'Enter a Bunnyland API URL above, then choose a character.';
+    emptyStateEl.classList.remove('hidden');
+    sceneSummaryEl.classList.add('hidden');
+    controlHintEl.classList.add('hidden');
     hudCharacterEl.textContent = 'No character selected';
     hudRoomEl.textContent = 'Connect to a Bunnyland 3D v2 server to begin.';
     hudPointsEl.textContent = '';
@@ -266,6 +282,9 @@ function render(): void {
     return;
   }
   const points = projection.points || {};
+  emptyStateEl.classList.add('hidden');
+  sceneSummaryEl.classList.remove('hidden');
+  controlHintEl.classList.remove('hidden');
   hudCharacterEl.textContent = projection.characterName;
   hudRoomEl.textContent = projection.room.title;
   hudPointsEl.textContent = `AP ${points.action ?? 0}/${points.action_max ?? 0} · FP ${points.focus ?? 0}/${points.focus_max ?? 0}`;
@@ -316,7 +335,7 @@ function renderRememberedMap(fog: FogState): void {
   const minY = Math.min(...fog.rooms.map(room => room.gridY), 0);
   const maxX = Math.max(...fog.rooms.map(room => room.gridX), 0);
   const maxY = Math.max(...fog.rooms.map(room => room.gridY), 0);
-  rememberedMapEl.style.gridTemplateColumns = `repeat(${Math.max(1, maxX - minX + 1)}, minmax(36px, 1fr))`;
+  rememberedMapEl.style.gridTemplateColumns = `repeat(${Math.max(1, maxX - minX + 1)}, minmax(0, 1fr))`;
   rememberedMapEl.innerHTML = fog.rooms.map(room => {
     const current = room.id === projection?.room.id;
     return `<div class="map-room ${current ? 'current' : ''}" style="grid-column:${room.gridX - minX + 1};grid-row:${room.gridY - minY + 1}" title="${escapeHtml(room.title)}">${escapeHtml(current ? '●' : '○')}<span>${escapeHtml(room.title)}</span></div>`;
@@ -941,6 +960,8 @@ declare global {
       refresh: () => Promise<void>;
       selectTarget: (entityId: string) => void;
       exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<PlayerScene['exitScreenPoint']>;
+      entityScreenPoint: (entityId: string) => ReturnType<PlayerScene['entityScreenPoint']>;
+      exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
       avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
       capture: () => string;
@@ -955,6 +976,8 @@ window.__world3dPlayer = {
   refresh,
   selectTarget,
   exitScreenPoint: exitId => scene.exitScreenPoint(exitId),
+  entityScreenPoint: entityId => scene.entityScreenPoint(entityId),
+  exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
   avatarState: () => scene.cameraState().avatar,
   capture: captureImage,

@@ -210,6 +210,7 @@ export class PlayerScene {
   private dragged = false;
   private pointerStart = new THREE.Vector2();
   private selectedEntityId = '';
+  private lastPick: { x: number; y: number; ids: string[]; index: number; at: number } | null = null;
   private nearbyExitId = '';
   private lastFrame = performance.now();
   private loadGeneration = 0;
@@ -309,6 +310,28 @@ export class PlayerScene {
     };
   }
 
+  entityScreenPoint(entityId: string): { x: number; y: number } | null {
+    const tracked = this.entities.get(entityId);
+    if (!tracked) return null;
+    const projected = tracked.root.position.clone().add(new THREE.Vector3(0, tracked.entity.is_character ? 1 : 0.4, 0)).project(this.camera);
+    if (projected.z < -1 || projected.z > 1) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return {
+      x: rect.left + (projected.x + 1) * rect.width / 2,
+      y: rect.top + (-projected.y + 1) * rect.height / 2,
+    };
+  }
+
+  exitStates(): Array<{ id: string; side: string; rotationY: number; x: number; z: number }> {
+    return this.exits.map(tracked => ({
+      id: tracked.exit.id,
+      side: this.cardinal(tracked.exit.direction),
+      rotationY: tracked.root.rotation.y,
+      x: tracked.root.position.x,
+      z: tracked.root.position.z,
+    }));
+  }
+
   capturePng(): string {
     this.renderer.render(this.scene, this.camera);
     return this.renderer.domElement.toDataURL('image/png');
@@ -340,6 +363,7 @@ export class PlayerScene {
     this.exits.length = 0;
     this.obstacles.length = 0;
     this.nearbyExitId = '';
+    this.lastPick = null;
     this.onNearbyExit(null);
   }
 
@@ -383,11 +407,11 @@ export class PlayerScene {
     const material = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.88 });
     const thickness = 0.24;
     const height = Math.min(this.bounds.height, 3.6);
-    const centerX = (this.bounds.minX + this.bounds.maxX) / 2;
-    const centerZ = (this.bounds.minZ + this.bounds.maxZ) / 2;
-    const width = this.bounds.maxX - this.bounds.minX;
-    const depth = this.bounds.maxZ - this.bounds.minZ;
-    const sides = new Set(exits.map(exit => this.cardinal(exit.direction)));
+    const counts = new Map<string, number>();
+    for (const exit of exits) {
+      const side = this.cardinal(exit.direction);
+      counts.set(side, (counts.get(side) || 0) + 1);
+    }
     const wall = (x: number, z: number, w: number, d: number): void => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, height, d), material.clone());
       mesh.position.set(x, this.bounds.ground + height / 2, z);
@@ -395,22 +419,36 @@ export class PlayerScene {
       mesh.receiveShadow = true;
       this.environment.add(mesh);
     };
-    const splitHorizontal = (z: number, open: boolean): void => {
-      if (!open) return wall(centerX, z, width, thickness);
-      const segment = Math.max(0.1, (width - 2.2) / 2);
-      wall(this.bounds.minX + segment / 2, z, segment, thickness);
-      wall(this.bounds.maxX - segment / 2, z, segment, thickness);
+    const segments = (min: number, max: number, openings: number[]): Array<[number, number]> => {
+      const result: Array<[number, number]> = [];
+      let cursor = min;
+      for (const center of openings) {
+        const start = Math.max(min, center - 1.1);
+        const end = Math.min(max, center + 1.1);
+        if (start - cursor > 0.05) result.push([cursor, start]);
+        cursor = Math.max(cursor, end);
+      }
+      if (max - cursor > 0.05) result.push([cursor, max]);
+      return result;
     };
-    const splitVertical = (x: number, open: boolean): void => {
-      if (!open) return wall(x, centerZ, thickness, depth);
-      const segment = Math.max(0.1, (depth - 2.2) / 2);
-      wall(x, this.bounds.minZ + segment / 2, thickness, segment);
-      wall(x, this.bounds.maxZ - segment / 2, thickness, segment);
+    const horizontal = (side: string, z: number): void => {
+      for (const [start, end] of segments(
+        this.bounds.minX,
+        this.bounds.maxX,
+        this.exitAxisPositions(side, counts.get(side) || 0),
+      )) wall((start + end) / 2, z, end - start, thickness);
     };
-    splitHorizontal(this.bounds.minZ, sides.has('north'));
-    splitHorizontal(this.bounds.maxZ, sides.has('south'));
-    splitVertical(this.bounds.minX, sides.has('west'));
-    splitVertical(this.bounds.maxX, sides.has('east'));
+    const vertical = (side: string, x: number): void => {
+      for (const [start, end] of segments(
+        this.bounds.minZ,
+        this.bounds.maxZ,
+        this.exitAxisPositions(side, counts.get(side) || 0),
+      )) wall(x, (start + end) / 2, thickness, end - start);
+    };
+    horizontal('north', this.bounds.minZ);
+    horizontal('south', this.bounds.maxZ);
+    vertical('west', this.bounds.minX);
+    vertical('east', this.bounds.maxX);
   }
 
   private addDressing(roomId: string, biome: string, indoor: boolean, accent: number): void {
@@ -452,9 +490,10 @@ export class PlayerScene {
       const side = this.cardinal(exit.direction);
       const index = indexes.get(side) || 0;
       indexes.set(side, index + 1);
-      const position = this.exitPosition(side, index, counts.get(side) || 1);
+      const position = this.exitPosition(side, index, counts.get(side) || 1, indoor);
       const root = new THREE.Group();
       root.position.copy(position);
+      if (side === 'east' || side === 'west') root.rotation.y = Math.PI / 2;
       root.userData.exitId = exit.id;
       const frameMaterial = new THREE.MeshStandardMaterial({
         color: exit.locked ? 0x9c5d5d : 0x79d2c0,
@@ -482,14 +521,22 @@ export class PlayerScene {
     return ['north', 'east', 'south', 'west'][hash(direction) % 4];
   }
 
-  private exitPosition(side: string, index: number, count: number): THREE.Vector3 {
-    const ratio = (index + 1) / (count + 1);
-    const x = THREE.MathUtils.lerp(this.bounds.minX + 1.2, this.bounds.maxX - 1.2, ratio);
-    const z = THREE.MathUtils.lerp(this.bounds.minZ + 1.2, this.bounds.maxZ - 1.2, ratio);
-    if (side === 'north') return new THREE.Vector3(x, this.bounds.ground, this.bounds.minZ + 0.25);
-    if (side === 'south') return new THREE.Vector3(x, this.bounds.ground, this.bounds.maxZ - 0.25);
-    if (side === 'west') return new THREE.Vector3(this.bounds.minX + 0.25, this.bounds.ground, z);
-    return new THREE.Vector3(this.bounds.maxX - 0.25, this.bounds.ground, z);
+  private exitAxisPositions(side: string, count: number): number[] {
+    const horizontal = side === 'north' || side === 'south';
+    const min = horizontal ? this.bounds.minX : this.bounds.minZ;
+    const max = horizontal ? this.bounds.maxX : this.bounds.maxZ;
+    return Array.from({ length: count }, (_value, index) => (
+      THREE.MathUtils.lerp(min + 1.2, max - 1.2, (index + 1) / (count + 1))
+    ));
+  }
+
+  private exitPosition(side: string, index: number, count: number, indoor: boolean): THREE.Vector3 {
+    const axis = this.exitAxisPositions(side, count)[index];
+    const inset = indoor ? 0 : 0.25;
+    if (side === 'north') return new THREE.Vector3(axis, this.bounds.ground, this.bounds.minZ + inset);
+    if (side === 'south') return new THREE.Vector3(axis, this.bounds.ground, this.bounds.maxZ - inset);
+    if (side === 'west') return new THREE.Vector3(this.bounds.minX + inset, this.bounds.ground, axis);
+    return new THREE.Vector3(this.bounds.maxX - inset, this.bounds.ground, axis);
   }
 
   private addEntity(entity: PlayerSceneEntity, generation: number): void {
@@ -505,7 +552,7 @@ export class PlayerScene {
     );
     root.userData.entityId = entity.id;
     const placeholder = entity.is_character ? this.proceduralAvatar(entity) : this.proceduralProp(entity);
-    root.add(placeholder);
+    root.add(placeholder, this.pickVolume(entity));
     root.traverse(child => { child.userData.entityId = entity.id; });
     this.entityGroup.add(root);
     const tracked: TrackedEntity = { entity, root, mixer: null, idle: null, walk: null };
@@ -548,11 +595,30 @@ export class PlayerScene {
     return mesh;
   }
 
+  private pickVolume(entity: PlayerSceneEntity): THREE.Mesh {
+    const collider = entity.collider3d;
+    const width = Math.max(0.8, collider?.shape === 'box' ? finite(collider.size?.x, 0.8) : finite(collider?.radius, 0.4) * 2);
+    const depth = Math.max(0.8, collider?.shape === 'box' ? finite(collider.size?.z, 0.8) : finite(collider?.radius, 0.4) * 2);
+    const height = Math.max(entity.is_character ? 2 : 0.8, finite(collider?.size?.y, entity.is_character ? 2 : 0.8));
+    const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    material.colorWrite = false;
+    const volume = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+    volume.name = 'pick-volume';
+    volume.position.y = height / 2;
+    volume.userData.entityId = entity.id;
+    return volume;
+  }
+
   private async replaceWithAsset(tracked: TrackedEntity, assetKey: string, generation: number): Promise<void> {
     try {
       const gltf = await this.loadAsset(assetKey);
       if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
-      tracked.root.clear();
+      const pickVolume = tracked.root.getObjectByName('pick-volume');
+      for (const child of [...tracked.root.children]) {
+        if (child === pickVolume) continue;
+        tracked.root.remove(child);
+        disposeObject(child);
+      }
       const model = cloneSkeleton(gltf.scene);
       model.traverse(child => {
         child.userData.entityId = tracked.entity.id;
@@ -801,11 +867,25 @@ export class PlayerScene {
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObjects(this.entityGroup.children, true)[0]?.object;
-    const entityId = this.parentData(hit, 'entityId');
+    const ids = [...new Set(
+      this.raycaster.intersectObjects(this.entityGroup.children, true)
+        .map(hit => this.parentData(hit.object, 'entityId'))
+        .filter(Boolean),
+    )];
+    const ordered = [...ids.filter(id => id !== this.playerId), ...ids.filter(id => id === this.playerId)];
+    const now = performance.now();
+    const samePick = this.lastPick
+      && now - this.lastPick.at < 1600
+      && Math.hypot(event.clientX - this.lastPick.x, event.clientY - this.lastPick.y) < 8
+      && ordered.join('\n') === this.lastPick.ids.join('\n');
+    const index = ordered.length ? (samePick ? (this.lastPick!.index + 1) % ordered.length : 0) : -1;
+    const entityId = index >= 0 ? ordered[index] : '';
     if (entityId) {
+      this.lastPick = { x: event.clientX, y: event.clientY, ids: ordered, index, at: now };
       this.selectEntity(entityId);
       this.onSelectEntity(entityId);
+    } else {
+      this.lastPick = null;
     }
   };
 

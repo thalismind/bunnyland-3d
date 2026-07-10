@@ -51,7 +51,10 @@
         z-index: 20;
         inset: 12px 12px 12px auto;
         width: min(380px, calc(100% - 24px));
-        overflow: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding: 8px;
+        scrollbar-gutter: stable;
         border: 1px solid var(--bl-border);
         border-radius: var(--bl-radius-md);
         background: var(--bl-bg-strong);
@@ -79,6 +82,22 @@
       }
       #hud-character { font-size: 16px; font-weight: 800; }
       #hud-room, #hud-points { margin-top: 3px; color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
+      #scene-summary.hidden { display: none; }
+      #empty-state {
+        position: absolute;
+        z-index: 12;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        gap: 8px;
+        padding: 24px;
+        color: var(--bl-text);
+        text-align: center;
+        pointer-events: none;
+      }
+      #empty-state.hidden { display: none; }
+      #empty-state-title { font-size: clamp(22px, 4vw, 36px); font-weight: 800; }
+      #empty-state-detail { color: var(--bl-text-soft); font-size: var(--bl-text-md); }
       #control-hint {
         position: absolute;
         z-index: 11;
@@ -91,6 +110,7 @@
         font-size: var(--bl-text-xs);
         pointer-events: none;
       }
+      #control-hint.hidden { display: none; }
       #exit-prompt {
         position: absolute;
         z-index: 15;
@@ -113,6 +133,8 @@
         gap: 5px;
         align-items: stretch;
         min-height: 80px;
+        max-width: 100%;
+        overflow: hidden;
       }
       .map-room {
         display: grid;
@@ -128,14 +150,19 @@
       }
       .map-room span {
         display: block;
-        max-width: 76px;
+        min-width: 0;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
       .map-room.current { border-color: var(--bl-accent); color: var(--bl-accent-strong); }
+      .panel {
+        min-width: 0;
+        padding: 12px;
+        border-bottom: 1px solid var(--bl-border);
       }
-      .panel { padding: 10px; border-bottom: 1px solid var(--bl-border); }
+      .panel:last-child { border-bottom: 0; }
       .panel h2 { margin: 0 0 8px; font-size: 18px; }
       .muted { color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
       #status.ok { color: var(--bl-ok); }
@@ -254,9 +281,24 @@
         margin-bottom: 8px;
       }
       #action-filter { width: 100%; min-width: 0; }
+      #actions {
+        max-height: min(38vh, 360px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-right: 4px;
+        scrollbar-gutter: stable;
+      }
+      .queue-panel {
+        position: sticky;
+        top: -8px;
+        z-index: 2;
+        background: var(--bl-bg-strong);
+      }
       .option-list { display: flex; flex-direction: column; gap: 6px; }
       .action-row, .queue-row, .option-row {
         display: block;
+        min-width: 0;
+        max-width: 100%;
         width: 100%;
         margin: 0 0 6px;
         padding: 7px 8px;
@@ -265,6 +307,7 @@
         background: var(--bl-surface);
         color: var(--bl-text);
         text-align: left;
+        overflow: hidden;
       }
       .action-row:hover, .queue-row:hover, .option-row:hover { background: var(--bl-surface-hover); }
       .action-row.unavailable { opacity: 0.68; }
@@ -274,7 +317,12 @@
         display: flex;
         justify-content: space-between;
         gap: 8px;
+        min-width: 0;
         font-weight: bold;
+      }
+      .row-main > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .row-detail { margin-top: 3px; color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
       .row-icon { margin-right: 5px; }
@@ -451,7 +499,11 @@
       </dialog>
       <main id="main">
         <section id="viewer"></section>
-        <div id="scene-summary" aria-live="polite">
+        <div id="empty-state" aria-live="polite">
+          <div id="empty-state-title">Connect to a server</div>
+          <div id="empty-state-detail">Enter a Bunnyland API URL above, then choose a character.</div>
+        </div>
+        <div id="scene-summary" class="hidden" aria-live="polite">
           <div id="hud-character">No character selected</div>
           <div id="hud-room">Connect to a v2 server to begin.</div>
           <div id="hud-points"></div>
@@ -492,7 +544,11 @@
             <div class="section-title">Inventory</div>
             <div id="inventory" class="option-list muted">No inventory loaded.</div>
           </section>
-          <section class="panel">
+          <section class="panel queue-panel">
+            <h2>Pending actions</h2>
+            <div id="queue" class="muted">No queued actions.</div>
+          </section>
+          <section class="panel actions-panel">
             <h2>Actions</h2>
             <div id="target-line">
               <span id="target-label">Target: none</span>
@@ -506,10 +562,6 @@
               <button id="action-filter-clear" type="button">Clear</button>
             </div>
             <div id="actions" class="muted">No actions loaded.</div>
-          </section>
-          <section class="panel">
-            <h2>Queue</h2>
-            <div id="queue" class="muted">No queued actions.</div>
           </section>
           <section class="panel">
             <h2>Photos</h2>
