@@ -285,6 +285,11 @@ export class PlayerScene {
     return true;
   }
 
+  clearSelection(): void {
+    this.selectedEntityId = '';
+    this.applySelection();
+  }
+
   nearbyExit(): PlayerSceneExit | null {
     return this.exits.find(item => item.exit.id === this.nearbyExitId)?.exit || null;
   }
@@ -860,7 +865,7 @@ export class PlayerScene {
       if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
       return;
     }
-    if (event.button !== 0) return;
+    if (event.button !== 0 || event.target !== this.renderer.domElement) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -887,6 +892,8 @@ export class PlayerScene {
       this.onSelectEntity(entityId);
     } else {
       this.lastPick = null;
+      this.clearSelection();
+      this.onSelectEntity('');
     }
   };
 

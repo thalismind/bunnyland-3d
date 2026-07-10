@@ -687,12 +687,12 @@ function fieldHtml(field: ReturnType<typeof actionFields>[number], index: number
 function selectTarget(entityId: string): void {
   selectedTargetId = entityId || '';
   if (selectedTargetId) scene.selectEntity(selectedTargetId);
+  else scene.clearSelection();
   render();
 }
 
 function clearTarget(): void {
-  selectedTargetId = '';
-  render();
+  selectTarget('');
 }
 
 function claimOptionsFromForm(): ClaimOptions {
