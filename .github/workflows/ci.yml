@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  packages: read
+  packages: write
 
 jobs:
   server:
@@ -52,7 +52,8 @@ jobs:
           context: .
           file: Dockerfile.server
           target: runtime
-          push: false
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/thalismind/bunnyland-3d-server:main
 
   web:
     name: Web Client
@@ -129,6 +130,7 @@ jobs:
           context: .
           file: Dockerfile.web
           target: runtime
-          push: false
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/thalismind/bunnyland-3d-web:main
           build-contexts: |
             bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main
