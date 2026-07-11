@@ -12,7 +12,7 @@ else
 fi
 
 if [[ -f "${BUNNYLAND_SERVER_PATH}/pyproject.toml" ]] && command -v uv >/dev/null 2>&1; then
-  uv run --project "${BUNNYLAND_SERVER_PATH}" -m pytest "${ROOT}/server/tests"
+  uv run --project "${BUNNYLAND_SERVER_PATH}" --with "trimesh>=4.4" -m pytest "${ROOT}/server/tests"
 else
   python3 -m pytest "${ROOT}/server/tests"
 fi

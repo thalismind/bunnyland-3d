@@ -5,15 +5,22 @@ description = "Out-of-tree Bunnyland 3D presentation, movement, and collision pl
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "bunnyland",
+    "bunnyland[server]>=0.2.0",
     "pydantic>=2.0",
     "relics",
+    "trimesh>=4.4",
 ]
+
+[project.entry-points."bunnyland.plugins"]
+"bunnyland.3d" = "bunnyland_3d.plugin:bunnyland_plugins"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
 ]
+
+[tool.uv.sources]
+bunnyland = { git = "https://github.com/thalismind/bunnyland-server.git", branch = "main" }
 
 [build-system]
 requires = ["hatchling"]

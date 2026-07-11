@@ -18,13 +18,15 @@ import {
   cancelCommand,
   characterSheetHref,
   claimCharacter,
+  createPlayerLiveUpdates,
   drainNarratedEvents,
   fetchCharacters,
   fetch3dCapabilities,
+  fetch3dAssetManifest,
   fetch3dRoomScene,
   fetchProjection,
   fetchQueue,
-  fetchRecentEvents,
+  fetchCharacterRecentEvents,
   filterActions,
   iconPreference,
   imageCompletions,
@@ -49,6 +51,7 @@ import {
   type ControlClaim,
   type FogState,
   type QueuedProjection,
+  type PlayerLiveUpdates,
 } from './play';
 
 const ACTIVITY_LIMIT = 24;
@@ -130,6 +133,10 @@ let galleryItems: GalleryItem[] = [];
 let activeGalleryId = '';
 let nearbyExit: PlayerSceneExit | null = null;
 let connectionReady = false;
+let liveUpdates: PlayerLiveUpdates | null = null;
+let liveState = 'fallback';
+let liveToken = 0;
+let lobbyTimer: ReturnType<typeof setInterval> | null = null;
 
 const scene = new PlayerScene(
   viewer,
@@ -148,6 +155,8 @@ function status(text: string, cls = ''): void {
 }
 
 async function connect(rawBase: string): Promise<void> {
+  stopPlayerUpdates();
+  stopLobbyPolling();
   baseUrl = normalizeBase(rawBase);
   if (!baseUrl) return;
   apiInput.value = baseUrl;
@@ -155,11 +164,18 @@ async function connect(rawBase: string): Promise<void> {
   status('loading characters...');
   try {
     await fetch3dCapabilities(baseUrl);
+    try {
+      scene.configureServerAssets(await fetch3dAssetManifest(baseUrl));
+    } catch (error) {
+      console.warn('Bunnyland 3D server assets unavailable; using bundled models:', error);
+      scene.configureServerAssets(null);
+    }
     characters = await fetchCharacters(baseUrl);
     connectionReady = true;
     renderCharacters();
     setServerInUrl(baseUrl);
     status(`loaded ${characters.length} characters`, 'ok');
+    startLobbyPolling();
   } catch (err) {
     connectionReady = false;
     characters = [];
@@ -170,7 +186,18 @@ async function connect(rawBase: string): Promise<void> {
 }
 
 async function selectCharacter(characterId: string): Promise<void> {
-  if (!baseUrl || !characterId) return;
+  stopPlayerUpdates();
+  if (!baseUrl) return;
+  if (!characterId) {
+    playerId = '';
+    control = null;
+    projection = null;
+    queue = null;
+    startLobbyPolling();
+    render();
+    return;
+  }
+  stopLobbyPolling();
   playerId = characterId;
   selectedTargetId = '';
   activityLines = [];
@@ -179,8 +206,7 @@ async function selectCharacter(characterId: string): Promise<void> {
   status('claiming...');
   try {
     control = await claimCharacter(baseUrl, characterId, claimOptionsFromForm());
-    await refresh();
-    status(`playing ${projection?.characterName || characterId}`, 'ok');
+    startPlayerUpdates();
   } catch (err) {
     status(`claim failed: ${(err as Error).message}`, 'err');
   }
@@ -200,6 +226,7 @@ async function refresh(): Promise<void> {
     if (selectedTargetId) scene.selectEntity(selectedTargetId);
     await refreshActivity();
     render();
+    if (liveState === 'live') status('Live', 'ok');
   } catch (err) {
     status(`refresh failed: ${(err as Error).message}`, 'err');
   }
@@ -208,7 +235,7 @@ async function refresh(): Promise<void> {
 async function refreshActivity(): Promise<void> {
   if (!baseUrl || !projection) return;
   try {
-    const messages = await fetchRecentEvents(baseUrl);
+    const messages = await fetchCharacterRecentEvents(baseUrl, playerId, control);
     const drained = drainNarratedEvents(messages, {
       seenIds: seenEventIds,
       playerId,
@@ -241,6 +268,49 @@ async function refreshActivity(): Promise<void> {
   } catch (_err) {
     // Activity is opportunistic; stale event state should not block play.
   }
+}
+
+function stopLobbyPolling(): void {
+  if (lobbyTimer != null) clearInterval(lobbyTimer);
+  lobbyTimer = null;
+}
+
+function startLobbyPolling(): void {
+  stopLobbyPolling();
+  if (!baseUrl || playerId) return;
+  lobbyTimer = setInterval(async () => {
+    try {
+      characters = await fetchCharacters(baseUrl);
+      renderCharacters();
+    } catch (_err) {
+      // The lobby remains usable with its last successful character list.
+    }
+  }, 2000);
+}
+
+function stopPlayerUpdates(): void {
+  liveToken += 1;
+  liveUpdates?.close();
+  liveUpdates = null;
+}
+
+function startPlayerUpdates(): void {
+  stopPlayerUpdates();
+  stopLobbyPolling();
+  if (!baseUrl || !playerId || !control) return;
+  const token = ++liveToken;
+  liveUpdates = createPlayerLiveUpdates({
+    base: baseUrl,
+    characterId: playerId,
+    control,
+    refresh,
+    onState: state => {
+      if (token !== liveToken) return;
+      liveState = state;
+      if (state === 'live') status('Live', 'ok');
+      else if (state !== 'closed') status('Reconnecting · polling', 'err');
+    },
+  });
 }
 
 function renderCharacters(): void {
@@ -567,8 +637,7 @@ async function claimOrResume(): Promise<void> {
   if (!baseUrl || !playerId) return;
   try {
     control = await claimCharacter(baseUrl, playerId, claimOptionsFromForm());
-    await refresh();
-    status(`playing ${projection?.characterName || playerId}`, 'ok');
+    startPlayerUpdates();
     claimDialog.close();
   } catch (err) {
     status(`claim failed: ${(err as Error).message}`, 'err');
@@ -602,10 +671,12 @@ async function releasePlayerClaim(): Promise<void> {
   if (!baseUrl || !playerId || !control) return;
   try {
     await releaseClaim(baseUrl, playerId, control);
+    stopPlayerUpdates();
     control = null;
     projection = null;
     queue = null;
     selectedTargetId = '';
+    startLobbyPolling();
     pushActivity({ text: 'Claim released.', kind: 'system' });
     claimDialog.close();
     render();
@@ -946,6 +1017,10 @@ document.addEventListener('keydown', event => {
   }
 });
 bindThemeSelect(themeSelect);
+window.addEventListener('beforeunload', () => {
+  stopPlayerUpdates();
+  stopLobbyPolling();
+});
 
 const server = serverFromUrl();
 if (server) void connect(server);

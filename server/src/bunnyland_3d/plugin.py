@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from bunnyland.plugins import ContentContribution, EcsContribution, Plugin, RuntimeContribution
+from bunnyland.plugins import (
+    ContentContribution,
+    DependencyContribution,
+    EcsContribution,
+    Plugin,
+    RuntimeContribution,
+)
 
 from .api import install_3d_routes
+from .assets import install_model_registry
 from .components import (
     BiomeStyle3DComponent,
     Collider3DComponent,
@@ -19,7 +26,7 @@ from .components import (
     Transform3DComponent,
     Velocity3DComponent,
 )
-from .enrichment import Worldgen3DHook
+from .enrichment import Generation3DEnricher
 from .systems import Movement3DSystem
 
 PLUGIN_ID = "bunnyland.3d"
@@ -32,6 +39,7 @@ def plugin() -> Plugin:
         name="Bunnyland 3D",
         version=PLUGIN_VERSION,
         default_enabled=True,
+        dependencies=DependencyContribution(requires=("bunnyland.media",)),
         ecs=EcsContribution(
             components=(
                 Transform3DComponent,
@@ -49,8 +57,11 @@ def plugin() -> Plugin:
             edges=(HasDecoration3D,),
             systems=(Movement3DSystem,),
         ),
-        content=ContentContribution(worldgen_hooks=(Worldgen3DHook,)),
-        runtime=RuntimeContribution(server_routers=(install_3d_routes,)),
+        content=ContentContribution(generation_enrichers=(Generation3DEnricher(),)),
+        runtime=RuntimeContribution(
+            service_factories=(install_model_registry,),
+            server_routers=(install_3d_routes,),
+        ),
     )
 
 

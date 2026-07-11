@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import type { ServerAssetManifest, ServerModelAsset } from './play';
 
 export interface Vector3View {
   x: number;
@@ -151,7 +152,23 @@ interface TrackedExit {
 
 interface AssetManifest {
   schema_version: number;
-  assets: Record<string, { path: string; clips?: string[]; variants?: string[] }>;
+  assets: Record<string, AssetDescriptor>;
+}
+
+interface AssetDescriptor {
+  path?: string;
+  url?: string;
+  digest?: string;
+  clips?: string[] | Record<string, string>;
+  variants?: string[];
+  transform?: ServerModelAsset['transform'];
+  default_color?: string;
+  instanced?: boolean;
+}
+
+interface LoadedAsset {
+  gltf: GLTF;
+  descriptor: AssetDescriptor;
 }
 
 export interface PlayerCameraState {
@@ -242,9 +259,10 @@ export class PlayerScene {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly loader = new GLTFLoader();
-  private readonly assetCache = new Map<string, Promise<GLTF>>();
+  private readonly assetCache = new Map<string, Promise<LoadedAsset>>();
   private readonly textureLoader = new THREE.TextureLoader();
   private assetManifest: Promise<AssetManifest> | null = null;
+  private serverAssets: ServerAssetManifest | null = null;
   private readonly entities = new Map<string, TrackedEntity>();
   private readonly exits: TrackedExit[] = [];
   private readonly obstacles: Obstacle2D[] = [];
@@ -302,6 +320,12 @@ export class PlayerScene {
     window.addEventListener('resize', this.resize);
     this.resize();
     this.animate();
+  }
+
+  configureServerAssets(manifest: ServerAssetManifest | null): void {
+    this.serverAssets = manifest;
+    this.assetManifest = null;
+    this.assetCache.clear();
   }
 
   setEnabled(enabled: boolean): void {
@@ -402,18 +426,20 @@ export class PlayerScene {
     return this.renderer.domElement.toDataURL('image/png');
   }
 
-  visualState(): { propInstances: number; particles: number; localLights: number; skybox: boolean } {
+  visualState(): { propInstances: number; modelPropInstances: number; particles: number; localLights: number; skybox: boolean } {
     let propInstances = 0;
+    let modelPropInstances = 0;
     let particles = 0;
     let localLights = 0;
     let skybox = false;
     this.environment.traverse(object => {
       if (object.userData.decorationProps) propInstances += (object as THREE.InstancedMesh).count;
+      if (object.userData.modelDecoration) modelPropInstances += (object as THREE.InstancedMesh).count;
       if (object.userData.particleEmitter) particles += (object as THREE.Points).geometry.getAttribute('position').count;
       if (object.userData.localLight) localLights += 1;
       if (object.userData.skybox) skybox = true;
     });
-    return { propInstances, particles, localLights, skybox };
+    return { propInstances, modelPropInstances, particles, localLights, skybox };
   }
 
   private readBounds(data: PlayerRoomScene): Bounds2D {
@@ -686,9 +712,13 @@ export class PlayerScene {
         });
         mesh.instanceMatrix.needsUpdate = true;
         mesh.userData.decorationProps = true;
+        mesh.userData.modelDecoration = true;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
-        this.environment.add(mesh);
+        const root = new THREE.Group();
+        root.add(mesh);
+        this.environment.add(root);
+        void this.replaceDecorationWithAsset(root, group, source, this.loadGeneration);
       }
       if (decoration.light3d && lights < MAX_LOCAL_LIGHTS) {
         const view = decoration.light3d;
@@ -899,7 +929,7 @@ export class PlayerScene {
 
   private async replaceWithAsset(tracked: TrackedEntity, assetKey: string, generation: number): Promise<void> {
     try {
-      const gltf = await this.loadAsset(assetKey);
+      const { gltf, descriptor } = await this.loadAsset(assetKey);
       if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
       const pickVolume = tracked.root.getObjectByName('pick-volume');
       for (const child of [...tracked.root.children]) {
@@ -908,6 +938,7 @@ export class PlayerScene {
         disposeObject(child);
       }
       const model = cloneSkeleton(gltf.scene);
+      this.applyAssetTransform(model, descriptor);
       model.traverse(child => {
         child.userData.entityId = tracked.entity.id;
         const mesh = child as THREE.Mesh;
@@ -929,8 +960,9 @@ export class PlayerScene {
       });
       tracked.root.add(model);
       tracked.mixer = new THREE.AnimationMixer(model);
-      const idleClip = THREE.AnimationClip.findByName(gltf.animations, 'Idle');
-      const walkClip = THREE.AnimationClip.findByName(gltf.animations, 'Walk');
+      const aliases = Array.isArray(descriptor.clips) ? {} : descriptor.clips || {};
+      const idleClip = THREE.AnimationClip.findByName(gltf.animations, aliases.idle || 'Idle');
+      const walkClip = THREE.AnimationClip.findByName(gltf.animations, aliases.walk || 'Walk');
       tracked.idle = idleClip ? tracked.mixer.clipAction(idleClip) : null;
       tracked.walk = walkClip ? tracked.mixer.clipAction(walkClip) : null;
       tracked.idle?.play();
@@ -939,15 +971,25 @@ export class PlayerScene {
     }
   }
 
-  private loadAsset(assetKey: string): Promise<GLTF> {
-    let pending = this.assetCache.get(assetKey);
+  private loadAsset(assetKey: string): Promise<LoadedAsset> {
+    const descriptor = this.serverAssets?.assets[assetKey];
+    const cacheKey = `${assetKey}:${descriptor?.digest || 'bundled'}`;
+    let pending = this.assetCache.get(cacheKey);
     if (!pending) {
       pending = this.loadAssetManifest().then(manifest => {
-        const path = manifest.assets[assetKey]?.path || '';
+        const asset = manifest.assets[assetKey];
+        if (!asset) throw new Error(`unknown asset key ${assetKey}`);
+        if (asset.url) {
+          const url = new URL(asset.url, document.baseURI);
+          if (!url.pathname.endsWith('.glb')) throw new Error(`invalid server asset URL for ${assetKey}`);
+          return this.loader.loadAsync(url.href).then(gltf => ({ gltf, descriptor: asset }));
+        }
+        const path = asset.path || '';
         if (!/^[a-z0-9][a-z0-9._-]*\.gltf$/.test(path)) throw new Error(`unknown bundled asset key ${assetKey}`);
-        return this.loader.loadAsync(new URL(`assets/3d/${path}`, document.baseURI).href);
+        return this.loader.loadAsync(new URL(`assets/3d/${path}`, document.baseURI).href)
+          .then(gltf => ({ gltf, descriptor: asset }));
       });
-      this.assetCache.set(assetKey, pending);
+      this.assetCache.set(cacheKey, pending);
     }
     return pending;
   }
@@ -959,10 +1001,85 @@ export class PlayerScene {
           if (!response.ok) throw new Error(`asset manifest returned ${response.status}`);
           const manifest = await response.json() as AssetManifest;
           if (manifest.schema_version !== 1 || !manifest.assets) throw new Error('unsupported asset manifest');
+          if (this.serverAssets) {
+            for (const [key, asset] of Object.entries(this.serverAssets.assets)) {
+              if (!(key in manifest.assets)) manifest.assets[key] = asset;
+            }
+          }
           return manifest;
         });
     }
     return this.assetManifest;
+  }
+
+  private applyAssetTransform(object: THREE.Object3D, descriptor: AssetDescriptor): void {
+    const transform = descriptor.transform;
+    if (!transform) return;
+    object.scale.setScalar(finite(transform.scale, 1));
+    object.rotation.set(
+      finite(transform.rotation?.[0], 0),
+      finite(transform.rotation?.[1], 0),
+      finite(transform.rotation?.[2], 0),
+    );
+    object.position.set(
+      finite(transform.translation?.[0], 0),
+      finite(transform.translation?.[1], 0),
+      finite(transform.translation?.[2], 0),
+    );
+  }
+
+  private async replaceDecorationWithAsset(
+    root: THREE.Group,
+    group: NonNullable<PlayerSceneDecoration['prop_group3d']>,
+    source: NonNullable<PlayerSceneDecoration['prop_group3d']>['instances'],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const { gltf, descriptor } = await this.loadAsset(group.asset_key);
+      if (!descriptor.instanced || generation !== this.loadGeneration || !root.parent) return;
+      const model = cloneSkeleton(gltf.scene);
+      this.applyAssetTransform(model, descriptor);
+      model.updateMatrixWorld(true);
+      const replacements: THREE.InstancedMesh[] = [];
+      model.traverse(child => {
+        const primitive = child as THREE.Mesh;
+        if (!primitive.isMesh || (primitive as THREE.SkinnedMesh).isSkinnedMesh) return;
+        const material = Array.isArray(primitive.material)
+          ? primitive.material.map(value => value.clone())
+          : primitive.material.clone();
+        const materials = Array.isArray(material) ? material : [material];
+        for (const value of materials) {
+          const standard = value as THREE.MeshStandardMaterial;
+          if (standard.color && group.color) standard.color.set(group.color);
+        }
+        const mesh = new THREE.InstancedMesh(primitive.geometry.clone(), material, source.length);
+        const instance = new THREE.Object3D();
+        source.forEach((view, index) => {
+          instance.position.set(
+            view.position.x,
+            this.bounds.ground + finite(view.position.y, 0),
+            view.position.z,
+          );
+          instance.rotation.set(0, view.rotation_y, 0);
+          instance.scale.setScalar(view.scale);
+          instance.updateMatrix();
+          mesh.setMatrixAt(index, instance.matrix.clone().multiply(primitive.matrixWorld));
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.decorationProps = true;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        replacements.push(mesh);
+      });
+      if (!replacements.length || generation !== this.loadGeneration || !root.parent) return;
+      for (const child of [...root.children]) {
+        root.remove(child);
+        disposeObject(child);
+      }
+      root.add(...replacements);
+    } catch (error) {
+      console.warn(`Bunnyland 3D decoration asset fallback for ${group.asset_key}:`, error);
+    }
   }
 
   private addObstacle(entity: PlayerSceneEntity): void {

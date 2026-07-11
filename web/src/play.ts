@@ -15,11 +15,12 @@ import {
   claimCharacter as claimSharedCharacter,
   clearClaimControl,
   controlFromResponse,
+  createPlayerLiveUpdates,
   drainNarratedEvents,
   fetchCharacterProjection,
   fetchCharacters,
   fetchQueuedCommands,
-  fetchRecentEvents,
+  fetchCharacterRecentEvents,
   filterActions,
   iconPreference as sharedIconPreference,
   imageCompletions,
@@ -40,6 +41,7 @@ import {
   type ClaimOptions,
   type ControlClaim,
   type QueuedProjection,
+  type PlayerLiveUpdates,
 } from '@bunnyland/ui-web/play';
 import { roomEntities, WORLD_3D_CONSTANTS, type LayoutRoom, type RoomRenderEntity, type WorldLayout } from './adapter.mjs';
 import type { PlayerRoomScene } from './player-scene';
@@ -58,7 +60,7 @@ export {
   characterSheetHref,
   drainNarratedEvents,
   fetchCharacters,
-  fetchRecentEvents,
+  fetchCharacterRecentEvents,
   filterActions,
   imageCompletions,
   imageRequestMessage,
@@ -67,6 +69,7 @@ export {
   latestImageFailure,
   queuedCommandLabel,
   queuedCountdownSeconds,
+  createPlayerLiveUpdates,
   requestSceneImage,
   type ActionView,
   type ActivityLine,
@@ -75,6 +78,7 @@ export {
   type ClaimOptions,
   type ControlClaim,
   type QueuedProjection,
+  type PlayerLiveUpdates,
 };
 
 const ROOM_SIZE = WORLD_3D_CONSTANTS.ROOM_WORLD_SIZE;
@@ -120,11 +124,41 @@ export interface ThreeDCapabilities {
   asset_schema_version: number;
 }
 
+export interface ServerModelAsset {
+  url: string;
+  digest: string;
+  transform: {
+    scale: number;
+    rotation: [number, number, number];
+    translation: [number, number, number];
+  };
+  clips: Record<string, string>;
+  variants: string[];
+  default_color: string;
+  instanced: boolean;
+  license: string;
+  attribution: string;
+}
+
+export interface ServerAssetManifest {
+  schema_version: 2;
+  assets: Record<string, ServerModelAsset>;
+}
+
 export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
   const data = await sendJson(base, '/3d/v2/capabilities') as ThreeDCapabilities;
   if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 3) {
     throw new Error('Bunnyland 3D scene schema v3 is required');
   }
+  return data;
+}
+
+export async function fetch3dAssetManifest(base: string): Promise<ServerAssetManifest> {
+  const data = await sendJson(base, '/3d/v2/assets/manifest') as ServerAssetManifest;
+  if (Number(data.schema_version) !== 2 || !data.assets || Array.isArray(data.assets)) {
+    throw new Error('Server returned an incompatible Bunnyland 3D asset manifest');
+  }
+  for (const asset of Object.values(data.assets)) asset.url = mediaUrl(base, asset.url);
   return data;
 }
 

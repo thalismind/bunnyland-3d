@@ -305,7 +305,7 @@ def player_3d_scene(room_id: str):
                 "id": "decoration:flora",
                 "prop_group3d": {
                     "recipe_key": biome,
-                    "asset_key": "procedural.tree",
+                    "asset_key": "bunnyland.wildsim/deciduous-tree",
                     "color": "#82b85f",
                     "instances": [
                         {"id": "camera-blocker", "position": {"x": 14.5, "y": 0, "z": 5.5}, "rotation_y": 0, "scale": 1.5},
@@ -386,7 +386,28 @@ def route_api(page):
         "plugin_id": "bunnyland.3d",
         "plugin_version": "0.3.0",
         "scene_schema_version": 3,
-        "asset_schema_version": 1,
+        "asset_schema_version": 2,
+    }))
+    page.route("**/mock/3d/v2/assets/manifest", lambda route: route.fulfill(status=200, json={
+        "schema_version": 2,
+        "assets": {
+            key: {
+                "url": "/assets/3d/prop-generic.gltf",
+                "digest": f"fake-{key.rsplit('/', 1)[-1]}",
+                "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]},
+                "clips": {},
+                "variants": [],
+                "default_color": "",
+                "instanced": True,
+                "license": "AGPL-3.0-or-later",
+                "attribution": "Bunnyland contributors",
+            }
+            for key in (
+                "bunnyland.anglersim/fishing-pond",
+                "bunnyland.wildsim/berry-bush",
+                "bunnyland.wildsim/deciduous-tree",
+            )
+        },
     }))
 
     def scene_route(route):
@@ -421,10 +442,6 @@ def route_api(page):
     page.route("**/mock/world/controllers/web/fallback", controller_fallback_route)
     page.route("**/mock/world/controllers/web/release-controller", controller_release_route)
     page.route("**/mock/world/controllers/web/release-claim", claim_release_route)
-    page.route("**/mock/world/events/recent", lambda route: route.fulfill(status=200, json={
-        "ok": True,
-        "events": RECENT_EVENTS,
-    }))
     page.route("**/mock/world/commands", player_command_route)
 
     def room_route(route):
@@ -449,6 +466,12 @@ def route_api(page):
                 },
             })
             route.fulfill(status=200, json={"ok": True, "status": "queued"})
+            return
+        if path.endswith("/events/recent"):
+            if route.request.headers.get("x-bunnyland-claim-secret") != "secret-1":
+                route.fulfill(status=403, json={"detail": "missing claim secret"})
+                return
+            route.fulfill(status=200, json={"ok": True, "events": RECENT_EVENTS})
             return
         if "/commands/" in path and route.request.method == "DELETE":
             command_id = unquote(path.rsplit("/", 1)[1])
@@ -683,9 +706,10 @@ def main() -> None:
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
+            page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
-            if visual_state != {"propInstances": 7, "particles": 24, "localLights": 1, "skybox": True}:
-                raise AssertionError(f"outdoor ECS graphics were not rendered: {visual_state!r}")
+            if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 24, "localLights": 1, "skybox": True}:
+                raise AssertionError(f"provider model did not replace the procedural decoration: {visual_state!r}")
             page.wait_for_timeout(600)
             camera_clearance = page.evaluate("window.__world3dPlayer.cameraState()")
             if abs(camera_clearance["actualRadius"] - camera_clearance["radius"]) > 0.25:
@@ -840,7 +864,7 @@ def main() -> None:
                 raise AssertionError("claim dialog did not idle controller")
             page.locator("#btn-claim").click()
             page.locator("#btn-dialog-claim").click()
-            expect(page.locator("#status")).to_contain_text("playing")
+            expect(page.locator("#status")).to_contain_text("Reconnecting · polling")
             page.locator("#btn-claim").click()
             page.locator("#btn-dialog-release").click()
             if not CLAIM_RELEASED:

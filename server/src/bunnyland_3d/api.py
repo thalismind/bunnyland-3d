@@ -10,6 +10,7 @@ from bunnyland.server import serialize_room_projection
 from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
+from .assets import require_model_registry
 from .components import Environment3DComponent, HasDecoration3D, RoomBounds3DComponent
 from .decorations import (
     apply_outdoor_recipe,
@@ -22,7 +23,7 @@ from .decorations import (
 from .projection import decoration_3d_view, entity_3d_view
 
 SCENE_SCHEMA_VERSION = 3
-ASSET_SCHEMA_VERSION = 1
+ASSET_SCHEMA_VERSION = 2
 UPLOAD_IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 MAX_TEXTURE_BYTES = 10 * 1024 * 1024
 TEXTURE_SEGMENT = "textures3d"
@@ -122,6 +123,10 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
             "scene_schema_version": SCENE_SCHEMA_VERSION,
             "asset_schema_version": ASSET_SCHEMA_VERSION,
         }
+
+    @app.get("/3d/v2/assets/manifest")
+    async def asset_manifest() -> dict:
+        return require_model_registry(actor).manifest()
 
     @app.get("/3d/v2/room/{room_id}")
     async def room_scene(room_id: str) -> dict:

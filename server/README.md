@@ -12,8 +12,10 @@ The plugin entrypoint is `bunnyland_3d.bunnyland_plugins()`. When loaded by Bunn
 - `Movement3DSystem`
 - player-safe v2 capability and room-scene HTTP projections
 
-`Render3DComponent.asset_key` and `variant_key` are logical keys into the web client's
-bundled manifest. They are validated identifiers, not remote URLs. The player negotiates
+`Render3DComponent.asset_key` and `variant_key` are validated logical keys, not remote
+URLs. Core models come from the web bundle; other plugins can register GLB, glTF, OBJ, and
+STL models through `ModelAssetRegistry`. The server converts them to immutable GLB media
+and exposes `GET /3d/v2/assets/manifest`. The player negotiates
 `GET /3d/v2/capabilities` and loads visible presentation state from
 `GET /3d/v2/room/{room_id}`.
 

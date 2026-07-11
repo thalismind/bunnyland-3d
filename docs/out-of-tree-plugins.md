@@ -14,24 +14,21 @@ Keep plugin code out of `bunnyland-server` and client code out of `bunnyland-web
 
 ## Plugin Entry Point
 
-Bunnyland's plugin loader imports a Python module and looks for:
+Bunnyland discovers installed plugins through the `bunnyland.plugins` entry-point group:
 
-```python
-def bunnyland_plugins() -> list[Plugin]:
-    return [plugin()]
+```toml
+[project.entry-points."bunnyland.plugins"]
+"vendor.forest" = "vendor_forest.plugin:plugin"
 ```
 
-The module can be loaded by name:
+The target returns a `Plugin` with a globally stable id:
 
 ```python
-from bunnyland.plugins import load_and_apply
-
-load_and_apply(actor, modules=["bunnyland_3d"])
+def plugin() -> Plugin:
+    return Plugin(id="vendor.forest", name="Forest Visuals")
 ```
 
-When the loader imports an out-of-tree module, it qualifies plugin ids with the module
-name. This plugin's local id is `bunnyland_3d`; loaded from module `bunnyland_3d`, the
-qualified id is `bunnyland_3d.bunnyland_3d`.
+The server selects and orders discovered plugins from their declared dependencies.
 
 ## ECS Contributions
 
@@ -84,6 +81,46 @@ copying assets from `bunnyland-web`. Use narrow imports such as `@bunnyland/ui-w
 `@bunnyland/ui-web/play`, `@bunnyland/ui-web/theme`, `@bunnyland/ui-web/player-widgets`,
 and `@bunnyland/ui-web/admin-widgets` so bundlers can tree shake player-only and
 admin-only surfaces independently.
+
+## Registering 3D Models
+
+Visual plugins can publish models without changing the 3D addon or its web bundle. Declare
+`bunnyland.3d` as a dependency and register assets from an integration factory, which runs
+after the model registry is ready:
+
+```python
+from pathlib import Path
+
+from bunnyland.plugins import DependencyContribution, Plugin, RuntimeContribution
+from bunnyland_3d import AssetSource, ModelAsset, register_models
+
+ASSETS = Path(__file__).with_name("assets")
+
+def install_visuals(actor):
+    register_models(actor, "vendor.forest", [
+        ModelAsset(
+            key="vendor.forest/oak",
+            source=AssetSource(root=ASSETS, path="oak.stl"),
+            default_color="#628b4a",
+            instanced=True,
+            license="CC0-1.0",
+        ),
+    ])
+
+def plugin() -> Plugin:
+    return Plugin(
+        id="vendor.forest",
+        name="Forest Visuals",
+        dependencies=DependencyContribution(requires=("bunnyland.3d",)),
+        runtime=RuntimeContribution(integration_factories=(install_visuals,)),
+    )
+```
+
+GLB, glTF (including local sidecars), OBJ/MTL, and ASCII or binary STL are accepted. The
+server validates plugin-owned roots, converts non-GLB inputs to content-addressed GLB, and
+publishes safe URLs through `GET /3d/v2/assets/manifest`. STL has no material convention, so
+set `default_color` when appearance matters. Use `instanced=True` only for static models;
+animated, skinned, and interactive props should remain individual ECS entities.
 
 ## Docker Packaging
 

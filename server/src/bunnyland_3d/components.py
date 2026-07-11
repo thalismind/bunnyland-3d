@@ -138,7 +138,7 @@ class PropInstanceOverride:
 class PropGroup3DComponent(Component):
     """One ECS entity representing many static, noninteractive prop instances."""
 
-    recipe_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    recipe_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._/-]*$")
     seed: int = Field(ge=0, le=2**31 - 1)
     asset_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._/-]*$")
     count: int = Field(default=24, ge=0, le=2000)
@@ -183,7 +183,7 @@ class DecorationSource3DComponent(Component):
 
     room_id: str
     recipe_key: str
-    role: Literal["flora", "detail", "light", "particles"]
+    role: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*$")
     recipe_version: int = Field(default=1, ge=1)
 
 
@@ -191,7 +191,10 @@ class DecorationSource3DComponent(Component):
 class HasDecoration3D(Edge):
     """Presentation-only room-to-decoration relationship."""
 
-    role: Literal["flora", "detail", "light", "particles"] = "detail"
+    role: str = Field(
+        default="bunnyland.3d/detail",
+        pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*$",
+    )
 
 
 __all__ = [

@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from bunnyland.core import ContainmentMode, Contains, RoomComponent, WorldActor, spawn_entity
-from bunnyland.core.components import CharacterComponent, IdentityComponent, PortableComponent
-from bunnyland.core.events import (
-    CharacterGeneratedEvent,
-    ObjectGeneratedEvent,
-    RoomGeneratedEvent,
-    event_base,
-)
+from bunnyland.core.components import CharacterComponent, IdentityComponent
+from bunnyland.foundation.media.plugin import plugin as media_plugin
 from bunnyland.persistence import WorldMeta
-from bunnyland.plugins import apply_plugins, load_modules
+from bunnyland.plugins import apply_plugins
 from bunnyland.server.app import create_app
+from bunnyland.worldgen import (
+    CharacterSpec,
+    ObjectSpec,
+    RoomSpec,
+    WorldProposal,
+    instantiate,
+)
 
 from bunnyland_3d.api import room_scene_view
 from bunnyland_3d.components import (
@@ -30,17 +34,21 @@ from bunnyland_3d.components import (
     Velocity3DComponent,
 )
 from bunnyland_3d.decorations import apply_outdoor_recipe, preview_outdoor_recipe
-from bunnyland_3d.enrichment import Worldgen3DHook
-from bunnyland_3d.plugin import PLUGIN_ID
+from bunnyland_3d.enrichment import Generation3DEnricher
+from bunnyland_3d.plugin import PLUGIN_ID, bunnyland_plugins
 from bunnyland_3d.projection import entity_3d_view, world_3d_view
 from bunnyland_3d.systems import step_entities
 
 
-def test_out_of_tree_plugin_loads_and_contributes_ecs_types():
-    plugins = load_modules(["bunnyland_3d"])
+def _plugins():
+    return [media_plugin(), *bunnyland_plugins()]
 
-    assert [plugin.id for plugin in plugins] == [PLUGIN_ID]
-    plugin = plugins[0]
+
+def test_out_of_tree_plugin_loads_and_contributes_ecs_types():
+    plugins = _plugins()
+
+    assert [plugin.id for plugin in plugins] == ["bunnyland.media", PLUGIN_ID]
+    plugin = plugins[1]
     assert Transform3DComponent in plugin.ecs.components
     assert Velocity3DComponent in plugin.ecs.components
     assert Collider3DComponent in plugin.ecs.components
@@ -51,19 +59,22 @@ def test_out_of_tree_plugin_loads_and_contributes_ecs_types():
     assert ParticleEmitter3DComponent in plugin.ecs.components
     assert DecorationSource3DComponent in plugin.ecs.components
     assert HasDecoration3D in plugin.ecs.edges
-    assert Worldgen3DHook in plugin.content.worldgen_hooks
+    assert any(
+        isinstance(enricher, Generation3DEnricher)
+        for enricher in plugin.content.generation_enrichers
+    )
 
 
 def test_out_of_tree_plugin_applies_to_actor_without_server_repo_changes():
     actor = WorldActor()
-    applied = apply_plugins(load_modules(["bunnyland_3d"]), actor)
+    applied = apply_plugins(_plugins(), actor)
 
-    assert applied[0].id == "bunnyland.3d"
+    assert applied[-1].id == "bunnyland.3d"
 
 
 def test_registered_movement_system_ticks_from_plugin():
     actor = WorldActor()
-    apply_plugins(load_modules(["bunnyland_3d"]), actor)
+    apply_plugins(_plugins(), actor)
     moving = spawn_entity(
         actor.world,
         [
@@ -77,69 +88,34 @@ def test_registered_movement_system_ticks_from_plugin():
     assert moving.get_component(Transform3DComponent).position == Vector3(3, 1, 1)
 
 
-def test_worldgen_hook_adds_3d_components_to_generated_entities():
+def test_declarative_generation_adds_3d_components_to_generated_entities():
     actor = WorldActor()
-    apply_plugins(load_modules(["bunnyland_3d"]), actor)
-    room = spawn_entity(
-        actor.world,
-        [RoomComponent(title="Docking Ring", biome="station", indoor=True)],
+    apply_plugins(_plugins(), actor)
+    result = asyncio.run(
+        instantiate(
+            actor,
+            WorldProposal(
+                seed="preview",
+                rooms=[RoomSpec(key="dock", title="Docking Ring", biome="station", indoor=True)],
+                characters=[CharacterSpec(key="iris", name="Iris", room_key="dock")],
+                objects=[
+                    ObjectSpec(
+                        key="beacon",
+                        name="Beacon",
+                        room_key="dock",
+                        tags=("light",),
+                    )
+                ],
+            ),
+        )
     )
-    character = spawn_entity(
-        actor.world,
-        [
-            IdentityComponent(name="Iris", kind="character"),
-            CharacterComponent(),
-        ],
-    )
-    item = spawn_entity(
-        actor.world,
-        [
-            IdentityComponent(name="Beacon", kind="item"),
-            PortableComponent(),
-        ],
-    )
+    room = actor.world.get_entity(result.rooms["dock"])
+    character = actor.world.get_entity(result.characters["iris"])
+    item = actor.world.get_entity(result.objects["beacon"])
 
-    # Exercise the legacy worldgen callback contract directly. Bunnyland releases before
-    # the hook registry became public do not expose actor._worldgen_hooks, while both old
-    # and new loaders invoke these callbacks with the actor attached.
-    hook = Worldgen3DHook()
-    hook.actor = actor
-    hook._on_room(
-        RoomGeneratedEvent(
-            **event_base(0),
-            seed="preview",
-            entity_id=str(room.id),
-            entity_key="room:dock",
-            entity_kind="room",
-            room_key="dock",
-            biome="station",
-            indoor=True,
-        )
-    )
-    hook._on_character(
-        CharacterGeneratedEvent(
-            **event_base(0),
-            seed="preview",
-            entity_id=str(character.id),
-            entity_key="character:iris",
-            entity_kind="character",
-            character_key="iris",
-            room_id=str(room.id),
-        )
-    )
-    hook._on_object(
-        ObjectGeneratedEvent(
-            **event_base(0),
-            seed="preview",
-            entity_id=str(item.id),
-            entity_key="item:beacon",
-            entity_kind="object",
-            object_key="beacon",
-            room_id=str(room.id),
-        )
-    )
-
-    assert room.get_component(Transform3DComponent).position == Vector3()
+    room_position = room.get_component(Transform3DComponent).position
+    assert room_position.x % 18 == 0
+    assert room_position.z % 18 == 0
     assert room.get_component(RoomBounds3DComponent).size == Vector3(16, 4, 16)
     assert room.get_component(Render3DComponent).color == "#4f6f9f"
     assert character.get_component(Collider3DComponent).shape == "capsule"
@@ -149,7 +125,7 @@ def test_worldgen_hook_adds_3d_components_to_generated_entities():
     assert 0 < character_position.x < 16
     assert 0 < character_position.z < 16
     assert item.get_component(Collider3DComponent).static
-    assert item.get_component(Render3DComponent).shape == "box"
+    assert item.get_component(Render3DComponent).asset_key == "prop.lantern"
 
 
 def test_step_entities_moves_until_static_collider_blocks():
@@ -240,7 +216,7 @@ def test_render_keys_reject_remote_or_malformed_assets():
 def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
     testclient = pytest.importorskip("fastapi.testclient")
     actor = WorldActor()
-    plugins = load_modules(["bunnyland_3d"])
+    plugins = _plugins()
     apply_plugins(plugins, actor)
     room = spawn_entity(
         actor.world,
@@ -278,10 +254,13 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
         create_app(actor, meta=WorldMeta(seed="v2"), plugins=tuple(plugins))
     )
     capability = client.get("/3d/v2/capabilities")
+    manifest = client.get("/3d/v2/assets/manifest")
     scene = client.get(f"/3d/v2/room/{room.id}")
 
     assert capability.status_code == 200
     assert capability.json()["scene_schema_version"] == 3
+    assert capability.json()["asset_schema_version"] == 2
+    assert manifest.json() == {"schema_version": 2, "assets": {}}
     assert scene.status_code == 200
     data = scene.json()
     assert data["schema_version"] == 3
@@ -327,7 +306,9 @@ def test_reroll_changes_seed_but_preserves_group_overrides():
     room = spawn_entity(actor.world, [RoomComponent(title="Reeds", biome="marsh")])
     apply_outdoor_recipe(actor.world, room)
     flora_id = next(
-        target for edge, target in room.get_relationships(HasDecoration3D) if edge.role == "flora"
+        target
+        for edge, target in room.get_relationships(HasDecoration3D)
+        if edge.role == "bunnyland.3d/flora"
     )
     flora = actor.world.get_entity(flora_id)
     original = flora.get_component(PropGroup3DComponent)
@@ -368,7 +349,7 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
     testclient = pytest.importorskip("fastapi.testclient")
     monkeypatch.setenv("BUNNYLAND_MEDIA_DIR", str(tmp_path))
     actor = WorldActor()
-    plugins = load_modules(["bunnyland_3d"])
+    plugins = _plugins()
     apply_plugins(plugins, actor)
     room = spawn_entity(
         actor.world,

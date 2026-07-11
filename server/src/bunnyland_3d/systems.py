@@ -37,7 +37,7 @@ def _speed_limited(linear: Vector3, max_speed: float) -> Vector3:
     speed_sq = linear.x * linear.x + linear.y * linear.y + linear.z * linear.z
     if max_speed <= 0 or speed_sq <= max_speed * max_speed:
         return linear
-    speed = speed_sq ** 0.5
+    speed = speed_sq**0.5
     return linear.scale_by(max_speed / speed)
 
 
