@@ -305,11 +305,14 @@ def player_3d_scene(room_id: str):
                 "id": "decoration:flora",
                 "prop_group3d": {
                     "recipe_key": biome,
-                    "asset_key": "procedural.grass" if biome == "meadow" else "procedural.reed",
+                    "asset_key": "procedural.tree",
                     "color": "#82b85f",
                     "instances": [
-                        {"id": f"i{index}", "position": {"x": 1.5 + index * 2.2, "y": 0, "z": 2 + (index % 2) * 10}, "rotation_y": index * 0.7, "scale": 0.7 + index * 0.08}
-                        for index in range(6)
+                        {"id": "camera-blocker", "position": {"x": 14.5, "y": 0, "z": 5.5}, "rotation_y": 0, "scale": 1.5},
+                        *[
+                            {"id": f"i{index}", "position": {"x": 1.5 + index * 2.2, "y": 0, "z": 2 + (index % 2) * 10}, "rotation_y": index * 0.7, "scale": 0.7 + index * 0.08}
+                            for index in range(6)
+                        ],
                     ],
                 },
             },
@@ -681,8 +684,12 @@ def main() -> None:
             expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
-            if visual_state != {"propInstances": 6, "particles": 24, "localLights": 1, "skybox": True}:
+            if visual_state != {"propInstances": 7, "particles": 24, "localLights": 1, "skybox": True}:
                 raise AssertionError(f"outdoor ECS graphics were not rendered: {visual_state!r}")
+            page.wait_for_timeout(600)
+            camera_clearance = page.evaluate("window.__world3dPlayer.cameraState()")
+            if abs(camera_clearance["actualRadius"] - camera_clearance["radius"]) > 0.25:
+                raise AssertionError(f"decoration changed camera distance: {camera_clearance!r}")
             layout = page.evaluate(
                 """() => {
                   const side = document.querySelector('#side');

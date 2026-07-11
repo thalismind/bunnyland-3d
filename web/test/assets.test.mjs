@@ -19,6 +19,8 @@ test('bundled avatar manifest resolves an animated repo-owned glTF', async () =>
   const gltf = JSON.parse(gltfText);
   assert.equal(gltf.asset.version, '2.0');
   assert.deepEqual(gltf.animations.map(animation => animation.name), ['Idle', 'Walk']);
+  const tail = gltf.nodes.find(node => node.name === 'Tail');
+  assert.ok(tail.translation[2] < 0, 'avatar tail belongs behind the bunny');
   assert.match(gltf.buffers[0].uri, /^data:application\/octet-stream;base64,/);
   assert.doesNotMatch(gltfText, /https?:\/\//);
   assert.ok((await stat(fileURLToPath(assetUrl))).size < 500_000);

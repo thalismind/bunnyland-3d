@@ -158,6 +158,7 @@ export interface PlayerCameraState {
   target: { x: number; y: number; z: number };
   radius: number;
   moving: boolean;
+  actualRadius: number;
   avatar: { x: number; y: number; z: number };
 }
 
@@ -247,6 +248,7 @@ export class PlayerScene {
   private readonly entities = new Map<string, TrackedEntity>();
   private readonly exits: TrackedExit[] = [];
   private readonly obstacles: Obstacle2D[] = [];
+  private readonly cameraOccluders: THREE.Object3D[] = [];
   private readonly keys = new Set<string>();
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCamera = new THREE.Vector3();
@@ -356,6 +358,7 @@ export class PlayerScene {
       target: { x: this.cameraTarget.x, y: this.cameraTarget.y, z: this.cameraTarget.z },
       radius: this.cameraRadius,
       moving: this.movement.lengthSq() > 0,
+      actualRadius: this.camera.position.distanceTo(this.cameraTarget),
       avatar: { x: this.avatarPosition.x, y: this.avatarPosition.y, z: this.avatarPosition.z },
     };
   }
@@ -438,6 +441,7 @@ export class PlayerScene {
     this.entities.clear();
     this.exits.length = 0;
     this.obstacles.length = 0;
+    this.cameraOccluders.length = 0;
     this.nearbyExitId = '';
     this.lastPick = null;
     this.onNearbyExit(null);
@@ -622,6 +626,7 @@ export class PlayerScene {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.environment.add(mesh);
+      this.cameraOccluders.push(mesh);
     };
     const segments = (min: number, max: number, openings: number[]): Array<[number, number]> => {
       const result: Array<[number, number]> = [];
@@ -1101,7 +1106,7 @@ export class PlayerScene {
     direction.normalize();
     this.raycaster.set(this.cameraTarget, direction);
     this.raycaster.far = distance;
-    const hits = this.raycaster.intersectObjects(this.environment.children, true);
+    const hits = this.raycaster.intersectObjects(this.cameraOccluders, true);
     if (hits[0] && hits[0].distance > 0.35) {
       this.desiredCamera.copy(this.cameraTarget).addScaledVector(direction, Math.max(0.4, hits[0].distance - 0.18));
     }

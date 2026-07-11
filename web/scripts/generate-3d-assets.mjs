@@ -74,7 +74,7 @@ const nodes = [
   { name: 'Leg.R', mesh: 0, translation: [0.21,0.26,0], scale: [0.22,0.46,0.27] },
   { name: 'Arm.L', mesh: 0, translation: [-0.46,0.9,0], scale: [0.17,0.55,0.2] },
   { name: 'Arm.R', mesh: 0, translation: [0.46,0.9,0], scale: [0.17,0.55,0.2] },
-  { name: 'Tail', mesh: 0, translation: [0,0.76,0.34], scale: [0.28,0.28,0.28] },
+  { name: 'Tail', mesh: 0, translation: [0,0.76,-0.34], scale: [0.28,0.28,0.28] },
 ];
 
 function quatX(angle) {
