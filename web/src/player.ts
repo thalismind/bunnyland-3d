@@ -510,7 +510,7 @@ function renderQueue(): void {
   if (!projection || !queue) return;
   const countdown = queuedCountdownSeconds(queue);
   const title = `Queued actions${countdown == null ? '' : ` / next tick in ${countdown}s`}`;
-  queueEl.innerHTML = `<div class="section-title">${escapeHtml(title)}</div>` + (
+  queueEl.innerHTML = `<div id="queue-title" class="section-title">${escapeHtml(title)}</div>` + (
     queue.commands.length
       ? queue.commands.map(command => `
         <button class="queue-row" type="button" data-command-id="${escapeHtml(command.command_id || '')}">
@@ -519,6 +519,13 @@ function renderQueue(): void {
       `).join('')
       : '<div class="muted">No queued actions.</div>'
   );
+}
+
+function updateQueueCountdown(): void {
+  const title = document.getElementById('queue-title');
+  if (!title) return;
+  const countdown = queuedCountdownSeconds(queue);
+  title.textContent = `Queued actions${countdown == null ? '' : ` / next tick in ${countdown}s`}`;
 }
 
 function renderActivity(): void {
@@ -1017,7 +1024,9 @@ document.addEventListener('keydown', event => {
   }
 });
 bindThemeSelect(themeSelect);
+const queueCountdownTimer = window.setInterval(updateQueueCountdown, 250);
 window.addEventListener('beforeunload', () => {
+  window.clearInterval(queueCountdownTimer);
   stopPlayerUpdates();
   stopLobbyPolling();
 });

@@ -747,6 +747,12 @@ def main() -> None:
                 raise AssertionError(f"player empty state was not centered: {empty_state!r}")
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
+            initial_countdown = page.locator("#queue-title").text_content()
+            page.wait_for_function(
+                "initial => document.querySelector('#queue-title')?.textContent !== initial",
+                arg=initial_countdown,
+                timeout=2000,
+            )
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
             page.wait_for_function(
                 "window.__world3dPlayer.entityVisualState('item:crate')?.attachmentCount === 1"
