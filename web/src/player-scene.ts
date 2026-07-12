@@ -450,24 +450,28 @@ export class PlayerScene {
     loaded: boolean;
     attachmentCount: number;
     opacity: number | null;
+    colorHex: string | null;
   } | null {
     const tracked = this.entities.get(entityId);
     if (!tracked) return null;
     const namedNode = tracked.root.getObjectByName('GenericProp');
     let opacity: number | null = null;
+    let colorHex: string | null = null;
     namedNode?.traverse(child => {
       if (opacity !== null) return;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
       opacity = material.opacity;
+      const standard = material as THREE.MeshStandardMaterial;
+      colorHex = standard.color?.getHexString() || null;
     });
     const attachmentKeys = new Set(tracked.entity.visual3d?.attachments.map(item => item.key));
     let attachmentCount = 0;
     tracked.root.traverse(child => {
       if (attachmentKeys.has(child.name)) attachmentCount += 1;
     });
-    return { loaded: Boolean(namedNode), attachmentCount, opacity };
+    return { loaded: Boolean(namedNode), attachmentCount, opacity, colorHex };
   }
 
   exitStates(): Array<{ id: string; side: string; rotationY: number; x: number; z: number }> {
@@ -1015,7 +1019,13 @@ export class PlayerScene {
           const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
           for (const source of materials) {
             const standard = source as THREE.MeshStandardMaterial;
-            if (standard.color && tracked.entity.render3d?.color) standard.color.set(tracked.entity.render3d.color);
+            if (
+              !tracked.entity.visual3d
+              && standard.color
+              && tracked.entity.render3d?.color
+            ) {
+              standard.color.set(tracked.entity.render3d.color);
+            }
           }
         }
       });

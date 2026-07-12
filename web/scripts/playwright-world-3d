@@ -262,6 +262,7 @@ def player_3d_scene(room_id: str):
             "collider3d": collider,
         }
         if item["id"] == "item:crate":
+            view["render3d"]["color"] = "#112233"
             view["visual3d"] = {
                 "base_model_key": "bunnyland.test/prop",
                 "semantic_roles": {"state-indicator": ["GenericProp"]},
@@ -762,6 +763,8 @@ def main() -> None:
             )
             if not entity_visual["loaded"] or abs(entity_visual["opacity"] - 0.42) > 0.001:
                 raise AssertionError(f"entity GLB patches were not applied: {entity_visual!r}")
+            if entity_visual["colorHex"] == "112233":
+                raise AssertionError(f"legacy Render3D color replaced the GLB material: {entity_visual!r}")
             page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
             if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 36, "localLights": 1, "skybox": True}:
