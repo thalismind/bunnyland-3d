@@ -239,6 +239,9 @@ def environment_for(world, room, recipe: OutdoorRecipe) -> Environment3DComponen
         sun_color=recipe.sun,
         surface_recipe=recipe.key,
         has_roof=existing.has_roof if existing else False,
+        skybox_preset=(
+            existing.skybox_preset if existing else "bunnyland.3d/default"
+        ),
         albedo_url=(
             existing.albedo_url
             if existing and existing.albedo_url

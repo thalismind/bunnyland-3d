@@ -70,7 +70,7 @@ def test_rules_compose_live_state_per_field_without_mutating_ecs(tmp_path, monke
     assert entity.get_component(Render3DComponent) == original
 
 
-def test_fire_rule_projects_anchored_particles_instead_of_a_model(tmp_path, monkeypatch):
+def test_fire_rule_keeps_emissive_patch_but_uses_registered_effect(tmp_path, monkeypatch):
     actor = _actor(tmp_path, monkeypatch)
     entity = spawn_entity(
         actor.world,
@@ -80,28 +80,17 @@ def test_fire_rule_projects_anchored_particles_instead_of_a_model(tmp_path, monk
         ],
     )
 
-    visual = entity_3d_view(entity, actor)["visual3d"]
+    actor.world.tick(0)
+    view = entity_3d_view(entity, actor)
+    visual = view["visual3d"]
 
     assert visual["attachments"] == []
-    assert visual["particle_effects"] == [
-        {
-            "key": "bunnyland.3d/fire-state",
-            "anchor": "indicator",
-            "preset": "fire",
-            "seed": 3187,
-            "count": 28,
-            "bounds": {"x": 0.34, "y": 0.62, "z": 0.34},
-            "color": "#ff7a24",
-            "size": 0.09,
-            "speed": 0.78,
-            "opacity": 0.92,
-            "transform": {
-                "scale": 1.0,
-                "rotation": [0.0, 0.0, 0.0],
-                "translation": [0, 0.05, 0],
-            },
-        }
-    ]
+    assert visual["particle_effects"] == []
+    indicator = next(
+        patch for patch in visual["node_patches"] if patch["target"] == "indicator"
+    )
+    assert indicator["emissive"] == "#ff5a16"
+    assert view["effects3d"][0]["key"] == "bunnyland.3d/fire"
 
 
 def test_rule_ties_are_deterministic_per_field_and_emit_diagnostic(tmp_path, monkeypatch):

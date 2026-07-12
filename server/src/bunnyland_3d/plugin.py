@@ -18,6 +18,7 @@ from .components import (
     DecorationSource3DComponent,
     Environment3DComponent,
     HasDecoration3D,
+    HasVisualEffect3D,
     Light3DComponent,
     ParticleEmitter3DComponent,
     PropGroup3DComponent,
@@ -25,9 +26,12 @@ from .components import (
     RoomBounds3DComponent,
     Transform3DComponent,
     Velocity3DComponent,
+    VisualEffectInstance3DComponent,
 )
 from .core_visuals import install_core_entity_visuals
+from .effects import install_environment_effect_registry
 from .enrichment import Generation3DEnricher
+from .entity_effects import install_visual_effect_registry
 from .systems import Movement3DSystem
 from .visuals import install_entity_visual_registry
 
@@ -55,14 +59,17 @@ def plugin() -> Plugin:
                 Light3DComponent,
                 ParticleEmitter3DComponent,
                 DecorationSource3DComponent,
+                VisualEffectInstance3DComponent,
             ),
-            edges=(HasDecoration3D,),
+            edges=(HasDecoration3D, HasVisualEffect3D),
             systems=(Movement3DSystem,),
         ),
         content=ContentContribution(generation_enrichers=(Generation3DEnricher(),)),
         runtime=RuntimeContribution(
             service_factories=(
                 install_model_registry,
+                install_environment_effect_registry,
+                install_visual_effect_registry,
                 install_entity_visual_registry,
                 install_core_entity_visuals,
             ),

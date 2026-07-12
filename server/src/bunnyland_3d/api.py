@@ -20,9 +20,10 @@ from .decorations import (
     set_room_roof,
     set_room_texture,
 )
-from .projection import decoration_3d_view, entity_3d_view
+from .effects import require_environment_effect_registry
+from .projection import decoration_3d_view, entity_3d_view, environment_3d_view
 
-SCENE_SCHEMA_VERSION = 3
+SCENE_SCHEMA_VERSION = 4
 ASSET_SCHEMA_VERSION = 2
 UPLOAD_IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 MAX_TEXTURE_BYTES = 10 * 1024 * 1024
@@ -60,6 +61,16 @@ def room_scene_view(actor, room_id: str) -> dict:
         if room.has_component(RoomBounds3DComponent)
         else RoomBounds3DComponent()
     )
+    effects = (
+        require_environment_effect_registry(actor)
+        if hasattr(actor, "environment_effect_registry_3d")
+        else None
+    )
+    room_particle = (
+        effects.room_particle_view(actor.world, room, bounds)
+        if effects is not None
+        else None
+    )
 
     entities = []
     # serialize_room_projection is the visibility boundary. Resolve 3D data only for ids
@@ -77,19 +88,40 @@ def room_scene_view(actor, room_id: str) -> dict:
         entities.append(view)
 
     decorations = []
-    for _edge, decoration_id in room.get_relationships(HasDecoration3D):
+    for edge, decoration_id in room.get_relationships(HasDecoration3D):
+        if room_particle is not None and edge.role == "bunnyland.3d/particles":
+            continue
         if actor.world.has_entity(decoration_id):
             decorations.append(
                 decoration_3d_view(actor.world.get_entity(decoration_id), bounds, actor)
             )
 
     environment = room_3d.get("environment3d")
+    configured_skybox = (
+        environment["skybox_preset"] if environment else "bunnyland.3d/default"
+    )
+    selected_skybox = (
+        effects.room_skybox_view(actor.world, room, configured_skybox)
+        if effects is not None
+        else None
+    )
+    if selected_skybox is not None:
+        if environment is None:
+            environment = environment_3d_view(
+                Environment3DComponent(has_roof=component.indoor), actor
+            )
+        else:
+            environment = dict(environment)
+        environment["skybox_preset"] = selected_skybox["key"]
+        environment["skybox"] = selected_skybox
     style = biome_style(actor.world, component.biome)
     if environment is not None and style is not None:
         environment = dict(environment)
         environment["albedo_url"] = environment["albedo_url"] or style.albedo_url
         environment["normal_url"] = environment["normal_url"] or style.normal_url
         environment["skybox_url"] = environment["skybox_url"] or style.skybox_url
+    if room_particle is not None:
+        decorations.append(room_particle)
 
     return {
         "ok": True,

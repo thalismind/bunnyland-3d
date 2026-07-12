@@ -149,8 +149,8 @@ export interface ServerAssetManifest {
 
 export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
   const data = await sendJson(base, '/3d/v2/capabilities') as ThreeDCapabilities;
-  if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 3) {
-    throw new Error('Bunnyland 3D scene schema v3 is required');
+  if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 4) {
+    throw new Error('Bunnyland 3D scene schema v4 is required');
   }
   return data;
 }
@@ -166,7 +166,7 @@ export async function fetch3dAssetManifest(base: string): Promise<ServerAssetMan
 
 export async function fetch3dRoomScene(base: string, roomId: string): Promise<PlayerRoomScene> {
   const data = await sendJson(base, `/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
-  if (Number(data.schema_version) !== 3 || data.room?.id !== roomId) {
+  if (Number(data.schema_version) !== 4 || data.room?.id !== roomId) {
     throw new Error('Server returned an incompatible Bunnyland 3D room scene');
   }
   const environment = data.room.environment3d;

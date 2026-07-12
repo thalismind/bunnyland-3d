@@ -107,6 +107,10 @@ class Environment3DComponent(Component):
     sun_color: str = Field(default="#fff1d2", pattern=r"^#[0-9a-fA-F]{6}$")
     sun_intensity: float = Field(default=2.0, ge=0.0, le=8.0)
     has_roof: bool = False
+    skybox_preset: str = Field(
+        default="bunnyland.3d/default",
+        pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*$",
+    )
     surface_recipe: str = Field(default="meadow", pattern=r"^[a-z0-9][a-z0-9._-]*$")
     albedo_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
     normal_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
@@ -167,7 +171,10 @@ class Light3DComponent(Component):
 class ParticleEmitter3DComponent(Component):
     """A bounded, deterministic ambient particle field."""
 
-    preset: Literal["pollen", "fireflies", "spores", "dust", "mist"] = "pollen"
+    preset: str = Field(
+        default="pollen",
+        pattern=r"^(pollen|fireflies|spores|dust|mist|fire|[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*)$",
+    )
     seed: int = Field(ge=0, le=2**31 - 1)
     count: int = Field(default=100, ge=0, le=1500)
     bounds: Vector3 = Vector3(14.0, 4.0, 14.0)
@@ -197,12 +204,35 @@ class HasDecoration3D(Edge):
     )
 
 
+@dataclass(frozen=True)
+class VisualEffectInstance3DComponent(Component):
+    """One active registered visual effect, stored on its own ECS entity."""
+
+    effect_key: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*$"
+    )
+    remaining_seconds: float = -1.0
+    source_key: str = ""
+    state_rule_key: str = ""
+    seed: int = Field(ge=0, le=2**31 - 1)
+
+    def __post_init__(self) -> None:
+        if self.remaining_seconds != -1 and self.remaining_seconds < 0:
+            raise ValueError("remaining_seconds must be -1 or nonnegative")
+
+
+@dataclass(frozen=True)
+class HasVisualEffect3D(Edge):
+    """Affected-entity to active-effect-instance relationship."""
+
+
 __all__ = [
     "Collider3DComponent",
     "BiomeStyle3DComponent",
     "DecorationSource3DComponent",
     "Environment3DComponent",
     "HasDecoration3D",
+    "HasVisualEffect3D",
     "Light3DComponent",
     "ParticleEmitter3DComponent",
     "PropGroup3DComponent",
@@ -212,4 +242,5 @@ __all__ = [
     "Transform3DComponent",
     "Vector3",
     "Velocity3DComponent",
+    "VisualEffectInstance3DComponent",
 ]

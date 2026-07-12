@@ -48,7 +48,8 @@ export interface Visual3DView {
   particle_effects?: Array<{
     key: string;
     anchor: string;
-    preset: 'fire';
+    preset: string;
+    system?: ParticleSystem3DView;
     seed: number;
     count: number;
     bounds: Vector3View;
@@ -58,6 +59,73 @@ export interface Visual3DView {
     opacity: number;
     transform: { scale: number; rotation: number[]; translation: number[] };
   }>;
+}
+
+interface VisualEffectTransformView {
+  scale: number;
+  rotation: number[];
+  translation: number[];
+}
+
+export interface VisualEffect3DView {
+  key: string;
+  remaining_seconds: number;
+  source_key: string;
+  state_rule_key: string;
+  seed: number;
+  anchor_role: string;
+  anchor_required: boolean;
+  particle_layers: Array<{
+    system_key: string;
+    system: ParticleSystem3DView;
+    count: number;
+    bounds: Vector3View;
+    color: string;
+    size: number;
+    speed: number;
+    opacity: number;
+    transform: VisualEffectTransformView;
+  }>;
+  lightning_layers: Array<{
+    color: string;
+    bolt_count: number;
+    segment_count: number;
+    radius: number;
+    height: number;
+    jitter: number;
+    opacity: number;
+    flicker_speed: number;
+    transform: VisualEffectTransformView;
+  }>;
+}
+
+export interface Skybox3DView {
+  key: string;
+  zenith_color: string;
+  sky_color?: string;
+  horizon_color: string;
+  horizon_mix: number;
+  sun_color: string;
+  sun_x: number;
+  sun_y: number;
+  sun_size: number;
+  sun_opacity: number;
+  cloud_color: string;
+  cloud_opacity: number;
+  cloud_count: number;
+  star_color: string;
+  star_opacity: number;
+  star_count: number;
+}
+
+export interface ParticleSystem3DView {
+  key: string;
+  blending: 'normal' | 'additive';
+  vertical_motion: 'rise' | 'fall' | 'drift';
+  vertical_scale: number;
+  lateral_wobble: number;
+  pulse_amount: number;
+  pulse_speed: number;
 }
 
 export interface Collider3DView {
@@ -78,6 +146,7 @@ export interface PlayerSceneEntity {
   render3d?: Render3DView;
   collider3d?: Collider3DView;
   visual3d?: Visual3DView;
+  effects3d?: VisualEffect3DView[];
 }
 
 export interface Environment3DView {
@@ -89,6 +158,8 @@ export interface Environment3DView {
   sun_color?: string;
   sun_intensity?: number;
   has_roof?: boolean;
+  skybox_preset?: string;
+  skybox?: Skybox3DView;
   surface_recipe?: string;
   albedo_url?: string;
   normal_url?: string;
@@ -115,7 +186,8 @@ export interface PlayerSceneDecoration {
     cast_shadow: boolean;
   };
   particle_emitter3d?: {
-    preset: 'pollen' | 'fireflies' | 'spores' | 'dust' | 'mist';
+    preset: string;
+    system?: ParticleSystem3DView;
     seed: number;
     count: number;
     bounds: Vector3View;
@@ -449,6 +521,9 @@ export class PlayerScene {
   entityVisualState(entityId: string): {
     loaded: boolean;
     attachmentCount: number;
+    effectGroup: boolean;
+    effectParticles: number;
+    effectLightning: number;
     opacity: number | null;
     colorHex: string | null;
   } | null {
@@ -468,10 +543,26 @@ export class PlayerScene {
     });
     const attachmentKeys = new Set(tracked.entity.visual3d?.attachments.map(item => item.key));
     let attachmentCount = 0;
+    let effectParticles = 0;
+    let effectLightning = 0;
     tracked.root.traverse(child => {
       if (attachmentKeys.has(child.name)) attachmentCount += 1;
+      if (child instanceof THREE.Points && child.parent?.userData.registeredEntityEffect) {
+        effectParticles += child.geometry.getAttribute('position').count;
+      }
+      if (child instanceof THREE.Line && child.userData.registeredEntityEffect) {
+        effectLightning += 1;
+      }
     });
-    return { loaded: Boolean(namedNode), attachmentCount, opacity, colorHex };
+    return {
+      loaded: Boolean(namedNode),
+      attachmentCount,
+      effectGroup: Boolean(tracked.root.getObjectByName('entity-effects')),
+      effectParticles,
+      effectLightning,
+      opacity,
+      colorHex,
+    };
   }
 
   exitStates(): Array<{ id: string; side: string; rotationY: number; x: number; z: number }> {
@@ -489,20 +580,30 @@ export class PlayerScene {
     return this.renderer.domElement.toDataURL('image/png');
   }
 
-  visualState(): { propInstances: number; modelPropInstances: number; particles: number; localLights: number; skybox: boolean } {
+  visualState(): { propInstances: number; modelPropInstances: number; particles: number; localLights: number; skybox: boolean; skyboxPreset: string; particleSystems: string[] } {
     let propInstances = 0;
     let modelPropInstances = 0;
     let particles = 0;
     let localLights = 0;
     let skybox = false;
+    let skyboxPreset = '';
+    const particleSystems = new Set<string>();
     this.scene.traverse(object => {
       if (object.userData.decorationProps) propInstances += (object as THREE.InstancedMesh).count;
       if (object.userData.modelDecoration) modelPropInstances += (object as THREE.InstancedMesh).count;
-      if (object.userData.particleEmitter) particles += (object as THREE.Points).geometry.getAttribute('position').count;
+      if (object.userData.particleEmitter) {
+        particles += (object as THREE.Points).geometry.getAttribute('position').count;
+        const emitter = object.userData.particleEmitter as { preset?: string; system?: ParticleSystem3DView };
+        particleSystems.add(emitter.system?.key || emitter.preset || '');
+      }
       if (object.userData.localLight) localLights += 1;
-      if (object.userData.skybox) skybox = true;
+      if (object.userData.skybox) {
+        skybox = true;
+        skyboxPreset = String(object.userData.skyboxPreset || '');
+      }
     });
-    return { propInstances, modelPropInstances, particles, localLights, skybox };
+    particleSystems.delete('');
+    return { propInstances, modelPropInstances, particles, localLights, skybox, skyboxPreset, particleSystems: [...particleSystems].sort() };
   }
 
   private readBounds(data: PlayerRoomScene): Bounds2D {
@@ -646,12 +747,13 @@ export class PlayerScene {
   private addSkybox(environment: Environment3DView | null | undefined, skyColor: number): void {
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
-      map: this.proceduralSkybox(skyColor),
+      map: this.proceduralSkybox(skyColor, environment?.skybox),
       side: THREE.BackSide,
       fog: false,
     });
     const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 18), material);
     sky.userData.skybox = true;
+    sky.userData.skyboxPreset = environment?.skybox?.key || environment?.skybox_preset || '';
     sky.position.set(
       (this.bounds.minX + this.bounds.maxX) / 2,
       this.bounds.ground,
@@ -670,28 +772,51 @@ export class PlayerScene {
     });
   }
 
-  private proceduralSkybox(skyColor: number): THREE.CanvasTexture {
+  private proceduralSkybox(skyColor: number, definition?: Skybox3DView): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 256;
     const context = canvas.getContext('2d')!;
-    const zenith = new THREE.Color(skyColor).multiplyScalar(0.7);
-    const horizon = new THREE.Color(skyColor).lerp(new THREE.Color(0xffe2b8), 0.32);
+    const zenith = definition?.zenith_color
+      ? new THREE.Color(definition.zenith_color)
+      : new THREE.Color(skyColor).multiplyScalar(0.7);
+    const middle = new THREE.Color(definition?.sky_color || skyColor);
+    const horizon = middle.clone().lerp(
+      new THREE.Color(definition?.horizon_color || 0xffe2b8),
+      finite(definition?.horizon_mix, 0.32),
+    );
     const gradient = context.createLinearGradient(0, 0, 0, 256);
     gradient.addColorStop(0, `#${zenith.getHexString()}`);
-    gradient.addColorStop(0.72, `#${new THREE.Color(skyColor).getHexString()}`);
+    gradient.addColorStop(0.72, `#${middle.getHexString()}`);
     gradient.addColorStop(1, `#${horizon.getHexString()}`);
     context.fillStyle = gradient;
     context.fillRect(0, 0, 512, 256);
-    context.fillStyle = 'rgba(255, 245, 218, 0.76)';
+    context.fillStyle = definition?.sun_color || 'rgba(255, 245, 218, 0.76)';
+    context.globalAlpha = definition ? finite(definition.sun_opacity, 0.76) : 1;
     context.beginPath();
-    context.arc(392, 72, 18, 0, Math.PI * 2);
+    context.arc(
+      finite(definition?.sun_x, 0.765) * 512,
+      finite(definition?.sun_y, 0.28) * 256,
+      finite(definition?.sun_size, 0.035) * 512,
+      0,
+      Math.PI * 2,
+    );
     context.fill();
-    const random = randomFrom(hash(`sky:${skyColor}`));
-    context.fillStyle = 'rgba(255, 255, 255, 0.12)';
-    for (let index = 0; index < 18; index += 1) {
+    context.globalAlpha = 1;
+    const skySeed = definition?.key && definition.key !== 'bunnyland.3d/default' ? definition.key : skyColor;
+    const random = randomFrom(hash(`sky:${skySeed}`));
+    const cloudColor = new THREE.Color(definition?.cloud_color || 0xffffff);
+    context.fillStyle = `rgba(${cloudColor.r * 255}, ${cloudColor.g * 255}, ${cloudColor.b * 255}, ${finite(definition?.cloud_opacity, 0.12)})`;
+    for (let index = 0; index < finite(definition?.cloud_count, 18); index += 1) {
       context.beginPath();
       context.ellipse(random() * 512, 115 + random() * 70, 18 + random() * 38, 3 + random() * 7, 0, 0, Math.PI * 2);
+      context.fill();
+    }
+    const starColor = new THREE.Color(definition?.star_color || 0xffffff);
+    context.fillStyle = `rgba(${starColor.r * 255}, ${starColor.g * 255}, ${starColor.b * 255}, ${finite(definition?.star_opacity, 0)})`;
+    for (let index = 0; index < finite(definition?.star_count, 0); index += 1) {
+      context.beginPath();
+      context.arc(random() * 512, random() * 150, 0.4 + random() * 1.4, 0, Math.PI * 2);
       context.fill();
     }
     const texture = new THREE.CanvasTexture(canvas);
@@ -856,7 +981,7 @@ export class PlayerScene {
       transparent: true,
       opacity: emitter.opacity,
       depthWrite: false,
-      blending: emitter.preset === 'fireflies' ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: emitter.system?.blending === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
     const points = new THREE.Points(geometry, material);
     points.userData.particleEmitter = { ...emitter, baseY: this.bounds.ground };
@@ -932,8 +1057,12 @@ export class PlayerScene {
       finite(entity.transform3d?.scale?.z, 1),
     );
     root.userData.entityId = entity.id;
+    const effectGroup = new THREE.Group();
+    effectGroup.name = 'entity-effects';
+    effectGroup.userData.entityEffects = true;
     const placeholder = entity.is_character ? this.proceduralAvatar(entity) : this.proceduralProp(entity);
-    root.add(placeholder, this.pickVolume(entity));
+    root.add(placeholder, this.pickVolume(entity), effectGroup);
+    this.addRegisteredEffects(root, placeholder, entity);
     root.traverse(child => { child.userData.entityId = entity.id; });
     this.entityGroup.add(root);
     const tracked: TrackedEntity = { entity, root, mixer: null, idle: null, walk: null };
@@ -997,8 +1126,9 @@ export class PlayerScene {
       const { gltf, descriptor } = await this.loadAsset(assetKey);
       if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
       const pickVolume = tracked.root.getObjectByName('pick-volume');
+      const effectGroup = tracked.root.getObjectByName('entity-effects');
       for (const child of [...tracked.root.children]) {
-        if (child === pickVolume) continue;
+        if (child === pickVolume || child === effectGroup) continue;
         tracked.root.remove(child);
         disposeObject(child);
       }
@@ -1031,6 +1161,8 @@ export class PlayerScene {
       });
       this.applyNodePatches(model, tracked.entity.visual3d?.node_patches || []);
       tracked.root.add(model);
+      this.clearRegisteredEffects(tracked.root);
+      this.addRegisteredEffects(tracked.root, model, tracked.entity);
       await this.addAttachments(model, tracked.entity, generation);
       this.addParticleEffects(model, tracked.entity);
       if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
@@ -1155,7 +1287,7 @@ export class PlayerScene {
         transparent: true,
         opacity: effect.opacity,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: effect.system?.blending === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending,
       });
       const points = new THREE.Points(geometry, material);
       points.userData.entityId = entity.id;
@@ -1176,6 +1308,132 @@ export class PlayerScene {
       );
       root.add(points);
       anchor.add(root);
+    }
+  }
+
+  private clearRegisteredEffects(root: THREE.Object3D): void {
+    const stale: THREE.Object3D[] = [];
+    root.traverse(child => {
+      if (child.userData.registeredEntityEffect) stale.push(child);
+    });
+    for (const child of stale) {
+      child.parent?.remove(child);
+      disposeObject(child);
+    }
+  }
+
+  private effectAnchor(
+    root: THREE.Object3D,
+    model: THREE.Object3D,
+    entity: PlayerSceneEntity,
+    effect: VisualEffect3DView,
+  ): THREE.Object3D | null {
+    const group = root.getObjectByName('entity-effects');
+    if (!group || effect.anchor_role === 'entity-aura') return group || null;
+    const names = entity.visual3d?.semantic_roles?.[effect.anchor_role] || [];
+    for (const name of names) {
+      const anchor = model.getObjectByName(name);
+      if (anchor) return anchor;
+    }
+    return effect.anchor_required ? null : group;
+  }
+
+  private applyEffectTransform(root: THREE.Object3D, transform: VisualEffectTransformView): void {
+    root.scale.setScalar(finite(transform.scale, 1));
+    root.rotation.set(
+      finite(transform.rotation?.[0], 0),
+      finite(transform.rotation?.[1], 0),
+      finite(transform.rotation?.[2], 0),
+    );
+    root.position.set(
+      finite(transform.translation?.[0], 0),
+      finite(transform.translation?.[1], 0),
+      finite(transform.translation?.[2], 0),
+    );
+  }
+
+  private addRegisteredEffects(
+    root: THREE.Object3D,
+    model: THREE.Object3D,
+    entity: PlayerSceneEntity,
+  ): void {
+    for (const effect of entity.effects3d || []) {
+      const anchor = this.effectAnchor(root, model, entity, effect);
+      if (!anchor) continue;
+      effect.particle_layers.forEach((layer, layerIndex) => {
+        const random = randomFrom(effect.seed + layerIndex * 104729);
+        const values = new Float32Array(layer.count * 3);
+        for (let index = 0; index < layer.count; index += 1) {
+          values[index * 3] = (random() - 0.5) * layer.bounds.x;
+          values[index * 3 + 1] = random() * layer.bounds.y;
+          values[index * 3 + 2] = (random() - 0.5) * layer.bounds.z;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+        const material = new THREE.PointsMaterial({
+          color: color(layer.color, 0xffffff),
+          size: layer.size,
+          transparent: true,
+          opacity: layer.opacity,
+          depthWrite: false,
+          blending: layer.system?.blending === 'additive'
+            ? THREE.AdditiveBlending
+            : THREE.NormalBlending,
+        });
+        const points = new THREE.Points(geometry, material);
+        points.userData.entityId = entity.id;
+        points.userData.particleEmitter = {
+          ...layer,
+          preset: layer.system_key,
+          seed: effect.seed + layerIndex * 104729,
+          baseY: 0,
+        };
+        const layerRoot = new THREE.Group();
+        layerRoot.name = `${effect.key}:particles:${layerIndex}`;
+        layerRoot.userData.entityId = entity.id;
+        layerRoot.userData.registeredEntityEffect = true;
+        this.applyEffectTransform(layerRoot, layer.transform);
+        layerRoot.add(points);
+        anchor.add(layerRoot);
+      });
+      effect.lightning_layers.forEach((layer, layerIndex) => {
+        const random = randomFrom(effect.seed + layerIndex * 130363);
+        for (let boltIndex = 0; boltIndex < layer.bolt_count; boltIndex += 1) {
+          const angle = random() * Math.PI * 2;
+          const values = new Float32Array((layer.segment_count + 1) * 3);
+          for (let segment = 0; segment <= layer.segment_count; segment += 1) {
+            const offset = segment === 0 || segment === layer.segment_count
+              ? 0
+              : (random() - 0.5) * layer.jitter;
+            const radius = layer.radius + offset;
+            values[segment * 3] = Math.cos(angle) * radius + (random() - 0.5) * layer.jitter;
+            values[segment * 3 + 1] = layer.height * segment / layer.segment_count;
+            values[segment * 3 + 2] = Math.sin(angle) * radius + (random() - 0.5) * layer.jitter;
+          }
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+          const material = new THREE.LineBasicMaterial({
+            color: color(layer.color, 0xa020f0),
+            transparent: true,
+            opacity: layer.opacity,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          });
+          const line = new THREE.Line(geometry, material);
+          line.name = `${effect.key}:lightning:${layerIndex}:${boltIndex}`;
+          line.userData.entityId = entity.id;
+          line.userData.registeredEntityEffect = true;
+          line.userData.lightningEffect = {
+            basePositions: values.slice(),
+            opacity: layer.opacity,
+            flickerSpeed: layer.flicker_speed,
+            jitter: layer.jitter,
+            phase: random() * Math.PI * 2,
+          };
+          this.applyEffectTransform(line, layer.transform);
+          anchor.add(line);
+        }
+      });
     }
   }
 
@@ -1369,18 +1627,44 @@ export class PlayerScene {
     this.scene.traverse(object => {
       if (!(object instanceof THREE.Points) || !object.userData.particleEmitter) return;
       const emitter = object.userData.particleEmitter as NonNullable<PlayerSceneDecoration['particle_emitter3d']> & { baseY: number };
+      const system = emitter.system;
       const attribute = object.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let index = 0; index < attribute.count; index += 1) {
         const phase = index * 1.618 + emitter.seed * 0.0001;
-        let y = attribute.getY(index) + delta * emitter.speed * (emitter.preset === 'dust' ? 0.18 : 0.55);
+        const direction = system?.vertical_motion === 'fall' ? -1 : 1;
+        let y = attribute.getY(index) + delta * emitter.speed * finite(system?.vertical_scale, emitter.preset === 'dust' ? 0.18 : 0.55) * direction;
         if (y > emitter.baseY + emitter.bounds.y) y = emitter.baseY;
+        if (y < emitter.baseY) y = emitter.baseY + emitter.bounds.y;
         attribute.setY(index, y);
-        attribute.setX(index, attribute.getX(index) + Math.sin(this.particleTime + phase) * delta * emitter.speed * 0.08);
-        attribute.setZ(index, attribute.getZ(index) + Math.cos(this.particleTime * 0.8 + phase) * delta * emitter.speed * 0.08);
+        const wobble = finite(system?.lateral_wobble, 0.08);
+        attribute.setX(index, attribute.getX(index) + Math.sin(this.particleTime + phase) * delta * emitter.speed * wobble);
+        attribute.setZ(index, attribute.getZ(index) + Math.cos(this.particleTime * 0.8 + phase) * delta * emitter.speed * wobble);
       }
       attribute.needsUpdate = true;
       const material = object.material as THREE.PointsMaterial;
-      if (emitter.preset === 'fireflies') material.opacity = emitter.opacity * (0.6 + 0.4 * Math.sin(this.particleTime * 2.4));
+      const pulse = finite(system?.pulse_amount, emitter.preset === 'fireflies' ? 0.4 : 0);
+      material.opacity = emitter.opacity * (1 - pulse + pulse * Math.sin(this.particleTime * finite(system?.pulse_speed, 2.4)));
+    });
+    this.scene.traverse(object => {
+      if (!(object instanceof THREE.Line) || !object.userData.lightningEffect) return;
+      const effect = object.userData.lightningEffect as {
+        basePositions: Float32Array;
+        opacity: number;
+        flickerSpeed: number;
+        jitter: number;
+        phase: number;
+      };
+      const attribute = object.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let index = 1; index < attribute.count - 1; index += 1) {
+        const wave = Math.sin(this.particleTime * effect.flickerSpeed + effect.phase + index * 1.7);
+        attribute.setX(index, effect.basePositions[index * 3] + wave * effect.jitter * 0.18);
+        attribute.setZ(index, effect.basePositions[index * 3 + 2] - wave * effect.jitter * 0.18);
+      }
+      attribute.needsUpdate = true;
+      const material = object.material as THREE.LineBasicMaterial;
+      material.opacity = effect.opacity * (0.45 + 0.55 * Math.abs(
+        Math.sin(this.particleTime * effect.flickerSpeed + effect.phase),
+      ));
     });
   }
 

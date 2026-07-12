@@ -258,7 +258,7 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
     scene = client.get(f"/3d/v2/room/{room.id}")
 
     assert capability.status_code == 200
-    assert capability.json()["scene_schema_version"] == 3
+    assert capability.json()["scene_schema_version"] == 4
     assert capability.json()["asset_schema_version"] == 2
     manifest_data = manifest.json()
     assert manifest_data["schema_version"] == 2
@@ -276,7 +276,7 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
     assert "handle" in manifest_data["assets"]["bunnyland.3d/showcase-prop"]["nodes"]
     assert scene.status_code == 200
     data = scene.json()
-    assert data["schema_version"] == 3
+    assert data["schema_version"] == 4
     assert data["room"]["bounds3d"]["size"] == {"x": 16.0, "y": 4.0, "z": 16.0}
     assert [entity["id"] for entity in data["entities"]] == [str(visible.id)]
     assert data["entities"][0]["render3d"]["asset_key"] == "avatar.leporid"
@@ -372,7 +372,12 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
         ],
     )
     client = testclient.TestClient(
-        create_app(actor, meta=WorldMeta(seed="graphics"), plugins=plugins, admin_token="secret")
+        create_app(
+            actor,
+            meta=WorldMeta(seed="graphics"),
+            plugins=plugins,
+            admin_token="secret",
+        )
     )
     headers = {"X-Bunnyland-Admin-Secret": "secret"}
 
@@ -388,7 +393,6 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
         content=b"not-decoded-by-media-store",
     )
     scene = client.get(f"/3d/v2/room/{room.id}").json()
-
     assert applied.status_code == 200
     assert roofed.json()["has_roof"] is True
     assert uploaded.status_code == 200

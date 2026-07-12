@@ -278,6 +278,7 @@ def player_3d_scene(room_id: str):
                     "key": "bunnyland.test/fire",
                     "anchor": "GenericProp",
                     "preset": "fire",
+                    "system": {"key": "vendor.weather/embers", "blending": "additive", "vertical_motion": "rise", "vertical_scale": 0.55, "lateral_wobble": 0.08, "pulse_amount": 0, "pulse_speed": 2.4},
                     "seed": 31,
                     "count": 12,
                     "bounds": {"x": 0.3, "y": 0.6, "z": 0.3},
@@ -288,6 +289,20 @@ def player_3d_scene(room_id: str):
                     "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0.8, 0]},
                 }],
             }
+            view["effects3d"] = [{
+                "key": "bunnyland.test/chaos",
+                "remaining_seconds": -1,
+                "source_key": "bunnyland.test/state",
+                "state_rule_key": "bunnyland.test/state",
+                "seed": 91,
+                "anchor_role": "entity-aura",
+                "anchor_required": False,
+                "particle_layers": [
+                    {"system_key": "vendor.weather/embers", "system": {"key": "vendor.weather/embers", "blending": "additive", "vertical_motion": "rise", "vertical_scale": 0.55, "lateral_wobble": 0.08, "pulse_amount": 0, "pulse_speed": 2.4}, "count": 8, "bounds": {"x": 0.5, "y": 1.1, "z": 0.5}, "color": "#c13cff", "size": 0.06, "speed": 0.3, "opacity": 0.8, "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]}},
+                    {"system_key": "vendor.weather/snow", "system": {"key": "vendor.weather/snow", "blending": "normal", "vertical_motion": "fall", "vertical_scale": 0.7, "lateral_wobble": 0.16, "pulse_amount": 0, "pulse_speed": 2.4}, "count": 4, "bounds": {"x": 0.4, "y": 0.9, "z": 0.4}, "color": "#79c8ff", "size": 0.04, "speed": 0.2, "opacity": 0.7, "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]}},
+                ],
+                "lightning_layers": [{"color": "#a020f0", "bolt_count": 3, "segment_count": 7, "radius": 0.5, "height": 1.2, "jitter": 0.12, "opacity": 0.8, "flicker_speed": 8, "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]}}],
+            }]
         entities.append(view)
     entities = [item for item in entities if item["id"] != "character:ash"]
     entities.append({
@@ -301,7 +316,7 @@ def player_3d_scene(room_id: str):
     })
     return {
         "ok": True,
-        "schema_version": 3,
+        "schema_version": 4,
         "world_epoch": 21,
         "room": {
             "id": room_id,
@@ -319,6 +334,8 @@ def player_3d_scene(room_id: str):
                 "sun_color": "#fff0c2",
                 "sun_intensity": 2.0,
                 "has_roof": False,
+                "skybox_preset": "vendor.weather/day",
+                "skybox": {"key": "vendor.weather/day", "zenith_color": "", "horizon_color": "#ffe2b8", "horizon_mix": 0.32, "sun_color": "#fff5da", "sun_x": 0.765, "sun_y": 0.28, "sun_size": 0.035, "sun_opacity": 0.76, "cloud_color": "#ffffff", "cloud_opacity": 0.12, "cloud_count": 18, "star_color": "#ffffff", "star_opacity": 0.15, "star_count": 12},
                 "surface_recipe": biome,
                 "albedo_url": "",
                 "normal_url": "",
@@ -352,7 +369,7 @@ def player_3d_scene(room_id: str):
             {
                 "id": "decoration:particles",
                 "transform3d": {"position": {"x": 8, "y": 0.2, "z": 8}},
-                "particle_emitter3d": {"preset": "pollen", "seed": 42, "count": 24, "bounds": {"x": 14, "y": 4, "z": 14}, "color": "#fff0a8", "size": 0.08, "speed": 0.2, "opacity": 0.65},
+                "particle_emitter3d": {"preset": "vendor.weather/snow", "system": {"key": "vendor.weather/snow", "blending": "normal", "vertical_motion": "fall", "vertical_scale": 0.7, "lateral_wobble": 0.16, "pulse_amount": 0, "pulse_speed": 2.4}, "seed": 42, "count": 24, "bounds": {"x": 14, "y": 4, "z": 14}, "color": "#fff0a8", "size": 0.08, "speed": 0.2, "opacity": 0.65},
             },
         ],
     }
@@ -424,7 +441,7 @@ def route_api(page):
         "ok": True,
         "plugin_id": "bunnyland.3d",
         "plugin_version": "0.3.0",
-        "scene_schema_version": 3,
+        "scene_schema_version": 4,
         "asset_schema_version": 2,
     }))
     page.route("**/mock/3d/v2/assets/manifest", lambda route: route.fulfill(status=200, json={
@@ -765,9 +782,11 @@ def main() -> None:
                 raise AssertionError(f"entity GLB patches were not applied: {entity_visual!r}")
             if entity_visual["colorHex"] == "112233":
                 raise AssertionError(f"legacy Render3D color replaced the GLB material: {entity_visual!r}")
+            if not entity_visual["effectGroup"] or entity_visual["effectParticles"] != 12 or entity_visual["effectLightning"] != 3:
+                raise AssertionError(f"entity effects were not preserved across GLB replacement: {entity_visual!r}")
             page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
-            if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 36, "localLights": 1, "skybox": True}:
+            if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 48, "localLights": 1, "skybox": True, "skyboxPreset": "vendor.weather/day", "particleSystems": ["vendor.weather/embers", "vendor.weather/snow"]}:
                 raise AssertionError(f"provider model did not replace the procedural decoration: {visual_state!r}")
             page.wait_for_timeout(600)
             camera_clearance = page.evaluate("window.__world3dPlayer.cameraState()")

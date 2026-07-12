@@ -11,12 +11,19 @@ from .assets import (
     VisualMaterial3D,
     register_models,
 )
+from .effects import ParticleSystem3D, register_particle_systems
+from .entity_effects import (
+    VisualEffectDefinition,
+    VisualEffectParticleLayer,
+    VisualEffectStateRule,
+    register_visual_effect_state_rules,
+    register_visual_effects,
+)
 from .visuals import (
     EntityVisualContribution,
     EntityVisualRule,
     VisualAttachment,
     VisualNodePatch,
-    VisualParticleEffect,
     register_entity_visuals,
 )
 
@@ -28,6 +35,71 @@ def _component(entity, component_type):
 
 
 def install_core_entity_visuals(actor) -> None:
+    register_particle_systems(
+        actor,
+        OWNER,
+        (
+            ParticleSystem3D(
+                f"{OWNER}/smoke",
+                vertical_motion="rise",
+                vertical_scale=0.2,
+                lateral_wobble=0.05,
+            ),
+        ),
+    )
+    register_visual_effects(
+        actor,
+        OWNER,
+        (
+            VisualEffectDefinition(
+                key=f"{OWNER}/fire",
+                particle_layers=(
+                    VisualEffectParticleLayer(
+                        f"{OWNER}/fire",
+                        count=18,
+                        bounds=(0.34, 0.62, 0.34),
+                        color="#ff7a24",
+                        size=0.09,
+                        speed=0.78,
+                        opacity=0.92,
+                        transform=ModelTransform(translation=(0, 0.05, 0)),
+                    ),
+                    VisualEffectParticleLayer(
+                        f"{OWNER}/fire",
+                        count=10,
+                        bounds=(0.28, 0.52, 0.28),
+                        color="#e53920",
+                        size=0.065,
+                        speed=0.7,
+                        opacity=0.86,
+                        transform=ModelTransform(translation=(0, 0.05, 0)),
+                    ),
+                    VisualEffectParticleLayer(
+                        f"{OWNER}/smoke",
+                        count=12,
+                        bounds=(0.42, 0.8, 0.42),
+                        color="#777777",
+                        size=0.11,
+                        speed=0.28,
+                        opacity=0.48,
+                        transform=ModelTransform(translation=(0, 0.32, 0)),
+                    ),
+                ),
+            ),
+        ),
+    )
+    register_visual_effect_state_rules(
+        actor,
+        OWNER,
+        (
+            VisualEffectStateRule(
+                key=f"{OWNER}/fire-state",
+                component_type=FireComponent,
+                predicate=lambda entity: entity.has_component(FireComponent),
+                effect_key=f"{OWNER}/fire",
+            ),
+        ),
+    )
     register_models(
         actor,
         OWNER,
@@ -211,21 +283,6 @@ def install_core_entity_visuals(actor) -> None:
                 contribution=EntityVisualContribution(
                     patches=(
                         VisualNodePatch("state-indicator", semantic_role=True, emissive="#ff5a16"),
-                    ),
-                    particle_effects=(
-                        VisualParticleEffect(
-                            key=f"{OWNER}/fire-state",
-                            anchor="state-indicator",
-                            semantic_role=True,
-                            seed=3187,
-                            count=28,
-                            bounds=(0.34, 0.62, 0.34),
-                            color="#ff7a24",
-                            size=0.09,
-                            speed=0.78,
-                            opacity=0.92,
-                            transform=ModelTransform(translation=(0, 0.05, 0)),
-                        ),
                     ),
                 ),
             ),

@@ -114,6 +114,109 @@ publishes safe URLs through `GET /3d/v2/assets/manifest`. STL has no material co
 set `default_color` when appearance matters. Use `instanced=True` only for static models;
 animated, skinned, and interactive props should remain individual ECS entities.
 
+## Registering Skyboxes and Particle Systems
+
+Visual plugins can also register bounded, declarative environment effects. Register them
+from an integration factory after declaring `bunnyland.3d` as a dependency:
+
+```python
+from bunnyland_3d import (
+    ParticleSystem3D,
+    RoomParticleRule,
+    RoomSkyboxRule,
+    Skybox3D,
+    register_particle_rules,
+    register_particle_systems,
+    register_skybox_rules,
+    register_skyboxes,
+)
+
+def install_weather_effects(actor):
+    register_skyboxes(actor, "vendor.weather", [
+        Skybox3D(
+            "vendor.weather/night",
+            zenith_color="#071229",
+            horizon_color="#29375c",
+            cloud_count=0,
+            star_opacity=0.85,
+            star_count=180,
+        ),
+    ])
+    register_particle_systems(actor, "vendor.weather", [
+        ParticleSystem3D(
+            "vendor.weather/snow",
+            vertical_motion="fall",
+            vertical_scale=0.7,
+            lateral_wobble=0.16,
+        ),
+    ])
+    register_skybox_rules(actor, "vendor.weather", [
+        RoomSkyboxRule(
+            "vendor.weather/night-rule",
+            "vendor.weather/night",
+            lambda world, room: is_clear_night(world, room),
+            priority=20,
+        ),
+    ])
+    register_particle_rules(actor, "vendor.weather", [
+        RoomParticleRule(
+            "vendor.weather/snowfall",
+            "vendor.weather/snow",
+            lambda _world, room: is_snowy(room),
+            count=80,
+            color="#e8f4ff",
+        ),
+    ])
+```
+
+Select the registered skybox with
+`Environment3DComponent(skybox_preset="vendor.weather/night")`, or the particle behavior
+with `ParticleEmitter3DComponent(preset="vendor.weather/snow", ...)`. Keys must begin with
+the provider plugin id. The client receives only validated colors, counts, material modes,
+and motion parameters; registries do not transmit or execute plugin code in browsers.
+Room rules are evaluated during projection, so clock- or weather-dependent effects update
+without mutating room components. An explicit non-default `skybox_preset` takes precedence.
+The highest-priority matching particle rule replaces only the core ambient particle field;
+manually authored and plugin-owned emitters remain composable.
+
+## Registering Entity Effects
+
+Use registered entity effects for reusable auras and timed spell feedback. Definitions
+contain one or more particle or lightning layers; active instances live on separate ECS
+entities linked to their target, so different sources can coexist:
+
+```python
+from bunnyland_3d import (
+    VisualEffectDefinition,
+    VisualEffectParticleLayer,
+    apply_visual_effect,
+    register_visual_effects,
+)
+
+register_visual_effects(actor, "vendor.magic", [
+    VisualEffectDefinition(
+        "vendor.magic/healing",
+        particle_layers=(
+            VisualEffectParticleLayer(
+                "vendor.magic/gold-rise",
+                count=24,
+                color="#ffd45c",
+            ),
+        ),
+    ),
+])
+apply_visual_effect(actor, target.id, "vendor.magic/healing", 5, "vendor.magic/heal")
+```
+
+Reapplying the same effect and source refreshes its timer; a different source creates a
+separate instance. Pass `-1` for a persistent effect. `remove_visual_effect` removes the
+matching effect/source pair explicitly. For component-driven state, register a
+`VisualEffectStateRule`; the every-tick effect system creates the persistent instance while
+its predicate matches and removes it when the predicate stops matching. The default
+`entity-aura` anchor works with procedural fallbacks and loaded models. Other semantic roles
+resolve against a loaded model and fall back to the entity root unless `anchor_required` is
+set.
+
 ## Docker Packaging
 
 An out-of-tree plugin should ship extension images, not forks of the main server and web

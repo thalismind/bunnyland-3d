@@ -9,6 +9,7 @@ from typing import Any
 
 from .assets import ModelTransform, require_model_registry
 from .components import Render3DComponent
+from .effects import require_environment_effect_registry
 
 _VISUAL_KEY = re.compile(r"^[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)+$")
 
@@ -113,7 +114,9 @@ class EntityVisualRegistry:
             for effect in contribution.particle_effects:
                 if not _VISUAL_KEY.fullmatch(effect.key) or not effect.key.startswith(prefix):
                     raise EntityVisualError(f"particle effect key must begin with {prefix!r}")
-                if effect.preset != "fire":
+                systems = require_environment_effect_registry(self.actor).particle_systems
+                aliases = {"pollen", "fireflies", "spores", "dust", "mist", "fire"}
+                if effect.preset not in aliases and effect.preset not in systems:
                     raise EntityVisualError(f"unsupported visual particle preset: {effect.preset}")
                 if effect.count <= 0:
                     raise EntityVisualError("visual particle count must be positive")
@@ -287,6 +290,9 @@ class EntityVisualRegistry:
                     "key": effect.key,
                     "anchor": anchor,
                     "preset": effect.preset,
+                    "system": require_environment_effect_registry(
+                        self.actor
+                    ).particle_system_view(effect.preset),
                     "seed": effect.seed,
                     "count": effect.count,
                     "bounds": {

@@ -16,10 +16,39 @@ from .components import (
     Transform3DComponent,
     Vector3,
 )
+from .effects import require_environment_effect_registry
+from .entity_effects import entity_effect_views
 
 
 def vector_view(vector: Vector3) -> dict[str, float]:
     return {"x": vector.x, "y": vector.y, "z": vector.z}
+
+
+def environment_3d_view(environment: Environment3DComponent, actor=None) -> dict:
+    return {
+        "sky_color": environment.sky_color,
+        "fog_color": environment.fog_color,
+        "fog_density": environment.fog_density,
+        "ambient_color": environment.ambient_color,
+        "ambient_intensity": environment.ambient_intensity,
+        "sun_color": environment.sun_color,
+        "sun_intensity": environment.sun_intensity,
+        "has_roof": environment.has_roof,
+        "skybox_preset": environment.skybox_preset,
+        "skybox": (
+            require_environment_effect_registry(actor).skybox_view(
+                environment.skybox_preset
+            )
+            if actor is not None
+            and hasattr(actor, "environment_effect_registry_3d")
+            else None
+        ),
+        "surface_recipe": environment.surface_recipe,
+        "albedo_url": environment.albedo_url,
+        "normal_url": environment.normal_url,
+        "skybox_url": environment.skybox_url,
+        "texture_scale": environment.texture_scale,
+    }
 
 
 def _prop_instances(group: PropGroup3DComponent, bounds: RoomBounds3DComponent) -> list[dict]:
@@ -74,6 +103,10 @@ def _prop_instances(group: PropGroup3DComponent, bounds: RoomBounds3DComponent) 
 
 def entity_3d_view(entity, actor=None) -> dict:
     view: dict = {"id": str(entity.id)}
+    if actor is not None and hasattr(actor, "visual_effect_registry_3d"):
+        effects = entity_effect_views(actor, entity)
+        if effects:
+            view["effects3d"] = effects
     if entity.has_component(Transform3DComponent):
         transform = entity.get_component(Transform3DComponent)
         view["transform3d"] = {
@@ -115,21 +148,7 @@ def entity_3d_view(entity, actor=None) -> dict:
         }
     if entity.has_component(Environment3DComponent):
         environment = entity.get_component(Environment3DComponent)
-        view["environment3d"] = {
-            "sky_color": environment.sky_color,
-            "fog_color": environment.fog_color,
-            "fog_density": environment.fog_density,
-            "ambient_color": environment.ambient_color,
-            "ambient_intensity": environment.ambient_intensity,
-            "sun_color": environment.sun_color,
-            "sun_intensity": environment.sun_intensity,
-            "has_roof": environment.has_roof,
-            "surface_recipe": environment.surface_recipe,
-            "albedo_url": environment.albedo_url,
-            "normal_url": environment.normal_url,
-            "skybox_url": environment.skybox_url,
-            "texture_scale": environment.texture_scale,
-        }
+        view["environment3d"] = environment_3d_view(environment, actor)
     if entity.has_component(PropGroup3DComponent):
         group = entity.get_component(PropGroup3DComponent)
         view["prop_group3d"] = {
@@ -153,6 +172,14 @@ def entity_3d_view(entity, actor=None) -> dict:
         emitter = entity.get_component(ParticleEmitter3DComponent)
         view["particle_emitter3d"] = {
             "preset": emitter.preset,
+            "system": (
+                require_environment_effect_registry(actor).particle_system_view(
+                    emitter.preset
+                )
+                if actor is not None
+                and hasattr(actor, "environment_effect_registry_3d")
+                else None
+            ),
             "seed": emitter.seed,
             "count": emitter.count,
             "bounds": vector_view(emitter.bounds),
@@ -199,4 +226,10 @@ def world_3d_view(world) -> dict:
     return {"schema_version": 1, "entities": [entity_3d_view(entity) for entity in entities]}
 
 
-__all__ = ["decoration_3d_view", "entity_3d_view", "vector_view", "world_3d_view"]
+__all__ = [
+    "decoration_3d_view",
+    "entity_3d_view",
+    "environment_3d_view",
+    "vector_view",
+    "world_3d_view",
+]
