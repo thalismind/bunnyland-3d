@@ -395,7 +395,13 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
 
 
 def route_api(page):
-    prop_asset = Path(__file__).resolve().parents[1] / "public" / "assets" / "3d" / "prop-generic.gltf"
+    prop_asset = (
+        Path(__file__).resolve().parents[1]
+        / "dist"
+        / "assets"
+        / "3d"
+        / "prop-generic.gltf"
+    )
     page.route(
         "**/assets/3d/prop-generic.glb",
         lambda route: route.fulfill(path=prop_asset, content_type="model/gltf-binary"),

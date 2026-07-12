@@ -71,7 +71,7 @@ requires-dist = [
     { name = "bunnyland", extras = ["server"], git = "https://github.com/thalismind/bunnyland-server.git?branch=main" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "relics" },
-    { name = "trimesh", specifier = ">=4.4" },
+    { name = "trimesh", specifier = "==4.12.2" },
 ]
 
 [package.metadata.requires-dev]
