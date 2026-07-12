@@ -70,6 +70,51 @@ def install_core_entity_visuals(actor) -> None:
                     )
                 ),
             ),
+            ModelAsset(
+                key=f"{OWNER}/showcase-prop",
+                source=ProceduralModelSource(
+                    parts=(
+                        PrimitivePart3D(
+                            "body",
+                            "box",
+                            size=(1.0, 0.8, 0.7),
+                            transform=ModelTransform(translation=(0, 0.55, 0)),
+                            material=VisualMaterial3D(color="#507c68", metallic=0.15),
+                            roles=("damageable",),
+                        ),
+                        PrimitivePart3D(
+                            "lid",
+                            "box",
+                            size=(0.96, 0.12, 0.68),
+                            transform=ModelTransform(translation=(0, 1.0, -0.28)),
+                            material=VisualMaterial3D(color="#78a68e", metallic=0.15),
+                            roles=("openable",),
+                        ),
+                        PrimitivePart3D(
+                            "indicator",
+                            "sphere",
+                            radius=0.09,
+                            transform=ModelTransform(translation=(0.3, 0.72, 0.36)),
+                            material=VisualMaterial3D(color="#88d8c0", emissive="#163d34"),
+                            roles=("state-indicator",),
+                        ),
+                        PrimitivePart3D(
+                            "lock_anchor",
+                            "sphere",
+                            radius=0.02,
+                            transform=ModelTransform(translation=(0, 0.55, 0.36)),
+                            material=VisualMaterial3D(opacity=0.0),
+                            roles=("lock-anchor",),
+                        ),
+                    ),
+                    required_roles=(
+                        "damageable",
+                        "openable",
+                        "lock-anchor",
+                        "state-indicator",
+                    ),
+                ),
+            ),
         ),
     )
     register_entity_visuals(

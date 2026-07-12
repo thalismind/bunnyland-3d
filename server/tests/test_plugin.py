@@ -262,7 +262,17 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
     assert capability.json()["asset_schema_version"] == 2
     manifest_data = manifest.json()
     assert manifest_data["schema_version"] == 2
-    assert set(manifest_data["assets"]) == {"bunnyland.3d/fire", "bunnyland.3d/lock"}
+    assert set(manifest_data["assets"]) == {
+        "bunnyland.3d/fire",
+        "bunnyland.3d/lock",
+        "bunnyland.3d/showcase-prop",
+    }
+    assert manifest_data["assets"]["bunnyland.3d/showcase-prop"]["semantic_roles"] == {
+        "damageable": ["body"],
+        "lock-anchor": ["lock_anchor"],
+        "openable": ["lid"],
+        "state-indicator": ["indicator"],
+    }
     assert scene.status_code == 200
     data = scene.json()
     assert data["schema_version"] == 3
