@@ -16,6 +16,7 @@ from .visuals import (
     EntityVisualRule,
     VisualAttachment,
     VisualNodePatch,
+    VisualParticleEffect,
     register_entity_visuals,
 )
 
@@ -79,7 +80,7 @@ def install_core_entity_visuals(actor) -> None:
                             "box",
                             size=(1.0, 0.8, 0.7),
                             transform=ModelTransform(translation=(0, 0.55, 0)),
-                            material=VisualMaterial3D(color="#507c68", metallic=0.15),
+                            material=VisualMaterial3D(color="#704626", metallic=0.05),
                             roles=("damageable",),
                         ),
                         PrimitivePart3D(
@@ -87,7 +88,7 @@ def install_core_entity_visuals(actor) -> None:
                             "box",
                             size=(0.96, 0.12, 0.68),
                             transform=ModelTransform(translation=(0, 1.0, -0.28)),
-                            material=VisualMaterial3D(color="#78a68e", metallic=0.15),
+                            material=VisualMaterial3D(color="#8b5a32", metallic=0.05),
                             roles=("openable",),
                         ),
                         PrimitivePart3D(
@@ -97,6 +98,18 @@ def install_core_entity_visuals(actor) -> None:
                             transform=ModelTransform(translation=(0.3, 0.72, 0.36)),
                             material=VisualMaterial3D(color="#88d8c0", emissive="#163d34"),
                             roles=("state-indicator",),
+                        ),
+                        PrimitivePart3D(
+                            "handle",
+                            "capsule",
+                            radius=0.035,
+                            height=0.28,
+                            transform=ModelTransform(
+                                rotation=(0, 0, 1.5708), translation=(0, 0.76, 0.39)
+                            ),
+                            material=VisualMaterial3D(
+                                color="#d7b85c", metallic=0.75, roughness=0.28
+                            ),
                         ),
                         PrimitivePart3D(
                             "lock_anchor",
@@ -186,6 +199,7 @@ def install_core_entity_visuals(actor) -> None:
                             model_key=f"{OWNER}/lock",
                             anchor="lock-anchor",
                             semantic_role=True,
+                            transform=ModelTransform(translation=(0, -0.04, 0.14)),
                         ),
                     )
                 ),
@@ -198,12 +212,19 @@ def install_core_entity_visuals(actor) -> None:
                     patches=(
                         VisualNodePatch("state-indicator", semantic_role=True, emissive="#ff5a16"),
                     ),
-                    attachments=(
-                        VisualAttachment(
+                    particle_effects=(
+                        VisualParticleEffect(
                             key=f"{OWNER}/fire-state",
-                            model_key=f"{OWNER}/fire",
                             anchor="state-indicator",
                             semantic_role=True,
+                            seed=3187,
+                            count=28,
+                            bounds=(0.34, 0.62, 0.34),
+                            color="#ff7a24",
+                            size=0.09,
+                            speed=0.78,
+                            opacity=0.92,
+                            transform=ModelTransform(translation=(0, 0.05, 0)),
                         ),
                     ),
                 ),

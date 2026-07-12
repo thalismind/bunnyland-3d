@@ -45,6 +45,19 @@ export interface Visual3DView {
     visible: boolean;
     transform: { scale: number; rotation: number[]; translation: number[] };
   }>;
+  particle_effects?: Array<{
+    key: string;
+    anchor: string;
+    preset: 'fire';
+    seed: number;
+    count: number;
+    bounds: Vector3View;
+    color: string;
+    size: number;
+    speed: number;
+    opacity: number;
+    transform: { scale: number; rotation: number[]; translation: number[] };
+  }>;
 }
 
 export interface Collider3DView {
@@ -478,7 +491,7 @@ export class PlayerScene {
     let particles = 0;
     let localLights = 0;
     let skybox = false;
-    this.environment.traverse(object => {
+    this.scene.traverse(object => {
       if (object.userData.decorationProps) propInstances += (object as THREE.InstancedMesh).count;
       if (object.userData.modelDecoration) modelPropInstances += (object as THREE.InstancedMesh).count;
       if (object.userData.particleEmitter) particles += (object as THREE.Points).geometry.getAttribute('position').count;
@@ -1009,6 +1022,7 @@ export class PlayerScene {
       this.applyNodePatches(model, tracked.entity.visual3d?.node_patches || []);
       tracked.root.add(model);
       await this.addAttachments(model, tracked.entity, generation);
+      this.addParticleEffects(model, tracked.entity);
       if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
       tracked.mixer = new THREE.AnimationMixer(model);
       const aliases = Array.isArray(descriptor.clips) ? {} : descriptor.clips || {};
@@ -1110,6 +1124,49 @@ export class PlayerScene {
       mesh.receiveShadow = true;
     });
     anchor.add(root);
+  }
+
+  private addParticleEffects(model: THREE.Object3D, entity: PlayerSceneEntity): void {
+    for (const effect of entity.visual3d?.particle_effects || []) {
+      const anchor = effect.anchor === '*' ? model : model.getObjectByName(effect.anchor);
+      if (!anchor) continue;
+      const random = randomFrom(effect.seed);
+      const values = new Float32Array(effect.count * 3);
+      for (let index = 0; index < effect.count; index += 1) {
+        values[index * 3] = (random() - 0.5) * effect.bounds.x;
+        values[index * 3 + 1] = random() * effect.bounds.y;
+        values[index * 3 + 2] = (random() - 0.5) * effect.bounds.z;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+      const material = new THREE.PointsMaterial({
+        color: color(effect.color, 0xff7a24),
+        size: effect.size,
+        transparent: true,
+        opacity: effect.opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const points = new THREE.Points(geometry, material);
+      points.userData.entityId = entity.id;
+      points.userData.particleEmitter = { ...effect, baseY: 0 };
+      const root = new THREE.Group();
+      root.name = effect.key;
+      root.userData.entityId = entity.id;
+      root.scale.setScalar(finite(effect.transform.scale, 1));
+      root.rotation.set(
+        finite(effect.transform.rotation?.[0], 0),
+        finite(effect.transform.rotation?.[1], 0),
+        finite(effect.transform.rotation?.[2], 0),
+      );
+      root.position.set(
+        finite(effect.transform.translation?.[0], 0),
+        finite(effect.transform.translation?.[1], 0),
+        finite(effect.transform.translation?.[2], 0),
+      );
+      root.add(points);
+      anchor.add(root);
+    }
   }
 
   private loadAsset(assetKey: string): Promise<LoadedAsset> {
@@ -1299,7 +1356,7 @@ export class PlayerScene {
 
   private updateParticles(delta: number): void {
     this.particleTime += delta;
-    this.environment.traverse(object => {
+    this.scene.traverse(object => {
       if (!(object instanceof THREE.Points) || !object.userData.particleEmitter) return;
       const emitter = object.userData.particleEmitter as NonNullable<PlayerSceneDecoration['particle_emitter3d']> & { baseY: number };
       const attribute = object.geometry.getAttribute('position') as THREE.BufferAttribute;

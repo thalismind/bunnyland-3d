@@ -273,6 +273,19 @@ def player_3d_scene(room_id: str):
                     "visible": True,
                     "transform": {"scale": 0.25, "rotation": [0, 0, 0], "translation": [0, 0.8, 0]},
                 }],
+                "particle_effects": [{
+                    "key": "bunnyland.test/fire",
+                    "anchor": "GenericProp",
+                    "preset": "fire",
+                    "seed": 31,
+                    "count": 12,
+                    "bounds": {"x": 0.3, "y": 0.6, "z": 0.3},
+                    "color": "#ff7a24",
+                    "size": 0.08,
+                    "speed": 0.7,
+                    "opacity": 0.9,
+                    "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0.8, 0]},
+                }],
             }
         entities.append(view)
     entities = [item for item in entities if item["id"] != "character:ash"]
@@ -745,7 +758,7 @@ def main() -> None:
                 raise AssertionError(f"entity GLB patches were not applied: {entity_visual!r}")
             page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
-            if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 24, "localLights": 1, "skybox": True}:
+            if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 36, "localLights": 1, "skybox": True}:
                 raise AssertionError(f"provider model did not replace the procedural decoration: {visual_state!r}")
             page.wait_for_timeout(600)
             camera_clearance = page.evaluate("window.__world3dPlayer.cameraState()")

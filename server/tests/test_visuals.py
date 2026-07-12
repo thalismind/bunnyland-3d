@@ -1,5 +1,6 @@
 from bunnyland.core import ContainerComponent, HealthComponent, WorldActor
 from bunnyland.core.ecs import spawn_entity
+from bunnyland.foundation.environment.mechanics import FireComponent
 from bunnyland.foundation.media.plugin import plugin as media_plugin
 from bunnyland.plugins import apply_plugins
 
@@ -65,7 +66,42 @@ def test_rules_compose_live_state_per_field_without_mutating_ecs(tmp_path, monke
     assert patches["lid"]["transform"]["rotation"][0] == -1.2
     assert patches["*"]["opacity"] == 0.8
     assert view["attachments"][0]["anchor"] == "body"
+    assert view["attachments"][0]["transform"]["translation"] == [0, -0.04, 0.14]
     assert entity.get_component(Render3DComponent) == original
+
+
+def test_fire_rule_projects_anchored_particles_instead_of_a_model(tmp_path, monkeypatch):
+    actor = _actor(tmp_path, monkeypatch)
+    entity = spawn_entity(
+        actor.world,
+        [
+            FireComponent(),
+            Render3DComponent(asset_key="bunnyland.3d/showcase-prop"),
+        ],
+    )
+
+    visual = entity_3d_view(entity, actor)["visual3d"]
+
+    assert visual["attachments"] == []
+    assert visual["particle_effects"] == [
+        {
+            "key": "bunnyland.3d/fire-state",
+            "anchor": "indicator",
+            "preset": "fire",
+            "seed": 3187,
+            "count": 28,
+            "bounds": {"x": 0.34, "y": 0.62, "z": 0.34},
+            "color": "#ff7a24",
+            "size": 0.09,
+            "speed": 0.78,
+            "opacity": 0.92,
+            "transform": {
+                "scale": 1.0,
+                "rotation": [0.0, 0.0, 0.0],
+                "translation": [0, 0.05, 0],
+            },
+        }
+    ]
 
 
 def test_rule_ties_are_deterministic_per_field_and_emit_diagnostic(tmp_path, monkeypatch):

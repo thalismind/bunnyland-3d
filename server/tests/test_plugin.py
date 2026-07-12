@@ -273,6 +273,7 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
         "openable": ["lid"],
         "state-indicator": ["indicator"],
     }
+    assert "handle" in manifest_data["assets"]["bunnyland.3d/showcase-prop"]["nodes"]
     assert scene.status_code == 200
     data = scene.json()
     assert data["schema_version"] == 3

@@ -42,10 +42,28 @@ class VisualAttachment:
 
 
 @dataclass(frozen=True)
+class VisualParticleEffect:
+    key: str
+    anchor: str
+    semantic_role: bool = False
+    required: bool = False
+    preset: str = "fire"
+    seed: int = 0
+    count: int = 24
+    bounds: tuple[float, float, float] = (0.4, 0.7, 0.4)
+    color: str = "#ff7a24"
+    size: float = 0.08
+    speed: float = 0.7
+    opacity: float = 0.9
+    transform: ModelTransform = field(default_factory=ModelTransform)
+
+
+@dataclass(frozen=True)
 class EntityVisualContribution:
     base_model_key: str = ""
     patches: tuple[VisualNodePatch, ...] = ()
     attachments: tuple[VisualAttachment, ...] = ()
+    particle_effects: tuple[VisualParticleEffect, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +110,13 @@ class EntityVisualRegistry:
                     raise EntityVisualError(f"attachment key must begin with {prefix!r}")
                 if attachment.model_key not in models:
                     raise EntityVisualError(f"unknown attachment model: {attachment.model_key}")
+            for effect in contribution.particle_effects:
+                if not _VISUAL_KEY.fullmatch(effect.key) or not effect.key.startswith(prefix):
+                    raise EntityVisualError(f"particle effect key must begin with {prefix!r}")
+                if effect.preset != "fire":
+                    raise EntityVisualError(f"unsupported visual particle preset: {effect.preset}")
+                if effect.count <= 0:
+                    raise EntityVisualError("visual particle count must be positive")
             if contribution.base_model_key:
                 model = models[contribution.base_model_key]
                 for patch in contribution.patches:
@@ -119,6 +144,20 @@ class EntityVisualRegistry:
                         raise EntityVisualError(
                             f"required attachment anchor is missing from "
                             f"{contribution.base_model_key}: {attachment.anchor}"
+                        )
+                for effect in contribution.particle_effects:
+                    targets = (
+                        model.semantic_roles.get(effect.anchor, ())
+                        if effect.semantic_role
+                        else ()
+                    )
+                    present = (
+                        bool(targets) if effect.semantic_role else effect.anchor in model.nodes
+                    )
+                    if effect.required and not present:
+                        raise EntityVisualError(
+                            f"required particle anchor is missing from "
+                            f"{contribution.base_model_key}: {effect.anchor}"
                         )
             self._rules[rule.key] = rule
 
@@ -171,6 +210,7 @@ class EntityVisualRegistry:
             assign("*", "variant", render.variant_key or None, -10_000, "compat/render3d")
 
         attachments: dict[str, tuple[int, str, VisualAttachment, str]] = {}
+        particle_effects: dict[str, tuple[int, str, VisualParticleEffect, str]] = {}
         for rule in matches:
             for patch in rule.contribution.patches:
                 targets = roles.get(patch.target, ()) if patch.semantic_role else (patch.target,)
@@ -208,6 +248,19 @@ class EntityVisualRegistry:
                     old = attachments.get(attachment.key)
                     if old is None or candidate[:2] > old[:2]:
                         attachments[attachment.key] = candidate
+            for effect in rule.contribution.particle_effects:
+                anchors = roles.get(effect.anchor, ()) if effect.semantic_role else (effect.anchor,)
+                anchors = tuple(anchor for anchor in anchors if anchor == "*" or anchor in nodes)
+                if not anchors:
+                    self._diagnose(
+                        f"optional particle anchor missing for {rule.key}: {effect.anchor}"
+                    )
+                    continue
+                for anchor in anchors:
+                    candidate = (rule.priority, rule.key, effect, anchor)
+                    old = particle_effects.get(effect.key)
+                    if old is None or candidate[:2] > old[:2]:
+                        particle_effects[effect.key] = candidate
 
         patch_views: dict[str, dict[str, Any]] = {}
         for (target, field_name), (_priority, _key, value) in sorted(winners.items()):
@@ -225,11 +278,35 @@ class EntityVisualRegistry:
                     "transform": _transform_view(attachment.transform),
                 }
             )
+        particle_views = []
+        for _effect_key, (_priority, _rule_key, effect, anchor) in sorted(
+            particle_effects.items()
+        ):
+            particle_views.append(
+                {
+                    "key": effect.key,
+                    "anchor": anchor,
+                    "preset": effect.preset,
+                    "seed": effect.seed,
+                    "count": effect.count,
+                    "bounds": {
+                        "x": effect.bounds[0],
+                        "y": effect.bounds[1],
+                        "z": effect.bounds[2],
+                    },
+                    "color": effect.color,
+                    "size": effect.size,
+                    "speed": effect.speed,
+                    "opacity": effect.opacity,
+                    "transform": _transform_view(effect.transform),
+                }
+            )
         return {
             "base_model_key": base_key,
             "semantic_roles": {key: list(value) for key, value in sorted(roles.items())},
             "node_patches": list(patch_views.values()),
             "attachments": attachment_views,
+            "particle_effects": particle_views,
         }
 
 
@@ -255,6 +332,7 @@ __all__ = [
     "EntityVisualRule",
     "VisualAttachment",
     "VisualNodePatch",
+    "VisualParticleEffect",
     "install_entity_visual_registry",
     "register_entity_visuals",
     "require_entity_visual_registry",

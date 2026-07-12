@@ -38,6 +38,7 @@ from .visuals import (
     EntityVisualRule,
     VisualAttachment,
     VisualNodePatch,
+    VisualParticleEffect,
     register_entity_visuals,
     require_entity_visual_registry,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "EntityVisualRule",
     "VisualAttachment",
     "VisualNodePatch",
+    "VisualParticleEffect",
     "bunnyland_plugins",
     "plugin",
     "register_model_importer",
