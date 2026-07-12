@@ -58,7 +58,7 @@ the action box.
 
 Actions use the same verbs as every other Bunnyland client:
 
-- room actions, such as move, take, drop, use, eat, drink, and say, spend action points;
+- world actions, such as move, take, drop, use, eat, and drink, spend action points;
 - focus actions, such as notes and memory actions, spend focus points;
 - queued actions appear in the queue panel and can be cancelled before they run;
 - the server can still reject an action if the target or world state changed.

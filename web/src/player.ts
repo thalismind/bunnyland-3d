@@ -464,7 +464,7 @@ function renderActions(): void {
       .map(item => actionRow(item.action, item.index))
       .join('');
     const count = filtered.filter(action => actionLane(action) === lane).length;
-    return `<div class="section-title">${lane === 'focus' ? 'Focus actions' : 'Room actions'} (${count})</div>${rows || '<div class="muted">No matching actions.</div>'}`;
+    return `<div class="section-title">${lane === 'focus' ? 'Focus actions' : 'World actions'} (${count})</div>${rows || '<div class="muted">No matching actions.</div>'}`;
   });
   actionsEl.innerHTML = sections.join('');
 }
