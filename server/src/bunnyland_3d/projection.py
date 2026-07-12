@@ -72,7 +72,7 @@ def _prop_instances(group: PropGroup3DComponent, bounds: RoomBounds3DComponent) 
     return result
 
 
-def entity_3d_view(entity) -> dict:
+def entity_3d_view(entity, actor=None) -> dict:
     view: dict = {"id": str(entity.id)}
     if entity.has_component(Transform3DComponent):
         transform = entity.get_component(Transform3DComponent)
@@ -103,6 +103,10 @@ def entity_3d_view(entity) -> dict:
             "asset_key": render.asset_key,
             "variant_key": render.variant_key,
         }
+    if actor is not None and hasattr(actor, "entity_visual_registry"):
+        visual = actor.entity_visual_registry.resolve(entity)
+        if visual is not None:
+            view["visual3d"] = visual
     if entity.has_component(RoomBounds3DComponent):
         bounds = entity.get_component(RoomBounds3DComponent)
         view["bounds3d"] = {
@@ -167,8 +171,8 @@ def entity_3d_view(entity) -> dict:
     return view
 
 
-def decoration_3d_view(entity, bounds: RoomBounds3DComponent) -> dict:
-    view = entity_3d_view(entity)
+def decoration_3d_view(entity, bounds: RoomBounds3DComponent, actor=None) -> dict:
+    view = entity_3d_view(entity, actor)
     if entity.has_component(PropGroup3DComponent):
         view["prop_group3d"]["instances"] = _prop_instances(
             entity.get_component(PropGroup3DComponent), bounds

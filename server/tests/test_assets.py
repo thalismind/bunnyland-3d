@@ -18,6 +18,9 @@ from bunnyland_3d.assets import (
     ModelAsset,
     ModelAssetError,
     ModelTransform,
+    PrimitivePart3D,
+    ProceduralModelSource,
+    VisualMaterial3D,
     require_model_registry,
 )
 from bunnyland_3d.plugin import plugin as plugin_3d
@@ -73,6 +76,83 @@ def test_registry_publishes_content_addressed_glb_without_source_paths(tmp_path,
     assert asset["clips"] == {"idle": "Glow"}
     assert asset["instanced"] is True
     assert str(source) not in repr(manifest)
+
+
+def test_procedural_recipe_compiles_deterministically_with_named_semantic_nodes(
+    tmp_path, monkeypatch
+):
+    pytest.importorskip("trimesh")
+    monkeypatch.setenv("BUNNYLAND_MEDIA_DIR", str(tmp_path / "media"))
+    source = ProceduralModelSource(
+        parts=(
+            PrimitivePart3D(
+                "body",
+                "box",
+                size=(1.0, 0.5, 0.75),
+                material=VisualMaterial3D(color="#336699", emissive="#102030"),
+                roles=("damageable",),
+            ),
+            PrimitivePart3D(
+                "lid",
+                "cylinder",
+                radius=0.4,
+                height=0.1,
+                transform=ModelTransform(translation=(0, 0.3, 0)),
+                parent="body",
+                roles=("openable",),
+            ),
+        ),
+        required_roles=("damageable", "openable"),
+    )
+    first = require_model_registry(_actor())
+    second = require_model_registry(_actor())
+
+    first.register_models("vendor.plugin", [ModelAsset("vendor.plugin/chest", source)])
+    second.register_models("vendor.plugin", [ModelAsset("vendor.plugin/chest", source)])
+
+    first_asset = first.manifest()["assets"]["vendor.plugin/chest"]
+    second_asset = second.manifest()["assets"]["vendor.plugin/chest"]
+    assert first_asset["digest"] == second_asset["digest"]
+    assert set(first_asset["nodes"]) >= {"body", "lid"}
+    assert first_asset["semantic_roles"] == {
+        "damageable": ["body"],
+        "openable": ["lid"],
+    }
+    stored = first.media.read("models3d", first_asset["url"].rsplit("/", 1)[1])
+    assert stored[:4] == b"glTF"
+
+
+def test_procedural_recipe_rejects_invalid_hierarchy_and_missing_required_role(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("BUNNYLAND_MEDIA_DIR", str(tmp_path / "media"))
+    registry = require_model_registry(_actor())
+
+    with pytest.raises(ModelAssetError, match="unknown procedural parent"):
+        registry.register_models(
+            "vendor.plugin",
+            [
+                ModelAsset(
+                    "vendor.plugin/orphan",
+                    ProceduralModelSource(
+                        parts=(PrimitivePart3D("part", "box", parent="missing"),)
+                    ),
+                )
+            ],
+        )
+    with pytest.raises(ModelAssetError, match="missing required semantic roles"):
+        registry.register_models(
+            "vendor.plugin",
+            [
+                ModelAsset(
+                    "vendor.plugin/no-role",
+                    ProceduralModelSource(
+                        parts=(PrimitivePart3D("part", "sphere"),),
+                        required_roles=("openable",),
+                    ),
+                )
+            ],
+        )
 
 
 def test_registry_rejects_escaping_wrong_owner_duplicate_and_invalid_glb(tmp_path, monkeypatch):

@@ -1036,6 +1036,7 @@ declare global {
       selectTarget: (entityId: string) => void;
       exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<PlayerScene['exitScreenPoint']>;
       entityScreenPoint: (entityId: string) => ReturnType<PlayerScene['entityScreenPoint']>;
+      entityVisualState: (entityId: string) => ReturnType<PlayerScene['entityVisualState']>;
       exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
       visualState: () => ReturnType<PlayerScene['visualState']>;
@@ -1053,6 +1054,7 @@ window.__world3dPlayer = {
   selectTarget,
   exitScreenPoint: exitId => scene.exitScreenPoint(exitId),
   entityScreenPoint: entityId => scene.entityScreenPoint(entityId),
+  entityVisualState: entityId => scene.entityVisualState(entityId),
   exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
   visualState: () => scene.visualState(),

@@ -54,7 +54,7 @@ def room_scene_view(actor, room_id: str) -> dict:
     if room is None or not room.has_component(RoomComponent):
         raise HTTPException(status_code=404, detail="room does not exist")
     component = room.get_component(RoomComponent)
-    room_3d = entity_3d_view(room)
+    room_3d = entity_3d_view(room, actor)
     bounds = (
         room.get_component(RoomBounds3DComponent)
         if room.has_component(RoomBounds3DComponent)
@@ -73,13 +73,15 @@ def room_scene_view(actor, room_id: str) -> dict:
             "is_character": public.is_character,
         }
         if entity is not None:
-            view.update(entity_3d_view(entity))
+            view.update(entity_3d_view(entity, actor))
         entities.append(view)
 
     decorations = []
     for _edge, decoration_id in room.get_relationships(HasDecoration3D):
         if actor.world.has_entity(decoration_id):
-            decorations.append(decoration_3d_view(actor.world.get_entity(decoration_id), bounds))
+            decorations.append(
+                decoration_3d_view(actor.world.get_entity(decoration_id), bounds, actor)
+            )
 
     environment = room_3d.get("environment3d")
     style = biome_style(actor.world, component.biome)

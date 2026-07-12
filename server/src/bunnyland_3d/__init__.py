@@ -6,6 +6,9 @@ from .assets import (
     ModelAssetError,
     ModelAssetRegistry,
     ModelTransform,
+    PrimitivePart3D,
+    ProceduralModelSource,
+    VisualMaterial3D,
     register_model_importer,
     register_models,
     require_model_registry,
@@ -29,6 +32,15 @@ from .components import (
 from .decorations import RoomDecorationRule, register_room_decorations
 from .plugin import PLUGIN_ID, bunnyland_plugins, plugin
 from .systems import Movement3DSystem, step_entities
+from .visuals import (
+    EntityVisualContribution,
+    EntityVisualError,
+    EntityVisualRule,
+    VisualAttachment,
+    VisualNodePatch,
+    register_entity_visuals,
+    require_entity_visual_registry,
+)
 
 __all__ = [
     "PLUGIN_ID",
@@ -44,6 +56,8 @@ __all__ = [
     "ModelAssetError",
     "ModelAssetRegistry",
     "ModelTransform",
+    "PrimitivePart3D",
+    "ProceduralModelSource",
     "ParticleEmitter3DComponent",
     "PropGroup3DComponent",
     "PropInstanceOverride",
@@ -53,11 +67,19 @@ __all__ = [
     "Transform3DComponent",
     "Vector3",
     "Velocity3DComponent",
+    "VisualMaterial3D",
+    "EntityVisualContribution",
+    "EntityVisualError",
+    "EntityVisualRule",
+    "VisualAttachment",
+    "VisualNodePatch",
     "bunnyland_plugins",
     "plugin",
     "register_model_importer",
     "register_models",
+    "register_entity_visuals",
     "register_room_decorations",
     "require_model_registry",
+    "require_entity_visual_registry",
     "step_entities",
 ]

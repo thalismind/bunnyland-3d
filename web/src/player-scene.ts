@@ -26,6 +26,27 @@ export interface Render3DView {
   variant_key?: string;
 }
 
+export interface Visual3DView {
+  base_model_key: string;
+  semantic_roles: Record<string, string[]>;
+  node_patches: Array<{
+    target: string;
+    visible?: boolean;
+    transform?: { scale: number; rotation: number[]; translation: number[] };
+    color_multiply?: string;
+    emissive?: string;
+    opacity?: number;
+    variant?: string;
+  }>;
+  attachments: Array<{
+    key: string;
+    model_key: string;
+    anchor: string;
+    visible: boolean;
+    transform: { scale: number; rotation: number[]; translation: number[] };
+  }>;
+}
+
 export interface Collider3DView {
   shape?: string;
   size?: Partial<Vector3View>;
@@ -43,6 +64,7 @@ export interface PlayerSceneEntity {
   transform3d?: Transform3DView;
   render3d?: Render3DView;
   collider3d?: Collider3DView;
+  visual3d?: Visual3DView;
 }
 
 export interface Environment3DView {
@@ -409,6 +431,30 @@ export class PlayerScene {
       x: rect.left + (projected.x + 1) * rect.width / 2,
       y: rect.top + (-projected.y + 1) * rect.height / 2,
     };
+  }
+
+  entityVisualState(entityId: string): {
+    loaded: boolean;
+    attachmentCount: number;
+    opacity: number | null;
+  } | null {
+    const tracked = this.entities.get(entityId);
+    if (!tracked) return null;
+    const namedNode = tracked.root.getObjectByName('GenericProp');
+    let opacity: number | null = null;
+    namedNode?.traverse(child => {
+      if (opacity !== null) return;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      opacity = material.opacity;
+    });
+    const attachmentKeys = new Set(tracked.entity.visual3d?.attachments.map(item => item.key));
+    let attachmentCount = 0;
+    tracked.root.traverse(child => {
+      if (attachmentKeys.has(child.name)) attachmentCount += 1;
+    });
+    return { loaded: Boolean(namedNode), attachmentCount, opacity };
   }
 
   exitStates(): Array<{ id: string; side: string; rotationY: number; x: number; z: number }> {
@@ -876,7 +922,9 @@ export class PlayerScene {
     const tracked: TrackedEntity = { entity, root, mixer: null, idle: null, walk: null };
     this.entities.set(entity.id, tracked);
     this.addObstacle(entity);
-    const assetKey = entity.render3d?.asset_key || (entity.is_character ? 'avatar.leporid' : '');
+    const assetKey = entity.visual3d?.base_model_key
+      || entity.render3d?.asset_key
+      || (entity.is_character ? 'avatar.leporid' : '');
     if (assetKey) void this.replaceWithAsset(tracked, assetKey, generation);
   }
 
@@ -958,7 +1006,10 @@ export class PlayerScene {
           }
         }
       });
+      this.applyNodePatches(model, tracked.entity.visual3d?.node_patches || []);
       tracked.root.add(model);
+      await this.addAttachments(model, tracked.entity, generation);
+      if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
       tracked.mixer = new THREE.AnimationMixer(model);
       const aliases = Array.isArray(descriptor.clips) ? {} : descriptor.clips || {};
       const idleClip = THREE.AnimationClip.findByName(gltf.animations, aliases.idle || 'Idle');
@@ -969,6 +1020,96 @@ export class PlayerScene {
     } catch (error) {
       console.warn(`Bunnyland 3D asset fallback for ${assetKey}:`, error);
     }
+  }
+
+  private applyNodePatches(model: THREE.Object3D, patches: Visual3DView['node_patches']): void {
+    for (const patch of patches) {
+      const target = patch.target === '*' ? model : model.getObjectByName(patch.target);
+      if (!target) continue;
+      if (patch.visible !== undefined) target.visible = patch.visible;
+      if (patch.transform) {
+        target.scale.multiplyScalar(finite(patch.transform.scale, 1));
+        target.rotation.x += finite(patch.transform.rotation?.[0], 0);
+        target.rotation.y += finite(patch.transform.rotation?.[1], 0);
+        target.rotation.z += finite(patch.transform.rotation?.[2], 0);
+        target.position.add(new THREE.Vector3(
+          finite(patch.transform.translation?.[0], 0),
+          finite(patch.transform.translation?.[1], 0),
+          finite(patch.transform.translation?.[2], 0),
+        ));
+      }
+      target.userData.variant = patch.variant || '';
+      target.traverse(child => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const material of materials) {
+          const standard = material as THREE.MeshStandardMaterial;
+          if (patch.color_multiply && standard.color) {
+            standard.color.multiply(new THREE.Color(patch.color_multiply));
+          }
+          if (patch.emissive && standard.emissive) standard.emissive.set(patch.emissive);
+          if (patch.opacity !== undefined) {
+            standard.opacity = patch.opacity;
+            standard.transparent = patch.opacity < 1;
+            standard.depthWrite = patch.opacity >= 1;
+          }
+          standard.needsUpdate = true;
+        }
+      });
+    }
+  }
+
+  private async addAttachments(
+    model: THREE.Object3D,
+    entity: PlayerSceneEntity,
+    generation: number,
+  ): Promise<void> {
+    for (const attachment of entity.visual3d?.attachments || []) {
+      if (!attachment.visible) continue;
+      try {
+        await this.addAttachment(model, entity, attachment, generation);
+      } catch (error) {
+        console.warn(`Bunnyland 3D attachment fallback for ${attachment.model_key}:`, error);
+      }
+    }
+  }
+
+  private async addAttachment(
+    model: THREE.Object3D,
+    entity: PlayerSceneEntity,
+    attachment: Visual3DView['attachments'][number],
+    generation: number,
+  ): Promise<void> {
+    const anchor = attachment.anchor === '*' ? model : model.getObjectByName(attachment.anchor);
+    if (!anchor) return;
+    const { gltf, descriptor } = await this.loadAsset(attachment.model_key);
+    if (generation !== this.loadGeneration) return;
+    const root = cloneSkeleton(gltf.scene);
+    this.applyAssetTransform(root, descriptor);
+    const transform = attachment.transform;
+    root.scale.multiplyScalar(finite(transform.scale, 1));
+    root.rotation.x += finite(transform.rotation?.[0], 0);
+    root.rotation.y += finite(transform.rotation?.[1], 0);
+    root.rotation.z += finite(transform.rotation?.[2], 0);
+    root.position.add(new THREE.Vector3(
+      finite(transform.translation?.[0], 0),
+      finite(transform.translation?.[1], 0),
+      finite(transform.translation?.[2], 0),
+    ));
+    root.name = attachment.key;
+    root.traverse(child => {
+      child.userData.entityId = entity.id;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry = mesh.geometry.clone();
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map(material => material.clone())
+        : mesh.material.clone();
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    });
+    anchor.add(root);
   }
 
   private loadAsset(assetKey: string): Promise<LoadedAsset> {
@@ -1067,6 +1208,7 @@ export class PlayerScene {
         });
         mesh.instanceMatrix.needsUpdate = true;
         mesh.userData.decorationProps = true;
+        mesh.userData.modelDecoration = true;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         replacements.push(mesh);

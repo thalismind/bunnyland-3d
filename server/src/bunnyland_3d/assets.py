@@ -31,6 +31,39 @@ class ModelTransform:
 
 
 @dataclass(frozen=True)
+class VisualMaterial3D:
+    color: str = "#ffffff"
+    emissive: str = "#000000"
+    opacity: float = 1.0
+    metallic: float = 0.0
+    roughness: float = 0.8
+
+
+@dataclass(frozen=True)
+class PrimitivePart3D:
+    """A named primitive in a server-compiled model recipe."""
+
+    name: str
+    primitive: str
+    size: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    radius: float = 0.5
+    height: float = 1.0
+    tube_radius: float = 0.125
+    transform: ModelTransform = field(default_factory=ModelTransform)
+    material: VisualMaterial3D = field(default_factory=VisualMaterial3D)
+    parent: str = ""
+    roles: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProceduralModelSource:
+    """A deterministic transformed-primitive recipe compiled to GLB on registration."""
+
+    parts: tuple[PrimitivePart3D, ...]
+    required_roles: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AssetSource:
     """A model path constrained to a plugin-owned root."""
 
@@ -52,7 +85,7 @@ class AssetSource:
 @dataclass(frozen=True)
 class ModelAsset:
     key: str
-    source: AssetSource
+    source: AssetSource | ProceduralModelSource
     transform: ModelTransform = field(default_factory=ModelTransform)
     clips: dict[str, str] = field(default_factory=dict)
     variants: tuple[str, ...] = ()
@@ -60,6 +93,8 @@ class ModelAsset:
     instanced: bool = False
     license: str = ""
     attribution: str = ""
+    semantic_roles: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    required_roles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,9 +102,152 @@ class RegisteredModel:
     asset: ModelAsset
     url: str
     digest: str
+    nodes: tuple[str, ...] = ()
+    semantic_roles: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 ModelImporter = Callable[[Path, ModelAsset], bytes]
+
+
+_PART_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,79}$")
+_PRIMITIVES = frozenset({"box", "sphere", "capsule", "cylinder", "cone", "torus"})
+
+
+def _recipe_document(source: ProceduralModelSource) -> dict[str, Any]:
+    """Return the canonical, public recipe representation used for content identity."""
+
+    return {
+        "parts": [
+            {
+                "name": part.name,
+                "primitive": part.primitive,
+                "size": list(part.size),
+                "radius": part.radius,
+                "height": part.height,
+                "tube_radius": part.tube_radius,
+                "transform": {
+                    "scale": part.transform.scale,
+                    "rotation": list(part.transform.rotation),
+                    "translation": list(part.transform.translation),
+                },
+                "material": {
+                    "color": part.material.color,
+                    "emissive": part.material.emissive,
+                    "opacity": part.material.opacity,
+                    "metallic": part.material.metallic,
+                    "roughness": part.material.roughness,
+                },
+                "parent": part.parent,
+                "roles": list(part.roles),
+            }
+            for part in source.parts
+        ],
+        "required_roles": list(source.required_roles),
+    }
+
+
+def _validate_recipe(source: ProceduralModelSource) -> None:
+    names = {part.name for part in source.parts}
+    if not source.parts:
+        raise ModelAssetError("procedural model contains no parts")
+    if len(names) != len(source.parts):
+        raise ModelAssetError("procedural model part names must be unique")
+    for part in source.parts:
+        if not _PART_NAME.fullmatch(part.name):
+            raise ModelAssetError(f"invalid procedural part name: {part.name}")
+        if part.primitive not in _PRIMITIVES:
+            raise ModelAssetError(f"unsupported procedural primitive: {part.primitive}")
+        if part.parent and part.parent not in names:
+            raise ModelAssetError(f"unknown procedural parent: {part.parent}")
+        parent = part.parent
+        visited = {part.name}
+        while parent:
+            if parent in visited:
+                raise ModelAssetError("procedural model hierarchy contains a cycle")
+            visited.add(parent)
+            parent = next(item.parent for item in source.parts if item.name == parent)
+
+
+def _material_color(value: str, opacity: float) -> list[int]:
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        raise ModelAssetError(f"invalid material color: {value}")
+    return [int(value[index : index + 2], 16) for index in (1, 3, 5)] + [round(opacity * 255)]
+
+
+def _emissive_color(value: str) -> list[float]:
+    return [channel / 255 for channel in _material_color(value, 1.0)[:3]]
+
+
+def _compile_procedural(source: ProceduralModelSource) -> bytes:
+    _validate_recipe(source)
+    try:
+        import numpy
+        import trimesh
+    except ImportError as exc:  # pragma: no cover - installation-specific
+        raise ModelAssetError("procedural models require the trimesh dependency") from exc
+
+    scene = trimesh.Scene()
+    for part in source.parts:
+        if part.primitive == "box":
+            geometry = trimesh.creation.box(extents=part.size)
+        elif part.primitive == "sphere":
+            geometry = trimesh.creation.icosphere(subdivisions=2, radius=part.radius)
+        elif part.primitive == "capsule":
+            geometry = trimesh.creation.capsule(radius=part.radius, height=part.height)
+        elif part.primitive == "cylinder":
+            geometry = trimesh.creation.cylinder(
+                radius=part.radius, height=part.height, sections=24
+            )
+        elif part.primitive == "cone":
+            geometry = trimesh.creation.cone(radius=part.radius, height=part.height, sections=24)
+        else:
+            geometry = trimesh.creation.torus(
+                major_radius=part.radius, minor_radius=part.tube_radius, major_sections=24
+            )
+        geometry.visual = trimesh.visual.TextureVisuals(
+            material=trimesh.visual.material.PBRMaterial(
+                name=f"{part.name}-material",
+                baseColorFactor=_material_color(part.material.color, part.material.opacity),
+                emissiveFactor=_emissive_color(part.material.emissive),
+                metallicFactor=part.material.metallic,
+                roughnessFactor=part.material.roughness,
+                alphaMode="BLEND" if part.material.opacity < 1 else "OPAQUE",
+            )
+        )
+        transform = numpy.eye(4)
+        transform[:3, :3] = (
+            trimesh.transformations.euler_matrix(*part.transform.rotation, axes="sxyz")[:3, :3]
+            * part.transform.scale
+        )
+        transform[:3, 3] = part.transform.translation
+        scene.add_geometry(
+            geometry,
+            node_name=part.name,
+            geom_name=part.name,
+            parent_node_name=part.parent or None,
+            transform=transform,
+        )
+    # Embed the canonical recipe as scene metadata so equivalent recipes have identical
+    # input identity and semantic information survives independently of exporter details.
+    scene.metadata["bunnyland_recipe"] = json.dumps(
+        _recipe_document(source), sort_keys=True, separators=(",", ":")
+    )
+    result = scene.export(file_type="glb")
+    if not isinstance(result, bytes):
+        raise ModelAssetError("procedural compiler did not produce binary GLB")
+    return result
+
+
+def _glb_document(data: bytes) -> dict[str, Any]:
+    if len(data) < 20 or data[:4] != b"glTF":
+        raise ModelAssetError("invalid GLB header")
+    chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
+    if chunk_type != 0x4E4F534A or 20 + chunk_length > len(data):
+        raise ModelAssetError("GLB has no JSON document")
+    try:
+        return json.loads(data[20 : 20 + chunk_length].decode("utf-8").rstrip(" \0"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelAssetError("invalid GLB JSON document") from exc
 
 
 def _validate_glb(path: Path, _asset: ModelAsset) -> bytes:
@@ -151,11 +329,11 @@ def _trimesh_import(path: Path, asset: ModelAsset) -> bytes:
         if not scene.geometry:
             raise ModelAssetError(f"model contains no geometry: {path.name}")
         if path.suffix.lower() == ".stl" and asset.default_color:
-                color = trimesh.visual.color.hex_to_rgba(asset.default_color)
-                for geometry in scene.geometry.values():
-                    geometry.visual = trimesh.visual.ColorVisuals(
-                        geometry, vertex_colors=[color] * len(geometry.vertices)
-                    )
+            color = trimesh.visual.color.hex_to_rgba(asset.default_color)
+            for geometry in scene.geometry.values():
+                geometry.visual = trimesh.visual.ColorVisuals(
+                    geometry, vertex_colors=[color] * len(geometry.vertices)
+                )
         result = scene.export(file_type="glb")
     except ModelAssetError:
         raise
@@ -202,16 +380,47 @@ class ModelAssetRegistry:
                 raise ModelAssetError(f"model key must begin with {prefix!r}")
             if asset.key in self._models:
                 raise ModelAssetError(f"model key is already registered: {asset.key}")
-            path = asset.source.resolve()
-            extension = path.suffix.lower()
-            if extension not in _SUPPORTED_EXTENSIONS and extension not in self._importers:
-                raise ModelAssetError(f"unsupported model format: {extension or path.name}")
-            data = self._importers[extension](path, asset)
+            if isinstance(asset.source, ProceduralModelSource):
+                data = _compile_procedural(asset.source)
+                recipe_roles: dict[str, list[str]] = {}
+                for part in asset.source.parts:
+                    for role in part.roles:
+                        recipe_roles.setdefault(role, []).append(part.name)
+                roles = {key: tuple(value) for key, value in recipe_roles.items()}
+                required_roles = (*asset.source.required_roles, *asset.required_roles)
+            else:
+                path = asset.source.resolve()
+                extension = path.suffix.lower()
+                if extension not in _SUPPORTED_EXTENSIONS and extension not in self._importers:
+                    raise ModelAssetError(f"unsupported model format: {extension or path.name}")
+                data = self._importers[extension](path, asset)
+                roles = {}
+                required_roles = asset.required_roles
+            document = _glb_document(data)
+            nodes = tuple(
+                node["name"]
+                for node in document.get("nodes", ())
+                if isinstance(node, dict) and isinstance(node.get("name"), str)
+            )
+            roles.update({key: tuple(value) for key, value in asset.semantic_roles.items()})
+            for role, targets in roles.items():
+                missing = sorted(set(targets) - set(nodes))
+                if missing:
+                    raise ModelAssetError(
+                        f"semantic role {role!r} references missing nodes: {', '.join(missing)}"
+                    )
+            missing_roles = sorted(set(required_roles) - set(roles))
+            if missing_roles:
+                raise ModelAssetError(
+                    f"model is missing required semantic roles: {', '.join(missing_roles)}"
+                )
             name, _stored = self.media.put_content(MODEL_NAMESPACE, data, "glb")
             self._models[asset.key] = RegisteredModel(
                 asset=asset,
                 url=self.media.url_for(MODEL_NAMESPACE, name),
                 digest=name.removesuffix(".glb"),
+                nodes=nodes,
+                semantic_roles=roles,
             )
 
     def manifest(self) -> dict[str, Any]:
@@ -232,6 +441,10 @@ class ModelAssetRegistry:
                 "instanced": asset.instanced,
                 "license": asset.license,
                 "attribution": asset.attribution,
+                "nodes": list(registered.nodes),
+                "semantic_roles": {
+                    role: list(nodes) for role, nodes in sorted(registered.semantic_roles.items())
+                },
             }
         return {"schema_version": 2, "assets": assets}
 
@@ -262,6 +475,9 @@ __all__ = [
     "ModelAssetError",
     "ModelAssetRegistry",
     "ModelTransform",
+    "PrimitivePart3D",
+    "ProceduralModelSource",
+    "VisualMaterial3D",
     "install_model_registry",
     "register_model_importer",
     "register_models",

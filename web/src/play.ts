@@ -138,6 +138,8 @@ export interface ServerModelAsset {
   instanced: boolean;
   license: string;
   attribution: string;
+  nodes: string[];
+  semantic_roles: Record<string, string[]>;
 }
 
 export interface ServerAssetManifest {

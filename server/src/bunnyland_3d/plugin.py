@@ -26,8 +26,10 @@ from .components import (
     Transform3DComponent,
     Velocity3DComponent,
 )
+from .core_visuals import install_core_entity_visuals
 from .enrichment import Generation3DEnricher
 from .systems import Movement3DSystem
+from .visuals import install_entity_visual_registry
 
 PLUGIN_ID = "bunnyland.3d"
 PLUGIN_VERSION = "0.3.0"
@@ -59,7 +61,11 @@ def plugin() -> Plugin:
         ),
         content=ContentContribution(generation_enrichers=(Generation3DEnricher(),)),
         runtime=RuntimeContribution(
-            service_factories=(install_model_registry,),
+            service_factories=(
+                install_model_registry,
+                install_entity_visual_registry,
+                install_core_entity_visuals,
+            ),
             server_routers=(install_3d_routes,),
         ),
     )
