@@ -2,7 +2,8 @@
 
 Out-of-tree Bunnyland plugin that contributes 3D presentation components plus movement and collision systems.
 
-The plugin entrypoint is `bunnyland_3d.bunnyland_plugins()`. When loaded by Bunnyland's plugin loader, it contributes:
+The package declares `bunnyland.3d` in the `bunnyland.plugins` entry-point group. When
+discovered by Bunnyland's plugin loader, it contributes:
 
 - `Transform3DComponent`
 - `Velocity3DComponent`

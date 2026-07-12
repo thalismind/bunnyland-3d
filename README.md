@@ -22,15 +22,15 @@ content packs.
   projection helpers, worldgen enrichment, and tests.
 - `web/` - standalone Vite/Three.js welcome page, admin inspector, and playable client.
 - `docs/out-of-tree-plugins.md` - guide for building and testing OOT Bunnyland plugins.
-- `scripts/test-server` - runs Python tests against a sibling `bunnyland-server` checkout.
+- `server/tests/` - Python plugin tests run against an installed Bunnyland artifact.
 - `scripts/test-web` - runs the web checks.
-- `scripts/check` - runs both server and web checks.
 - `Dockerfile.server` - extends the published Bunnyland server image with the 3D plugin.
 - `Dockerfile.web` - extends the published Bunnyland web image with `/3d/` static assets.
 
 ## Server Plugin
 
-The plugin exposes `bunnyland_3d.bunnyland_plugins()` and contributes:
+The installed package declares plugin id `bunnyland.3d` in the canonical
+`bunnyland.plugins` entry-point group and contributes:
 
 - `Transform3DComponent` - entity position and orientation in room-local 3D space.
 - `Velocity3DComponent` - per-tick motion state.
@@ -43,39 +43,42 @@ The plugin exposes `bunnyland_3d.bunnyland_plugins()` and contributes:
 - `Worldgen3DHook` - enriches generated worlds with default 3D room bounds, transforms,
   colliders, and render hints.
 
-`default_enabled=True`, so loading the module is enough for Bunnyland to register the plugin.
-The `bunnyland_3d` package must be importable by the server, either installed into the server
-environment or available on `PYTHONPATH`.
+`default_enabled=True`, so installing the wheel into the server environment is enough for
+Bunnyland to discover and register the plugin. Source-checkout path injection and runtime
+module aliases are not supported.
 
 ## Running
 
-Load the server plugin with the stock Bunnyland server:
+Install the addon wheel and start the stock Bunnyland server:
 
 ```bash
-bunnyland serve --module bunnyland_3d
+uv pip install --python .venv/bin/python dist/bunnyland_3d-*.whl
+bunnyland serve
 ```
 
-The plugin is designed to compose with other modules. For example, the RL plugin can be loaded
-alongside it:
+The plugin is designed to compose with other installed addons. When using an explicit plugin
+selection, select their stable ids:
 
 ```bash
-bunnyland serve --module bunnyland_3d --module bunnyland_rl
+bunnyland serve --plugin bunnyland.3d --plugin bunnyland.rl
 ```
 
-If a deployment overrides the container command, keep `--module bunnyland_3d` in the server
-arguments so the 3D components, worldgen hook, and system are loaded.
-
-Run server tests against a sibling `bunnyland-server` checkout:
+Run server tests against the exact validated wheel in an isolated environment:
 
 ```bash
-BUNNYLAND_SERVER_PATH=../bunnyland-server scripts/test-server
+uv venv /tmp/bunnyland-3d-test
+uv pip install --python /tmp/bunnyland-3d-test/bin/python \
+  "${BUNNYLAND_WHEEL}[server]" pytest httpx trimesh
+uv pip install --python /tmp/bunnyland-3d-test/bin/python --no-deps ./server
+/tmp/bunnyland-3d-test/bin/python -m pytest server/tests
 ```
 
 ## Web Client
 
-The web app is a Vite/Three.js project that depends on the sibling `@bunnyland/ui-web`
-package for shared theme tokens, browser API helpers, player action helpers, and reusable
-widgets while remaining out-of-tree.
+The web app is a Vite/Three.js project that depends on `@bunnyland/ui-web` for shared theme
+tokens, browser API helpers, player action helpers, and reusable widgets while remaining
+out-of-tree. Local workspace development can resolve the file dependency; CI supplies the
+published shared UI image as a named BuildKit context.
 
 ```bash
 cd web
@@ -120,13 +123,14 @@ docker build -f Dockerfile.server \
   -t bunnyland-3d-server .
 
 docker build -f Dockerfile.web \
-  --build-context bunnyland-ui-web=../bunnyland-ui-web \
+  --build-context bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main \
   --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web:main \
   -t bunnyland-3d-web .
 ```
 
-`Dockerfile.server` installs the out-of-tree Python plugin into the base server
-virtualenv and uses a default `bunnyland serve --module bunnyland_3d ...` command.
+`Dockerfile.server` installs the out-of-tree Python plugin into the base server virtualenv
+without replacing the validated Bunnyland package. The installed entry point supplies the
+plugin; deployment commands must not pass a runtime module-import flag.
 
 `Dockerfile.web` builds both 3D clients and copies them into the extended web image at
 `/usr/share/nginx/html/3d`. The welcome page is available at `/3d/`, the inspector is
@@ -134,23 +138,14 @@ available at `/3d/admin.html`, and the playable client is available at `/3d/play
 
 ## Development
 
-Run all checks from the repo root:
-
-```bash
-scripts/check
-```
-
-For focused server work:
-
-```bash
-BUNNYLAND_SERVER_PATH=../bunnyland-server scripts/test-server
-```
-
-For focused web work:
+Run the web and browser checks from the repo root:
 
 ```bash
 scripts/test-web
 ```
+
+For focused server work, use the isolated wheel procedure in [Running](#running). CI also
+builds and tests the composite server image from a freshly pulled published base.
 
 See [`server/README.md`](server/README.md) for the server plugin summary and
 [`docs/out-of-tree-plugins.md`](docs/out-of-tree-plugins.md) for the broader out-of-tree

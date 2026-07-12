@@ -39,7 +39,8 @@ after you try it.
 
 The player requires scene schema v3 from the 3D server plugin. If capability negotiation fails, it shows a
 compatibility error and does not enable character selection. Ask the server administrator to
-install the matching add-on image and keep `--module bunnyland_3d` in the server command.
+install matching server and web add-on images. Installed plugins are discovered through
+package entry points; obsolete runtime module-import flags will prevent startup.
 
 ## Move and act
 
@@ -64,7 +65,9 @@ Actions use the same verbs as every other Bunnyland client:
 
 ## Use the camera and HUD
 
-The third-person camera follows your locally controlled avatar.
+The third-person camera follows your locally controlled avatar. It shortens its follow
+distance when room geometry would block the avatar, then eases back out when the view is
+clear. The bundled leporid avatar includes its corrected tail placement and animation.
 
 Use the view controls to:
 
@@ -75,6 +78,10 @@ Use the view controls to:
 - use **Panels** to show or hide detailed character, room, action, queue, photo, and activity
   controls;
 - read the remembered-room map in the panels without leaving the character view.
+
+Plugin-owned room decorations and models are part of the same scene contract. Outdoor rooms
+can show stable grouped flora, detail props, lights, and particles before any player action;
+reloads update those owned entities idempotently rather than adding duplicates.
 
 The capture button downloads the current canvas only. It is useful for player notes,
 feedback, and bug reports. Server-generated scene images are separate and appear in the

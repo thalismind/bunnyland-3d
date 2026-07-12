@@ -5,7 +5,7 @@ main `bunnyland-server` tree.
 
 ## Repository Layout
 
-- `server/` is a Python package. It exposes `bunnyland_plugins()` from `bunnyland_3d`.
+- `server/` is a Python package. It declares its plugin through package metadata.
 - `web/` is a standalone Vite client. It consumes Bunnyland HTTP APIs and optional 3D
   projection fields from the plugin.
 - `scripts/` runs local checks across both halves.
@@ -36,7 +36,7 @@ Contribute ECS types through `EcsContribution`:
 
 ```python
 Plugin(
-    id="bunnyland_3d",
+    id="bunnyland.3d",
     name="Bunnyland 3D",
     ecs=EcsContribution(
         components=(Transform3DComponent, Velocity3DComponent),
@@ -51,30 +51,22 @@ the plugin contribution list.
 
 ## Local Development
 
-Use a sibling checkout of `bunnyland-server`:
+Build Bunnyland once at the exact server commit under test and pass that wheel artifact to
+every addon checkout. Install the wheel and addon in an isolated environment; do not add a
+server source checkout to Python's import path:
 
 ```bash
-repo/
-  bunnyland-server/
-  bunnyland-3d/
+export BUNNYLAND_WHEEL=/artifacts/bunnyland-0.2.0-py3-none-any.whl
+uv venv /tmp/vendor-forest-test
+uv pip install --python /tmp/vendor-forest-test/bin/python \
+  "${BUNNYLAND_WHEEL}[server]" pytest httpx
+uv pip install --python /tmp/vendor-forest-test/bin/python --no-deps ./server
+/tmp/vendor-forest-test/bin/python -m pytest server/tests
 ```
 
-Run all checks:
-
-```bash
-cd bunnyland-3d
-scripts/check
-```
-
-Run only server tests:
-
-```bash
-BUNNYLAND_SERVER_PATH=../bunnyland-server scripts/test-server
-```
-
-The server test script sets `PYTHONPATH` to both `server/src` and the Bunnyland server
-checkout. If `uv` is available, it runs tests inside the Bunnyland server project
-environment using `uv run --project ../bunnyland-server -m pytest ...`.
+Using `--no-deps` for the addon install is intentional: the separately installed wheel is
+the server contract being tested. Ruff and the complete addon coverage suite should run in
+that same environment.
 
 Vite clients should depend on shared web UI through `@bunnyland/ui-web` instead of
 copying assets from `bunnyland-web`. Use narrow imports such as `@bunnyland/ui-web/api`,
@@ -142,21 +134,23 @@ Build the web image with the shared UI package supplied as a named BuildKit cont
 
 ```bash
 docker build -f Dockerfile.web \
-  --build-context bunnyland-ui-web=../bunnyland-ui-web \
+  --build-context bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main \
   -t bunnyland-3d-web .
 ```
 
-When extending the server command in compose or Kubernetes, include
-`--module bunnyland_3d`. Installing the Python package makes the module importable, but
-the Bunnyland server only applies out-of-tree plugins that are requested at startup.
+Installing the Python package makes its entry-point plugin discoverable. A
+`default_enabled=True` addon is applied automatically unless startup selects an explicit
+plugin subset; in that case include its stable plugin id. Do not add a module import flag or
+source path.
 The 3D web image serves the client index at `/3d/`, the admin inspector at
 `/3d/admin.html`, and the playable client at `/3d/player.html`.
 
 ## CI
 
-The included workflow checks out this repo and a separate Bunnyland server repo, then
-runs the plugin tests against the server source. Set repository variable
-`BUNNYLAND_SERVER_REPOSITORY` if your server repo is not `ssube/bunnyland-server`.
+The included workflow builds its plugin test/runtime image from the published Bunnyland
+server image and explicitly pulls the fresh base. It installs the addon into the existing
+server virtualenv with `--no-deps`, runs the complete plugin suite, and publishes the
+composite only after tests pass. It never imports a sibling server checkout.
 
 The web job builds the standalone client and captures 3D/2D screenshots with Playwright.
 It stores both downloaded canvas PNGs and full-page screenshots so the toolbar and side

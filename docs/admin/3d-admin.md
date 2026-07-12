@@ -4,13 +4,12 @@ The 3D add-on contributes a server plugin plus a static web client bundle. The s
 adds optional 3D ECS data and simulation. The web bundle adds `/3d/`, `/3d/player.html`, and
 `/3d/admin.html` pages to the Bunnyland website.
 
-Use this guide to install the add-on, load the module, deploy the client, and verify the
+Use this guide to install the add-on package, deploy the client, and verify the
 admin inspector.
 
 ## Server plugin
 
-The Python package exposes `bunnyland_3d.bunnyland_plugins()` and registers plugin id
-`bunnyland.3d`.
+The Python package declares `bunnyland.3d` in the `bunnyland.plugins` entry-point group.
 
 When loaded, it contributes:
 
@@ -25,15 +24,16 @@ When loaded, it contributes:
 - `Movement3DSystem` for movement and bounds clamping;
 - `Worldgen3DHook` for seeding generated worlds with 3D metadata.
 
-Load it with the stock Bunnyland server:
+Install the addon wheel into the stock Bunnyland server environment:
 
 ```bash
-bunnyland serve --module bunnyland_3d
+uv pip install --python .venv/bin/python dist/bunnyland_3d-*.whl
+bunnyland serve
 ```
 
 The plugin is `default_enabled=True`, so no separate `--plugin` flag is required once the
-module is importable. If a container or supervisor overrides the server command, keep
-`--module bunnyland_3d` in the final arguments.
+package is installed. If startup uses an explicit plugin list, include `--plugin bunnyland.3d`
+and its required plugins. Do not add source paths or runtime module-import flags.
 
 ## Web routes
 
@@ -79,11 +79,11 @@ docker build -f Dockerfile.server \
   -t bunnyland-3d-server .
 ```
 
-Build the web image with the sibling shared UI package as a build context:
+Build the web image with the published shared UI image as a build context:
 
 ```bash
 docker build -f Dockerfile.web \
-  --build-context bunnyland-ui-web=../bunnyland-ui-web \
+  --build-context bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main \
   --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web:main \
   -t bunnyland-3d-web .
 ```
@@ -93,22 +93,22 @@ extends the stock Bunnyland web image and adds only the `/3d/` static bundle.
 
 ## Local checks
 
-Run all add-on checks from the repo root:
-
-```bash
-scripts/check
-```
-
-Run only the server plugin checks:
-
-```bash
-BUNNYLAND_SERVER_PATH=../bunnyland-server scripts/test-server
-```
-
-Run only the web checks:
+Run the web and browser checks from the repo root:
 
 ```bash
 scripts/test-web
+```
+
+For server checks, install the exact validated Bunnyland wheel and the addon into an
+isolated environment. Installing the addon with `--no-deps` ensures its generic dependency
+cannot replace the wheel under test:
+
+```bash
+uv venv /tmp/bunnyland-3d-test
+uv pip install --python /tmp/bunnyland-3d-test/bin/python \
+  "${BUNNYLAND_WHEEL}[server]" pytest httpx trimesh
+uv pip install --python /tmp/bunnyland-3d-test/bin/python --no-deps ./server
+/tmp/bunnyland-3d-test/bin/python -m pytest server/tests
 ```
 
 The web smoke tests save screenshots under `web/artifacts/`, including 2D, 3D, canvas, and
@@ -127,8 +127,10 @@ After deployment:
    submit a cheap action, and cancel a queued action.
 6. Capture a canvas PNG and confirm it is not blank.
 
-If the view falls back to deterministic layout, confirm the server was started with
-`--module bunnyland_3d` and that the generated or loaded world contains 3D components.
+If the player reports an incompatible scene, confirm the addon wheel is installed, its
+`bunnyland.3d` entry point is discovered, and the generated or loaded world contains 3D
+components. The admin inspector may use deterministic layout for entities without explicit
+3D state; the player fails closed when the required scene schema is unavailable.
 
 ## Operational notes
 
