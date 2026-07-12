@@ -29,6 +29,7 @@ jobs:
           context: .
           file: Dockerfile.server
           target: test
+          pull: true
           push: false
           load: true
           tags: bunnyland-3d-server-test:ci
@@ -52,6 +53,7 @@ jobs:
           context: .
           file: Dockerfile.server
           target: runtime
+          pull: true
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ghcr.io/thalismind/bunnyland-3d-server:main
 
