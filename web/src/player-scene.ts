@@ -525,12 +525,15 @@ export class PlayerScene {
     effectParticles: number;
     effectLightning: number;
     opacity: number | null;
+    helperOpacity: number | null;
     colorHex: string | null;
   } | null {
     const tracked = this.entities.get(entityId);
     if (!tracked) return null;
     const namedNode = tracked.root.getObjectByName('GenericProp');
+    const helperNode = tracked.root.getObjectByName('HiddenAnchor');
     let opacity: number | null = null;
+    let helperOpacity: number | null = null;
     let colorHex: string | null = null;
     namedNode?.traverse(child => {
       if (opacity !== null) return;
@@ -540,6 +543,13 @@ export class PlayerScene {
       opacity = material.opacity;
       const standard = material as THREE.MeshStandardMaterial;
       colorHex = standard.color?.getHexString() || null;
+    });
+    helperNode?.traverse(child => {
+      if (helperOpacity !== null) return;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      helperOpacity = material.opacity;
     });
     const attachmentKeys = new Set(tracked.entity.visual3d?.attachments.map(item => item.key));
     let attachmentCount = 0;
@@ -561,6 +571,7 @@ export class PlayerScene {
       effectParticles,
       effectLightning,
       opacity,
+      helperOpacity,
       colorHex,
     };
   }
@@ -1206,9 +1217,12 @@ export class PlayerScene {
           }
           if (patch.emissive && standard.emissive) standard.emissive.set(patch.emissive);
           if (patch.opacity !== undefined) {
-            standard.opacity = patch.opacity;
-            standard.transparent = patch.opacity < 1;
-            standard.depthWrite = patch.opacity >= 1;
+            const opacity = patch.target === '*'
+              ? standard.opacity * patch.opacity
+              : patch.opacity;
+            standard.opacity = opacity;
+            standard.transparent = opacity < 1;
+            standard.depthWrite = opacity >= 1;
           }
           standard.needsUpdate = true;
         }

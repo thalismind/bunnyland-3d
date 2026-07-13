@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -266,7 +267,10 @@ def player_3d_scene(room_id: str):
             view["visual3d"] = {
                 "base_model_key": "bunnyland.test/prop",
                 "semantic_roles": {"state-indicator": ["GenericProp"]},
-                "node_patches": [{"target": "GenericProp", "opacity": 0.42, "emissive": "#224466"}],
+                "node_patches": [
+                    {"target": "*", "opacity": 0.5},
+                    {"target": "GenericProp", "opacity": 0.42, "emissive": "#224466"},
+                ],
                 "attachments": [{
                     "key": "bunnyland.test/indicator",
                     "model_key": "bunnyland.test/attachment",
@@ -433,9 +437,36 @@ def route_api(page):
         / "3d"
         / "prop-generic.gltf"
     )
+    prop_data = json.loads(prop_asset.read_text())
+    prop_data["scenes"][0]["nodes"].append(1)
+    prop_data["nodes"].append({
+        "name": "HiddenAnchor",
+        "mesh": 1,
+        "translation": [0.7, 0.3, 0],
+        "scale": [0.2, 0.2, 0.2],
+    })
+    prop_data["meshes"].append({
+        "name": "HiddenAnchorMesh",
+        "primitives": [{
+            "attributes": {"POSITION": 0, "NORMAL": 1},
+            "indices": 2,
+            "material": 1,
+        }],
+    })
+    prop_data["materials"].append({
+        "name": "HiddenAnchorMaterial",
+        "pbrMetallicRoughness": {
+            "baseColorFactor": [0.8, 0.84, 0.96, 0],
+            "metallicFactor": 0,
+            "roughnessFactor": 0.82,
+        },
+        "alphaMode": "BLEND",
+    })
     page.route(
         "**/assets/3d/prop-generic.glb",
-        lambda route: route.fulfill(path=prop_asset, content_type="model/gltf-binary"),
+        lambda route: route.fulfill(
+            body=json.dumps(prop_data), content_type="model/gltf+json"
+        ),
     )
     page.route("**/mock/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,
@@ -457,7 +488,7 @@ def route_api(page):
                 "instanced": True,
                 "license": "AGPL-3.0-or-later",
                 "attribution": "Bunnyland contributors",
-                "nodes": ["GenericProp"],
+                "nodes": ["GenericProp", "HiddenAnchor"],
                 "semantic_roles": {"state-indicator": ["GenericProp"]},
             }
             for key in (
@@ -780,6 +811,8 @@ def main() -> None:
             )
             if not entity_visual["loaded"] or abs(entity_visual["opacity"] - 0.42) > 0.001:
                 raise AssertionError(f"entity GLB patches were not applied: {entity_visual!r}")
+            if entity_visual["helperOpacity"] != 0:
+                raise AssertionError(f"wildcard patch exposed hidden model geometry: {entity_visual!r}")
             if entity_visual["colorHex"] == "112233":
                 raise AssertionError(f"legacy Render3D color replaced the GLB material: {entity_visual!r}")
             if not entity_visual["effectGroup"] or entity_visual["effectParticles"] != 12 or entity_visual["effectLightning"] != 3:
@@ -912,7 +945,6 @@ def main() -> None:
             expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
             if not any(command.get("command_type") == "move" and command.get("payload", {}).get("exit_id") == "room:pond" for command in COMMAND_PAYLOADS):
                 raise AssertionError(f"exit click did not submit move command: {COMMAND_PAYLOADS!r}")
-            player_during = page.evaluate("window.__world3dPlayer.cameraState()")
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
             player_after = page.evaluate("window.__world3dPlayer.cameraState()")
             if player_after["target"] == player_before["target"]:
