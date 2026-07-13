@@ -463,10 +463,14 @@ def route_api(page):
         "alphaMode": "BLEND",
     })
     page.route(
-        "**/assets/3d/prop-generic.glb",
+        "**/assets/3d/prop-hidden.glb",
         lambda route: route.fulfill(
             body=json.dumps(prop_data), content_type="model/gltf+json"
         ),
+    )
+    page.route(
+        "**/assets/3d/prop-generic.glb",
+        lambda route: route.fulfill(path=prop_asset, content_type="model/gltf-binary"),
     )
     page.route("**/mock/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,
@@ -479,7 +483,11 @@ def route_api(page):
         "schema_version": 2,
         "assets": {
             key: {
-                "url": "/assets/3d/prop-generic.glb",
+                "url": (
+                    "/assets/3d/prop-hidden.glb"
+                    if key == "bunnyland.test/prop"
+                    else "/assets/3d/prop-generic.glb"
+                ),
                 "digest": f"fake-{key.rsplit('/', 1)[-1]}",
                 "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]},
                 "clips": {},
