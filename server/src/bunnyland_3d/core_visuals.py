@@ -62,7 +62,7 @@ def install_core_entity_visuals(actor) -> None:
                         size=0.09,
                         speed=0.78,
                         opacity=0.92,
-                        transform=ModelTransform(translation=(0, 0.05, 0)),
+                        transform=ModelTransform(translation=(0, 0.95, 0)),
                     ),
                     VisualEffectParticleLayer(
                         f"{OWNER}/fire",
@@ -72,7 +72,7 @@ def install_core_entity_visuals(actor) -> None:
                         size=0.065,
                         speed=0.7,
                         opacity=0.86,
-                        transform=ModelTransform(translation=(0, 0.05, 0)),
+                        transform=ModelTransform(translation=(0, 0.95, 0)),
                     ),
                     VisualEffectParticleLayer(
                         f"{OWNER}/smoke",
@@ -82,7 +82,7 @@ def install_core_entity_visuals(actor) -> None:
                         size=0.11,
                         speed=0.28,
                         opacity=0.48,
-                        transform=ModelTransform(translation=(0, 0.32, 0)),
+                        transform=ModelTransform(translation=(0, 1.25, 0)),
                     ),
                 ),
             ),
@@ -168,7 +168,9 @@ def install_core_entity_visuals(actor) -> None:
                             "sphere",
                             radius=0.09,
                             transform=ModelTransform(translation=(0.3, 0.72, 0.36)),
-                            material=VisualMaterial3D(color="#88d8c0", emissive="#163d34"),
+                            material=VisualMaterial3D(
+                                color="#88d8c0", emissive="#163d34", opacity=0.0
+                            ),
                             roles=("state-indicator",),
                         ),
                         PrimitivePart3D(
@@ -282,7 +284,12 @@ def install_core_entity_visuals(actor) -> None:
                 predicate=lambda entity: entity.has_component(FireComponent),
                 contribution=EntityVisualContribution(
                     patches=(
-                        VisualNodePatch("state-indicator", semantic_role=True, emissive="#ff5a16"),
+                        VisualNodePatch(
+                            "state-indicator",
+                            semantic_role=True,
+                            emissive="#ff5a16",
+                            opacity=1.0,
+                        ),
                     ),
                 ),
             ),

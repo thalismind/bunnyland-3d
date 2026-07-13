@@ -17,6 +17,7 @@ from bunnyland_3d import (
     register_entity_visuals,
     register_models,
     require_entity_visual_registry,
+    require_model_registry,
 )
 from bunnyland_3d.plugin import plugin as plugin_3d
 from bunnyland_3d.projection import entity_3d_view
@@ -90,7 +91,17 @@ def test_fire_rule_keeps_emissive_patch_but_uses_registered_effect(tmp_path, mon
         patch for patch in visual["node_patches"] if patch["target"] == "indicator"
     )
     assert indicator["emissive"] == "#ff5a16"
+    assert indicator["opacity"] == 1.0
     assert view["effects3d"][0]["key"] == "bunnyland.3d/fire"
+
+
+def test_showcase_state_indicator_is_hidden_until_used(tmp_path, monkeypatch):
+    actor = _actor(tmp_path, monkeypatch)
+
+    model = require_model_registry(actor).models["bunnyland.3d/showcase-prop"].asset
+    indicator = next(part for part in model.source.parts if part.name == "indicator")
+
+    assert indicator.material.opacity == 0.0
 
 
 def test_rule_ties_are_deterministic_per_field_and_emit_diagnostic(tmp_path, monkeypatch):

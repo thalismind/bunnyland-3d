@@ -207,3 +207,7 @@ def test_fire_uses_registered_multicolor_effect_on_procedural_entity(
         "#e53920",
         "#777777",
     ]
+    assert [
+        layer["transform"]["translation"][1]
+        for layer in view["effects3d"][0]["particle_layers"]
+    ] == [0.95, 0.95, 1.25]
