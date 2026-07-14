@@ -251,7 +251,12 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
     )
 
     client = testclient.TestClient(
-        create_app(actor, meta=WorldMeta(seed="v2"), plugins=tuple(plugins))
+        create_app(
+            actor,
+            meta=WorldMeta(seed="v2"),
+            plugins=tuple(plugins),
+            allow_unauthenticated=True,
+        )
     )
     capability = client.get("/3d/v2/capabilities")
     manifest = client.get("/3d/v2/assets/manifest")
@@ -376,20 +381,16 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
             actor,
             meta=WorldMeta(seed="graphics"),
             plugins=plugins,
-            admin_token="secret",
+            allow_unauthenticated=True,
         )
     )
-    headers = {"X-Bunnyland-Admin-Secret": "secret"}
 
-    assert (
-        client.get(f"/admin/3d/room/{room.id}/decoration/preview", headers=headers).status_code
-        == 200
-    )
-    applied = client.post(f"/admin/3d/room/{room.id}/decoration/apply", headers=headers)
-    roofed = client.put(f"/admin/3d/room/{room.id}/roof", headers=headers, json={"has_roof": True})
+    assert client.get(f"/admin/3d/room/{room.id}/decoration/preview").status_code == 200
+    applied = client.post(f"/admin/3d/room/{room.id}/decoration/apply")
+    roofed = client.put(f"/admin/3d/room/{room.id}/roof", json={"has_roof": True})
     uploaded = client.post(
         f"/admin/3d/texture/room/{room.id}/skybox",
-        headers={**headers, "content-type": "image/png"},
+        headers={"content-type": "image/png"},
         content=b"not-decoded-by-media-store",
     )
     scene = client.get(f"/3d/v2/room/{room.id}").json()

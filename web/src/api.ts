@@ -8,14 +8,21 @@ export {
   type AdminAuth,
 } from '@bunnyland/ui-web/api';
 
-import { adminHeaders, normalizeBase, parseJsonResponse, type AdminAuth } from '@bunnyland/ui-web/api';
+import {
+  adminHeaders,
+  login,
+  normalizeBase,
+  parseJsonResponse,
+  type AdminAuth,
+} from '@bunnyland/ui-web/api';
 
-function promptBasicAuth(): string | null {
-  const username = window.prompt('Admin username');
-  if (!username) return null;
-  const password = window.prompt('Admin password');
-  if (password == null) return null;
-  return `Basic ${btoa(`${username}:${password}`)}`;
+async function promptLogin(base: string): Promise<boolean> {
+  const username = window.prompt('Bunnyland username');
+  if (!username) return false;
+  const password = window.prompt('Bunnyland password');
+  if (password == null) return false;
+  await login(base, username, password);
+  return true;
 }
 
 export async function sendAdmin(base: string, path: string, auth: AdminAuth): Promise<unknown> {
@@ -32,19 +39,11 @@ export async function sendAdminRequest(
   const request = (): Promise<Response> => fetch(url, {
     ...init,
     headers: { ...adminHeaders(auth), ...(init.headers || {}) },
+    credentials: 'include',
   });
   let res = await request();
-  if (res.status === 403 && !auth.secret) {
-    const secret = window.prompt('Admin secret');
-    if (secret) {
-      auth.secret = secret;
-      res = await request();
-    }
-  }
   if (res.status === 401) {
-    const authorization = promptBasicAuth();
-    if (authorization) {
-      auth.authorization = authorization;
+    if (await promptLogin(base)) {
       res = await request();
     }
   }
