@@ -142,13 +142,13 @@ def room_scene_view(actor, room_id: str) -> dict:
     }
 
 
-def install_3d_routes(app, actor, media_store=None, **_context) -> None:
+def install_3d_play_routes(router, actor, **_context) -> None:
     """Install addon-owned v2 capability and room-scene routes."""
 
     # Imported lazily to avoid a plugin/api import cycle at module import time.
     from .plugin import PLUGIN_ID, PLUGIN_VERSION
 
-    @app.get("/3d/v2/capabilities")
+    @router.get("/3d/v2/capabilities")
     async def capabilities() -> dict:
         return {
             "ok": True,
@@ -158,13 +158,17 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
             "asset_schema_version": ASSET_SCHEMA_VERSION,
         }
 
-    @app.get("/3d/v2/assets/manifest")
+    @router.get("/3d/v2/assets/manifest")
     async def asset_manifest() -> dict:
         return require_model_registry(actor).manifest()
 
-    @app.get("/3d/v2/room/{room_id}")
+    @router.get("/3d/v2/room/{room_id}")
     async def room_scene(room_id: str) -> dict:
         return room_scene_view(actor, room_id)
+
+
+def install_3d_admin_routes(router, actor, media_store=None, **_context) -> None:
+    """Install administrator-only 3D editing routes."""
 
     def require_room(room_id: str):
         room = _entity(actor, room_id)
@@ -174,17 +178,17 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
             raise HTTPException(status_code=400, detail="entity is not a room")
         return room
 
-    @app.get("/admin/3d/room/{room_id}/decoration/preview")
+    @router.get("/3d/room/{room_id}/decoration/preview")
     async def preview_decoration(room_id: str) -> dict:
         async with actor._lock:
             return {"ok": True, **preview_outdoor_recipe(require_room(room_id))}
 
-    @app.post("/admin/3d/room/{room_id}/decoration/apply")
+    @router.post("/3d/room/{room_id}/decoration/apply")
     async def apply_decoration(room_id: str) -> dict:
         async with actor._lock:
             return {"ok": True, **apply_outdoor_recipe(actor.world, require_room(room_id))}
 
-    @app.post("/admin/3d/room/{room_id}/decoration/reroll")
+    @router.post("/3d/room/{room_id}/decoration/reroll")
     async def reroll_decoration(room_id: str) -> dict:
         async with actor._lock:
             return {
@@ -192,7 +196,7 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
                 **apply_outdoor_recipe(actor.world, require_room(room_id), reroll=True),
             }
 
-    @app.post("/admin/3d/decoration/apply-outdoors")
+    @router.post("/3d/decoration/apply-outdoors")
     async def apply_all_outdoors() -> dict:
         results = []
         async with actor._lock:
@@ -206,7 +210,7 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
             "skipped": sum(item["status"] == "skipped" for item in results),
         }
 
-    @app.post("/admin/3d/texture/{scope}/{target}/{slot}")
+    @router.post("/3d/texture/{scope}/{target}/{slot}")
     async def upload_texture(scope: str, target: str, slot: str, request: Request) -> dict:
         if media_store is None:
             raise HTTPException(status_code=409, detail="media storage is unavailable")
@@ -244,7 +248,7 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
                     raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ok": True, "scope": scope, "target": target, "slot": slot, "url": url}
 
-    @app.delete("/admin/3d/texture/{scope}/{target}/{slot}")
+    @router.delete("/3d/texture/{scope}/{target}/{slot}")
     async def clear_texture(scope: str, target: str, slot: str) -> dict:
         if scope not in {"biome", "room"} or slot not in {"albedo", "normal", "skybox"}:
             raise HTTPException(status_code=400, detail="invalid texture scope or slot")
@@ -258,7 +262,7 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
                     raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ok": True, "scope": scope, "target": target, "slot": slot, "url": ""}
 
-    @app.put("/admin/3d/room/{room_id}/roof")
+    @router.put("/3d/room/{room_id}/roof")
     async def set_roof(room_id: str, body: RoofRequest) -> dict:
         async with actor._lock:
             room = require_room(room_id)
@@ -269,6 +273,7 @@ def install_3d_routes(app, actor, media_store=None, **_context) -> None:
 __all__ = [
     "ASSET_SCHEMA_VERSION",
     "SCENE_SCHEMA_VERSION",
-    "install_3d_routes",
+    "install_3d_admin_routes",
+    "install_3d_play_routes",
     "room_scene_view",
 ]

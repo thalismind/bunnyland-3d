@@ -112,9 +112,15 @@ class Environment3DComponent(Component):
         pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*$",
     )
     surface_recipe: str = Field(default="meadow", pattern=r"^[a-z0-9][a-z0-9._-]*$")
-    albedo_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
-    normal_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
-    skybox_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    albedo_url: str = Field(
+        default="", pattern=r"^$|^/public/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$"
+    )
+    normal_url: str = Field(
+        default="", pattern=r"^$|^/public/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$"
+    )
+    skybox_url: str = Field(
+        default="", pattern=r"^$|^/public/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$"
+    )
     texture_scale: float = Field(default=4.0, ge=0.25, le=32.0)
 
 
@@ -123,9 +129,15 @@ class BiomeStyle3DComponent(Component):
     """Persistent uploaded texture defaults for one biome."""
 
     biome: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$")
-    albedo_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
-    normal_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
-    skybox_url: str = Field(default="", pattern=r"^$|^/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$")
+    albedo_url: str = Field(
+        default="", pattern=r"^$|^/public/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$"
+    )
+    normal_url: str = Field(
+        default="", pattern=r"^$|^/public/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$"
+    )
+    skybox_url: str = Field(
+        default="", pattern=r"^$|^/public/media/[a-z0-9]+/[a-z0-9]+\.(png|jpg|webp)$"
+    )
 
 
 @dataclass(frozen=True)

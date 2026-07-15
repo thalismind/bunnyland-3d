@@ -148,7 +148,7 @@ export interface ServerAssetManifest {
 }
 
 export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
-  const data = await sendJson(base, '/3d/v2/capabilities') as ThreeDCapabilities;
+  const data = await sendJson(base, '/play/3d/v2/capabilities') as ThreeDCapabilities;
   if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 4) {
     throw new Error('Bunnyland 3D scene schema v4 is required');
   }
@@ -156,7 +156,7 @@ export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilit
 }
 
 export async function fetch3dAssetManifest(base: string): Promise<ServerAssetManifest> {
-  const data = await sendJson(base, '/3d/v2/assets/manifest') as ServerAssetManifest;
+  const data = await sendJson(base, '/play/3d/v2/assets/manifest') as ServerAssetManifest;
   if (Number(data.schema_version) !== 2 || !data.assets || Array.isArray(data.assets)) {
     throw new Error('Server returned an incompatible Bunnyland 3D asset manifest');
   }
@@ -165,7 +165,7 @@ export async function fetch3dAssetManifest(base: string): Promise<ServerAssetMan
 }
 
 export async function fetch3dRoomScene(base: string, roomId: string): Promise<PlayerRoomScene> {
-  const data = await sendJson(base, `/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
+  const data = await sendJson(base, `/play/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
   if (Number(data.schema_version) !== 4 || data.room?.id !== roomId) {
     throw new Error('Server returned an incompatible Bunnyland 3D room scene');
   }
@@ -188,7 +188,7 @@ export async function claimCharacter(base: string, characterId: string, options:
 }
 
 export async function updateControllerFallback(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<unknown> {
-  return sendJson(base, '/world/controllers/web/fallback', {
+  return sendJson(base, '/play/world/controllers/web/fallback', {
     method: 'PATCH',
     headers: claimHeaders(control),
     body: JSON.stringify({
@@ -202,7 +202,7 @@ export async function updateControllerFallback(base: string, characterId: string
 }
 
 export async function releaseController(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<ControlClaim> {
-  const data = await sendJson(base, '/world/controllers/web/release-controller', {
+  const data = await sendJson(base, '/play/world/controllers/web/release-controller', {
     method: 'POST',
     headers: claimHeaders(control),
     body: JSON.stringify({
@@ -219,7 +219,7 @@ export async function releaseController(base: string, characterId: string, contr
 }
 
 export async function releaseClaim(base: string, characterId: string, control: ControlClaim): Promise<unknown> {
-  const result = await sendJson(base, '/world/controllers/web/release-claim', {
+  const result = await sendJson(base, '/play/world/controllers/web/release-claim', {
     method: 'POST',
     headers: claimHeaders(control),
     body: JSON.stringify({

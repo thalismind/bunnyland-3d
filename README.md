@@ -87,10 +87,11 @@ npm run dev
 ```
 
 Open the printed Vite URL for the 3D welcome page, then choose the player or admin
-client. Set the Bunnyland API server to `/api/` or a full server URL.
+client. Use the same-origin `/api/` server setting; local development should proxy that
+path to the API.
 
-`admin.html` is a 3D inspector. It renders `/world/overview`, loads `/world/snapshot` for
-3D component state, and fetches selected room contents from `/world/room/{id}`. If the
+`admin.html` is a 3D inspector. It renders the admin overview and snapshot projections and
+fetches selected room contents through the admin 3D surface. If the
 server plugin is installed and projections include 3D fields, the client uses them; otherwise
 it falls back to deterministic room layout. The inspector supports room/entity selection, 2D
 and 3D modes, automatic or manual camera control, theme selection, and canvas PNG capture.
@@ -103,10 +104,12 @@ prompts. Local roaming is presentation-only: confirmed exits and every other wor
 still use normal server actions. Detailed actions, queues, activity, photos, and the remembered
 map live in a collapsible HUD.
 
-The plugin serves `/3d/v2/capabilities` and `/3d/v2/room/{room_id}`. The room-scene route
-adds 3D fields only to entities already admitted by Bunnyland's public room projection; it
+The plugin contributes separate play and admin HTTP surfaces. Its play room projection
+adds 3D fields only to entities already admitted by Bunnyland's player room projection; it
 does not expose raw or hidden ECS contents. The player refuses to start against an older
 plugin instead of silently showing a misleading fallback scene.
+
+Consult the server OpenAPI document for concrete API operations and payload schemas.
 
 The camera capture button downloads the current canvas as a PNG. Playwright smoke tests also
 save full-page screenshots with the toolbar/sidebar visible under `web/artifacts/`.

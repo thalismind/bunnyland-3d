@@ -10,7 +10,8 @@ clickable targets, and screenshots of the scene.
 ## Open the client
 
 Open the 3D add-on page from the Bunnyland site. On a hosted deployment, the server field is
-usually already set to `/api`. For a local server, enter the full API URL, such as
+usually already set to `/api`. Local development should proxy that same-origin path rather than
+entering a cross-origin API URL, such as
 `http://127.0.0.1:8765`.
 
 The add-on has three entry points:

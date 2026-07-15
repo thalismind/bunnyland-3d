@@ -1,7 +1,7 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
 import { bindThemeSelect } from '@bunnyland/ui-web/theme';
 import { escapeHtml } from '@bunnyland/ui-web/widgets';
-import { normalizeBase, sendAdmin, sendAdminRequest, sendJson, serverFromUrl, setServerInUrl } from './api';
+import { assertSameOriginBase, sendAdmin, sendAdminRequest, sendJson, serverFromUrl, setServerInUrl } from './api';
 import { layoutOverview, roomEntities, roomSummary, snapshot3d, type WorldLayout } from './adapter.mjs';
 import { BunnylandScene, type ViewMode } from './scene';
 
@@ -44,13 +44,13 @@ function status(text: string, cls = ''): void {
 }
 
 async function connect(rawBase: string): Promise<void> {
-  baseUrl = normalizeBase(rawBase);
+  baseUrl = assertSameOriginBase(rawBase);
   if (!baseUrl) return;
   apiInput.value = baseUrl;
   status('loading...', '');
   try {
-    const overview = await sendAdmin(baseUrl, '/world/overview', auth);
-    const snapshot = await sendAdmin(baseUrl, '/world/snapshot', auth);
+    const overview = await sendAdmin(baseUrl, '/admin/world/overview', auth);
+    const snapshot = await sendAdmin(baseUrl, '/admin/world/snapshot', auth);
     snapshot3dMap = snapshot3d(snapshot);
     layout = layoutOverview(overview, snapshot3dMap);
     selectedRoomId = selectedRoomId || location.hash.slice(1) || layout.rooms[0]?.id || '';
@@ -78,12 +78,12 @@ async function selectRoom(roomId: string): Promise<void> {
   renderSelected(null);
   history.replaceState(null, '', `#${encodeURIComponent(roomId)}`);
   try {
-    const projection = await sendJson(baseUrl, `/world/room/${encodeURIComponent(roomId)}`);
+    const projection = await sendJson(baseUrl, `/play/world/room/${encodeURIComponent(roomId)}`);
     const entities = roomEntities(projection, snapshot3dMap);
     selectedEntities = entities;
     scene.loadRoomEntities(roomId, entities);
     renderSelected(entities);
-    const playerScene = await sendAdmin(baseUrl, `/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
+    const playerScene = await sendAdmin(baseUrl, `/play/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
       room?: { indoor?: boolean; environment3d?: { has_roof?: boolean } | null };
     };
     roofInput.checked = playerScene.room?.environment3d?.has_roof ?? Boolean(playerScene.room?.indoor);

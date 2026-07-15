@@ -110,7 +110,8 @@ def plugin() -> Plugin:
 
 GLB, glTF (including local sidecars), OBJ/MTL, and ASCII or binary STL are accepted. The
 server validates plugin-owned roots, converts non-GLB inputs to content-addressed GLB, and
-publishes safe URLs through `GET /3d/v2/assets/manifest`. STL has no material convention, so
+publishes safe URLs through the play-scoped 3D asset manifest. Consult OpenAPI for the
+concrete operation and response schema. STL has no material convention, so
 set `default_color` when appearance matters. Use `instanced=True` only for static models;
 animated, skinned, and interactive props should remain individual ECS entities.
 

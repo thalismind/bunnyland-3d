@@ -6,11 +6,13 @@ from bunnyland.plugins import (
     ContentContribution,
     DependencyContribution,
     EcsContribution,
+    HttpContribution,
+    HttpZone,
     Plugin,
     RuntimeContribution,
 )
 
-from .api import install_3d_routes
+from .api import install_3d_admin_routes, install_3d_play_routes
 from .assets import install_model_registry
 from .components import (
     BiomeStyle3DComponent,
@@ -73,7 +75,10 @@ def plugin() -> Plugin:
                 install_entity_visual_registry,
                 install_core_entity_visuals,
             ),
-            server_routers=(install_3d_routes,),
+            http=(
+                HttpContribution(zone=HttpZone.PLAY, registrars=(install_3d_play_routes,)),
+                HttpContribution(zone=HttpZone.ADMIN, registrars=(install_3d_admin_routes,)),
+            ),
         ),
     )
 

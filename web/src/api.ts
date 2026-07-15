@@ -1,4 +1,5 @@
 export {
+  assertSameOriginBase,
   mediaUrl,
   normalizeBase,
   parseJsonResponse,
@@ -9,6 +10,7 @@ export {
 } from '@bunnyland/ui-web/api';
 
 import {
+  assertSameOriginBase,
   adminHeaders,
   login,
   normalizeBase,
@@ -35,7 +37,7 @@ export async function sendAdminRequest(
   auth: AdminAuth,
   init: RequestInit = {},
 ): Promise<unknown> {
-  const url = `${normalizeBase(base)}${path}`;
+  const url = `${assertSameOriginBase(base)}${path}`;
   const request = (): Promise<Response> => fetch(url, {
     ...init,
     headers: { ...adminHeaders(auth), ...(init.headers || {}) },

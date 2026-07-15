@@ -45,15 +45,15 @@ The web image copies the built client into `/usr/share/nginx/html/3d`.
 | `/3d/player.html` | Player-facing 3D client. |
 | `/3d/admin.html` | Admin inspector for rooms, entities, and 3D projections. |
 
-The player client uses public controller and projection APIs. The admin inspector loads
-admin world data such as `/world/overview` and `/world/snapshot`; protect the API the same
-way you protect the rest of `/admin/*` and world inspection surfaces.
+The player client uses play-scoped controller and projection APIs. The admin inspector
+uses the admin-scoped world and 3D surfaces. The server's authorization-zone middleware
+protects both; serving the static client does not grant API access.
 
-The player first checks `/3d/v2/capabilities`, then loads the current room from
-`/3d/v2/room/{room_id}`. The latter follows the same visible-entity boundary as the public
-room projection and adds only presentation metadata. Scene schema v3 includes outdoor
+The player checks 3D capability metadata and loads the current room from the play 3D
+surface. The room response follows the same visible-entity boundary as the player room
+projection and adds only presentation metadata. Scene schema v3 includes outdoor
 environments and decoration groups. Deploy matching server and web
-images together.
+images together. Consult OpenAPI for concrete operations and payload schemas.
 
 ## Outdoor decoration
 

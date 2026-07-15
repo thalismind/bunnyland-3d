@@ -472,14 +472,14 @@ def route_api(page):
         "**/assets/3d/prop-generic.glb",
         lambda route: route.fulfill(path=prop_asset, content_type="model/gltf-binary"),
     )
-    page.route("**/mock/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "plugin_id": "bunnyland.3d",
         "plugin_version": "0.3.0",
         "scene_schema_version": 4,
         "asset_schema_version": 2,
     }))
-    page.route("**/mock/3d/v2/assets/manifest", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/3d/v2/assets/manifest", lambda route: route.fulfill(status=200, json={
         "schema_version": 2,
         "assets": {
             key: {
@@ -513,7 +513,7 @@ def route_api(page):
         room_id = unquote(route.request.url.rsplit("/3d/v2/room/", 1)[1])
         route.fulfill(status=200, json=player_3d_scene(room_id))
 
-    page.route("**/mock/3d/v2/room/*", scene_route)
+    page.route("**/mock/play/3d/v2/room/*", scene_route)
     page.route("**/mock/admin/3d/**", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "status": "preview" if route.request.method == "GET" else "applied",
@@ -521,14 +521,14 @@ def route_api(page):
         "instances": 92,
         "has_roof": bool((route.request.post_data_json or {}).get("has_roof")) if route.request.post_data else False,
     }))
-    page.route("**/mock/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
-    page.route("**/mock/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
-    page.route("**/mock/world/characters", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/admin/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
+    page.route("**/mock/admin/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
+    page.route("**/mock/play/world/characters", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "world_epoch": 21,
         "characters": [{"character_id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
     }))
-    page.route("**/mock/world/controllers/web/claim", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/world/controllers/web/claim", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "character_id": "character:ash",
         "controller_id": "controller:web",
@@ -538,19 +538,19 @@ def route_api(page):
         "fallback_controller": "suspend",
         "timeout_seconds": 1800,
     }))
-    page.route("**/mock/world/controllers/web/fallback", controller_fallback_route)
-    page.route("**/mock/world/controllers/web/release-controller", controller_release_route)
-    page.route("**/mock/world/controllers/web/release-claim", claim_release_route)
-    page.route("**/mock/world/commands", player_command_route)
+    page.route("**/mock/play/world/controllers/web/fallback", controller_fallback_route)
+    page.route("**/mock/play/world/controllers/web/release-controller", controller_release_route)
+    page.route("**/mock/play/world/controllers/web/release-claim", claim_release_route)
+    page.route("**/mock/play/world/commands", player_command_route)
 
     def room_route(route):
         room_id = unquote(route.request.url.rsplit("/world/room/", 1)[1])
         route.fulfill(status=200, json=ROOMS.get(room_id, ROOMS["room:meadow"]))
 
-    page.route("**/mock/world/room/*", room_route)
+    page.route("**/mock/play/world/room/*", room_route)
 
     def character_route(route):
-        path = route.request.url.split("/mock/world/character/", 1)[1].split("?", 1)[0]
+        path = route.request.url.split("/mock/play/world/character/", 1)[1].split("?", 1)[0]
         if path.endswith("/scene-image"):
             RECENT_EVENTS.append({
                 "event_type": "ImageGenerationCompletedEvent",
@@ -588,7 +588,7 @@ def route_api(page):
             return
         route.fulfill(status=200, json=player_projection())
 
-    page.route("**/mock/world/character/**", character_route)
+    page.route("**/mock/play/world/character/**", character_route)
 
 
 def player_command_route(route):
@@ -988,9 +988,9 @@ def main() -> None:
             if not CLAIM_RELEASED:
                 raise AssertionError("claim dialog did not release claim")
 
-            page.unroute("**/mock/3d/v2/capabilities")
+            page.unroute("**/mock/play/3d/v2/capabilities")
             page.route(
-                "**/mock/3d/v2/capabilities",
+                "**/mock/play/3d/v2/capabilities",
                 lambda route: route.fulfill(status=404, json={"detail": "plugin missing"}),
             )
             page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")

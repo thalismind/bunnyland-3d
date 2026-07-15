@@ -1,5 +1,5 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
-import { mediaUrl as sharedMediaUrl, normalizeBase, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
+import { assertSameOriginBase, mediaUrl as sharedMediaUrl, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
 import { bindThemeSelect } from '@bunnyland/ui-web/theme';
 import { escapeHtml } from '@bunnyland/ui-web/widgets';
 import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
@@ -157,7 +157,7 @@ function status(text: string, cls = ''): void {
 async function connect(rawBase: string): Promise<void> {
   stopPlayerUpdates();
   stopLobbyPolling();
-  baseUrl = normalizeBase(rawBase);
+  baseUrl = assertSameOriginBase(rawBase);
   if (!baseUrl) return;
   apiInput.value = baseUrl;
   connectionReady = false;

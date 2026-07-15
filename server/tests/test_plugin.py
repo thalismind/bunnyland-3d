@@ -214,7 +214,7 @@ def test_render_keys_reject_remote_or_malformed_assets():
 
 
 def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
-    testclient = pytest.importorskip("fastapi.testclient")
+    httpx = pytest.importorskip("httpx")
     actor = WorldActor()
     plugins = _plugins()
     apply_plugins(plugins, actor)
@@ -250,17 +250,25 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
         hidden.id,
     )
 
-    client = testclient.TestClient(
-        create_app(
-            actor,
-            meta=WorldMeta(seed="v2"),
-            plugins=tuple(plugins),
-            allow_unauthenticated=True,
-        )
+    app = create_app(
+        actor,
+        meta=WorldMeta(seed="v2"),
+        plugins=tuple(plugins),
+        allow_unauthenticated_embedding=True,
     )
-    capability = client.get("/3d/v2/capabilities")
-    manifest = client.get("/3d/v2/assets/manifest")
-    scene = client.get(f"/3d/v2/room/{room.id}")
+
+    async def request_views():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            return (
+                await client.get("/play/3d/v2/capabilities"),
+                await client.get("/play/3d/v2/assets/manifest"),
+                await client.get(f"/play/3d/v2/room/{room.id}"),
+            )
+
+    capability, manifest, scene = asyncio.run(request_views())
 
     assert capability.status_code == 200
     assert capability.json()["scene_schema_version"] == 4
@@ -364,7 +372,7 @@ def test_indoor_room_decoration_is_skipped_without_mutation():
 
 
 def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
-    testclient = pytest.importorskip("fastapi.testclient")
+    httpx = pytest.importorskip("httpx")
     monkeypatch.setenv("BUNNYLAND_MEDIA_DIR", str(tmp_path))
     actor = WorldActor()
     plugins = _plugins()
@@ -376,28 +384,39 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
             RoomBounds3DComponent(size=Vector3(16, 8, 16)),
         ],
     )
-    client = testclient.TestClient(
-        create_app(
-            actor,
-            meta=WorldMeta(seed="graphics"),
-            plugins=plugins,
-            allow_unauthenticated=True,
-        )
+    app = create_app(
+        actor,
+        meta=WorldMeta(seed="graphics"),
+        plugins=plugins,
+        allow_unauthenticated_embedding=True,
     )
 
-    assert client.get(f"/admin/3d/room/{room.id}/decoration/preview").status_code == 200
-    applied = client.post(f"/admin/3d/room/{room.id}/decoration/apply")
-    roofed = client.put(f"/admin/3d/room/{room.id}/roof", json={"has_roof": True})
-    uploaded = client.post(
-        f"/admin/3d/texture/room/{room.id}/skybox",
-        headers={"content-type": "image/png"},
-        content=b"not-decoded-by-media-store",
-    )
-    scene = client.get(f"/3d/v2/room/{room.id}").json()
+    async def request_views():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            preview = await client.get(f"/admin/3d/room/{room.id}/decoration/preview")
+            applied = await client.post(f"/admin/3d/room/{room.id}/decoration/apply")
+            roofed = await client.put(
+                f"/admin/3d/room/{room.id}/roof", json={"has_roof": True}
+            )
+            uploaded = await client.post(
+                f"/admin/3d/texture/room/{room.id}/skybox",
+                headers={"content-type": "image/png"},
+                content=b"not-decoded-by-media-store",
+            )
+            scene = await client.get(f"/play/3d/v2/room/{room.id}")
+            return preview, applied, roofed, uploaded, scene.json()
+
+    preview, applied, roofed, uploaded, scene = asyncio.run(request_views())
+    assert preview.status_code == 200
     assert applied.status_code == 200
     assert roofed.json()["has_roof"] is True
     assert uploaded.status_code == 200
     assert scene["room"]["environment3d"]["has_roof"] is True
-    assert scene["room"]["environment3d"]["skybox_url"].startswith("/media/textures3d/")
+    assert scene["room"]["environment3d"]["skybox_url"].startswith(
+        "/public/media/textures3d/"
+    )
     assert len(scene["decorations"]) == 4
     assert scene["entities"] == []
