@@ -223,7 +223,7 @@ set.
 An out-of-tree plugin should ship extension images, not forks of the main server and web
 repos. This repo provides that pattern with:
 
-- `Dockerfile.server`, which starts from `ghcr.io/thalismind/bunnyland-server:main` by
+- `Dockerfile.server`, which starts from the reviewed `v0.2.0` Bunnyland server image by
   default and installs the plugin package into the existing server virtualenv.
 - `Dockerfile.web`, which starts from `ghcr.io/thalismind/bunnyland-web:main` by default
   and adds the built 3D welcome page, inspector, and player clients under `/3d/`.

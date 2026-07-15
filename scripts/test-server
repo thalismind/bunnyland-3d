@@ -2,17 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUNNYLAND_SERVER_PATH="${BUNNYLAND_SERVER_PATH:-${ROOT}/../bunnyland-server}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/bunnyland-3d-uv-cache}"
 
-if [[ -d "${BUNNYLAND_SERVER_PATH}/src" ]]; then
-  export PYTHONPATH="${ROOT}/server/src:${BUNNYLAND_SERVER_PATH}/src:${PYTHONPATH:-}"
-else
-  export PYTHONPATH="${ROOT}/server/src:${PYTHONPATH:-}"
-fi
-
-if [[ -f "${BUNNYLAND_SERVER_PATH}/pyproject.toml" ]] && command -v uv >/dev/null 2>&1; then
-  uv run --project "${BUNNYLAND_SERVER_PATH}" --with "trimesh>=4.4" -m pytest "${ROOT}/server/tests"
-else
-  python3 -m pytest "${ROOT}/server/tests"
-fi
+cd "${ROOT}/server"
+exec uv run -m pytest tests
