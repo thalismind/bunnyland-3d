@@ -83,7 +83,7 @@ wheels = [
 [[package]]
 name = "bunnyland"
 version = "0.2.0"
-source = { git = "https://github.com/thalismind/bunnyland-server.git?branch=main#a0a57ddd3fec28f4760f431caa8db27289b7013a" }
+source = { git = "https://github.com/thalismind/bunnyland-server.git?branch=main#04dec172720c6d8ea4b2c3f0d4f1246bbb758bf2" }
 dependencies = [
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic" },
