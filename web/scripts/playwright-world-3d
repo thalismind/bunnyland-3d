@@ -20,6 +20,11 @@ from playwright.sync_api import expect, sync_playwright
 
 BASE_URL = os.environ.get("BUNNYLAND_3D_WEB_BASE_URL", "").rstrip("/")
 ARTIFACT_DIR = Path(os.environ.get("BUNNYLAND_3D_ARTIFACT_DIR", "artifacts"))
+VIEWPORT = {
+    "width": int(os.environ.get("BUNNYLAND_3D_VIEWPORT_WIDTH", "1280")),
+    "height": int(os.environ.get("BUNNYLAND_3D_VIEWPORT_HEIGHT", "820")),
+}
+FULL_PAGE_SCREENSHOTS = os.environ.get("BUNNYLAND_3D_SCREENSHOT_FULL_PAGE", "1") == "1"
 
 OVERVIEW = {
     "ok": True,
@@ -709,7 +714,7 @@ def main() -> None:
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page(viewport={"width": 1280, "height": 820})
+            page = browser.new_page(viewport=VIEWPORT)
             route_api(page)
             page.goto(f"{base_url}/index.html", wait_until="networkidle")
             expect(page.locator("#welcome-title")).to_contain_text("Play and inspect")
@@ -774,14 +779,20 @@ def main() -> None:
             download_capture_from_button(page, canvas_3d)
             if not png_has_detail(canvas_3d):
                 raise AssertionError("3D canvas rendered blank pixels")
-            page.screenshot(path=ARTIFACT_DIR / "world-3d-3d.png", full_page=True)
+            page.screenshot(
+                path=ARTIFACT_DIR / "world-3d-3d.png",
+                full_page=FULL_PAGE_SCREENSHOTS,
+            )
             page.locator("#btn-mode").click()
             page.wait_for_timeout(150)
             canvas_2d = ARTIFACT_DIR / "world-3d-canvas-2d.png"
             download_capture_from_button(page, canvas_2d)
             if not png_has_detail(canvas_2d):
                 raise AssertionError("2D canvas rendered blank pixels")
-            page.screenshot(path=ARTIFACT_DIR / "world-3d-2d.png", full_page=True)
+            page.screenshot(
+                path=ARTIFACT_DIR / "world-3d-2d.png",
+                full_page=FULL_PAGE_SCREENSHOTS,
+            )
             page.locator('[data-room-id="room:pond"]').click()
             expect(page.locator("#selected-entities")).to_contain_text("Bright Pebble")
 
@@ -972,7 +983,10 @@ def main() -> None:
                 raise AssertionError("3D player canvas rendered blank pixels")
             page.locator("#btn-lightbox-close").click()
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(3)
-            page.screenshot(path=ARTIFACT_DIR / "world-3d-player.png", full_page=True)
+            page.screenshot(
+                path=ARTIFACT_DIR / "world-3d-player.png",
+                full_page=FULL_PAGE_SCREENSHOTS,
+            )
             page.locator("#btn-claim").click()
             page.locator("#btn-dialog-save-fallback").click()
             if not FALLBACK_SAVED:

@@ -114,6 +114,13 @@ Consult the server OpenAPI document for concrete API operations and payload sche
 The camera capture button downloads the current canvas as a PNG. Playwright smoke tests also
 save full-page screenshots with the toolbar/sidebar visible under `web/artifacts/`.
 
+Generate deterministic 1080p screenshots for the itch page from the addon's own mock-world
+browser workflow:
+
+```bash
+web/scripts/playwright-itch-screenshots --resolution 1080p --out-dir /tmp/bunnyland-itch-screenshots
+```
+
 Do not copy shared UI assets into this repo; import them from `@bunnyland/ui-web`.
 
 ## Docker Images

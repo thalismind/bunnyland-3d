@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Capture deterministic 3D screenshots sized for the Bunnyland itch page."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_OUT_DIR = Path("/tmp/bunnyland-itch-screenshots-3d")
+RESOLUTIONS = {
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "1440p": (2560, 1440),
+    "4k": (3840, 2160),
+}
+
+
+def parse_resolution(value: str) -> tuple[int, int]:
+    normalized = value.lower().strip()
+    if normalized in RESOLUTIONS:
+        return RESOLUTIONS[normalized]
+    try:
+        width_text, height_text = normalized.split("x", 1)
+        width, height = int(width_text), int(height_text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "resolution must be 720p, 1080p, 1440p, 4k, or WIDTHxHEIGHT"
+        ) from exc
+    if width < 640 or height < 480:
+        raise argparse.ArgumentTypeError("minimum screenshot size is 640x480")
+    return width, height
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--resolution",
+        type=parse_resolution,
+        default=parse_resolution(os.environ.get("BUNNYLAND_SCREENSHOT_RESOLUTION", "1080p")),
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path(os.environ.get("BUNNYLAND_ITCH_SCREENSHOT_DIR", DEFAULT_OUT_DIR)),
+    )
+    args = parser.parse_args()
+    width, height = args.resolution
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="bunnyland-3d-itch-") as directory:
+        capture_dir = Path(directory)
+        env = os.environ.copy()
+        env.update(
+            {
+                "BUNNYLAND_3D_ARTIFACT_DIR": str(capture_dir),
+                "BUNNYLAND_3D_VIEWPORT_WIDTH": str(width),
+                "BUNNYLAND_3D_VIEWPORT_HEIGHT": str(height),
+                "BUNNYLAND_3D_SCREENSHOT_FULL_PAGE": "0",
+            }
+        )
+        subprocess.run(
+            [str(SCRIPT_DIR / "playwright-world-3d")],
+            cwd=SCRIPT_DIR.parent,
+            env=env,
+            check=True,
+        )
+        outputs = {
+            "player": args.out_dir / "12-3d-player.png",
+            "admin_3d": args.out_dir / "13-3d-admin.png",
+            "admin_2d": args.out_dir / "14-3d-admin-map.png",
+        }
+        sources = {
+            "player": capture_dir / "world-3d-player.png",
+            "admin_3d": capture_dir / "world-3d-3d.png",
+            "admin_2d": capture_dir / "world-3d-2d.png",
+        }
+        for name, output in outputs.items():
+            source = sources[name]
+            if not source.exists():
+                raise RuntimeError(f"3D capture did not produce {source.name}")
+            shutil.copyfile(source, output)
+
+    print(
+        json.dumps(
+            {
+                "resolution": {"width": width, "height": height},
+                "screenshots": {name: str(path) for name, path in outputs.items()},
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

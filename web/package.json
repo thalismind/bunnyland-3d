@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json && vite build",
     "test": "node --test",
     "check": "npm run build && npm test",
-    "playwright": "scripts/playwright-world-3d"
+    "playwright": "scripts/playwright-world-3d",
+    "itch-screenshots": "scripts/playwright-itch-screenshots"
   },
   "dependencies": {
     "@bunnyland/ui-web": "file:../../bunnyland-ui-web",
