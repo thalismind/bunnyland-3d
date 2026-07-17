@@ -75,7 +75,7 @@ Build the server image from the add-on repo:
 
 ```bash
 docker build -f Dockerfile.server \
-  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:db1064359d202f0650b34d91ffe44c2d01a610c5514b60345831dd9b656dd760 \
+  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:b163ec731bc173928c13d610545e0b245fe21611a2217c135fdd260d65979d82 \
   -t bunnyland-3d-server .
 ```
 
