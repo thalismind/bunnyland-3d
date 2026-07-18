@@ -261,11 +261,12 @@ def test_v2_routes_report_capabilities_and_project_only_visible_room_entities():
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
+            headers={"X-Bunnyland-Client-Id": "3d-test"},
         ) as client:
             return (
-                await client.get("/play/3d/v2/capabilities"),
-                await client.get("/play/3d/v2/assets/manifest"),
-                await client.get(f"/play/3d/v2/room/{room.id}"),
+                await client.get("/v1/play/extensions/bunnyland.3d/3d/v2/capabilities"),
+                await client.get("/v1/play/extensions/bunnyland.3d/3d/v2/assets/manifest"),
+                await client.get(f"/v1/play/extensions/bunnyland.3d/3d/v2/room/{room.id}"),
             )
 
     capability, manifest, scene = asyncio.run(request_views())
@@ -395,18 +396,19 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
+            headers={"X-Bunnyland-Client-Id": "3d-test"},
         ) as client:
-            preview = await client.get(f"/admin/3d/room/{room.id}/decoration/preview")
-            applied = await client.post(f"/admin/3d/room/{room.id}/decoration/apply")
+            preview = await client.get(f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/decoration/preview")
+            applied = await client.post(f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/decoration/apply")
             roofed = await client.put(
-                f"/admin/3d/room/{room.id}/roof", json={"has_roof": True}
+                f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/roof", json={"has_roof": True}
             )
             uploaded = await client.post(
-                f"/admin/3d/texture/room/{room.id}/skybox",
+                f"/v1/admin/extensions/bunnyland.3d/3d/texture/room/{room.id}/skybox",
                 headers={"content-type": "image/png"},
                 content=b"not-decoded-by-media-store",
             )
-            scene = await client.get(f"/play/3d/v2/room/{room.id}")
+            scene = await client.get(f"/v1/play/extensions/bunnyland.3d/3d/v2/room/{room.id}")
             return preview, applied, roofed, uploaded, scene.json()
 
     preview, applied, roofed, uploaded, scene = asyncio.run(request_views())

@@ -28,7 +28,6 @@ import {
   inventoryEntries,
   latestImageCompletion,
   latestImageFailure,
-  persistentClientId,
   queuedCommandLabel,
   queuedCountdownSeconds,
   setIconPreference as sharedSetIconPreference,
@@ -148,7 +147,7 @@ export interface ServerAssetManifest {
 }
 
 export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
-  const data = await sendJson(base, '/play/3d/v2/capabilities') as ThreeDCapabilities;
+  const data = await sendJson(base, '/play/extensions/bunnyland.3d/3d/v2/capabilities') as ThreeDCapabilities;
   if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 4) {
     throw new Error('Bunnyland 3D scene schema v4 is required');
   }
@@ -156,7 +155,7 @@ export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilit
 }
 
 export async function fetch3dAssetManifest(base: string): Promise<ServerAssetManifest> {
-  const data = await sendJson(base, '/play/3d/v2/assets/manifest') as ServerAssetManifest;
+  const data = await sendJson(base, '/play/extensions/bunnyland.3d/3d/v2/assets/manifest') as ServerAssetManifest;
   if (Number(data.schema_version) !== 2 || !data.assets || Array.isArray(data.assets)) {
     throw new Error('Server returned an incompatible Bunnyland 3D asset manifest');
   }
@@ -165,7 +164,7 @@ export async function fetch3dAssetManifest(base: string): Promise<ServerAssetMan
 }
 
 export async function fetch3dRoomScene(base: string, roomId: string): Promise<PlayerRoomScene> {
-  const data = await sendJson(base, `/play/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
+  const data = await sendJson(base, `/play/extensions/bunnyland.3d/3d/v2/room/${encodeURIComponent(roomId)}`) as PlayerRoomScene;
   if (Number(data.schema_version) !== 4 || data.room?.id !== roomId) {
     throw new Error('Server returned an incompatible Bunnyland 3D room scene');
   }
@@ -188,13 +187,12 @@ export async function claimCharacter(base: string, characterId: string, options:
 }
 
 export async function updateControllerFallback(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<unknown> {
-  return sendJson(base, '/play/world/controllers/web/fallback', {
+  void characterId;
+  return sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}`, {
     method: 'PATCH',
     headers: claimHeaders(control),
     body: JSON.stringify({
-      character_id: characterId,
-      client_id: persistentClientId(CLIENT_ID_KEY, '3d'),
-      claim_id: control.claimId || undefined,
+      kind: 'fallback',
       fallback_controller: options.fallbackController || 'suspend',
       timeout_seconds: options.timeoutSeconds || 1800,
     }),
@@ -202,31 +200,28 @@ export async function updateControllerFallback(base: string, characterId: string
 }
 
 export async function releaseController(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<ControlClaim> {
-  const data = await sendJson(base, '/play/world/controllers/web/release-controller', {
-    method: 'POST',
+  void options;
+  const data = await sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}`, {
+    method: 'PATCH',
     headers: claimHeaders(control),
     body: JSON.stringify({
-      character_id: characterId,
-      client_id: persistentClientId(CLIENT_ID_KEY, '3d'),
-      claim_id: control.claimId || undefined,
-      fallback_controller: options.fallbackController || 'suspend',
-      timeout_seconds: options.timeoutSeconds || 1800,
+      kind: 'control',
+      desired: 'fallback',
     }),
   });
-  const next = controlFromResponse(data, characterId, { active: false }) || { ...control, active: false };
+  const next = controlFromResponse(
+    { ...(data as object), claim_secret: control.claimSecret },
+    characterId,
+    { active: false },
+  ) || { ...control, active: false };
   storeClaimControl(CLAIM_KEY, next);
   return next;
 }
 
 export async function releaseClaim(base: string, characterId: string, control: ControlClaim): Promise<unknown> {
-  const result = await sendJson(base, '/play/world/controllers/web/release-claim', {
-    method: 'POST',
+  const result = await sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}`, {
+    method: 'DELETE',
     headers: claimHeaders(control),
-    body: JSON.stringify({
-      character_id: characterId,
-      client_id: persistentClientId(CLIENT_ID_KEY, '3d'),
-      claim_id: control.claimId || undefined,
-    }),
   });
   clearClaimControl(CLAIM_KEY, characterId);
   return result;

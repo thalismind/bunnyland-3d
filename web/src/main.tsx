@@ -1,7 +1,7 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
 import { EmptyState, ThemeSelect } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
-import { assertSameOriginBase, sendAdmin, sendAdminRequest, sendJson, serverFromUrl, setServerInUrl } from './api';
+import { assertSameOriginBase, sendAdmin, sendAdminRequest, serverFromUrl, setServerInUrl } from './api';
 import { layoutOverview, roomEntities, roomSummary, snapshot3d, type WorldLayout } from './adapter.mjs';
 import { BunnylandScene, type ViewMode } from './scene';
 
@@ -49,7 +49,7 @@ async function connect(rawBase: string): Promise<void> {
   apiInput.value = baseUrl;
   status('loading...', '');
   try {
-    const overview = await sendAdmin(baseUrl, '/admin/world/overview', auth);
+    const overview = await sendAdmin(baseUrl, '/admin/world', auth);
     const snapshot = await sendAdmin(baseUrl, '/admin/world/snapshot', auth);
     snapshot3dMap = snapshot3d(snapshot);
     layout = layoutOverview(overview, snapshot3dMap);
@@ -78,14 +78,13 @@ async function selectRoom(roomId: string): Promise<void> {
   renderSelected(null);
   history.replaceState(null, '', `#${encodeURIComponent(roomId)}`);
   try {
-    const projection = await sendJson(baseUrl, `/play/world/room/${encodeURIComponent(roomId)}`);
-    const entities = roomEntities(projection, snapshot3dMap);
+    const playerScene = await sendAdmin(baseUrl, `/play/extensions/bunnyland.3d/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
+      room?: { indoor?: boolean; environment3d?: { has_roof?: boolean } | null };
+    };
+    const entities = roomEntities(playerScene, snapshot3dMap);
     selectedEntities = entities;
     scene.loadRoomEntities(roomId, entities);
     renderSelected(entities);
-    const playerScene = await sendAdmin(baseUrl, `/play/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
-      room?: { indoor?: boolean; environment3d?: { has_roof?: boolean } | null };
-    };
     roofInput.checked = playerScene.room?.environment3d?.has_roof ?? Boolean(playerScene.room?.indoor);
   } catch (err) {
     render(<EmptyState>Room detail failed: {(err as Error).message}</EmptyState>, selectedEntitiesEl);
@@ -98,7 +97,7 @@ async function decorationAction(action: 'preview' | 'apply' | 'reroll'): Promise
     const method = action === 'preview' ? 'GET' : 'POST';
     const result = await sendAdminRequest(
       baseUrl,
-      `/admin/3d/room/${encodeURIComponent(selectedRoomId)}/decoration/${action}`,
+      `/admin/extensions/bunnyland.3d/3d/room/${encodeURIComponent(selectedRoomId)}/decoration/${action}`,
       auth,
       { method },
     );
@@ -112,7 +111,7 @@ async function decorationAction(action: 'preview' | 'apply' | 'reroll'): Promise
 async function setRoomRoof(): Promise<void> {
   if (!baseUrl || !selectedRoomId) return;
   try {
-    await sendAdminRequest(baseUrl, `/admin/3d/room/${encodeURIComponent(selectedRoomId)}/roof`, auth, {
+    await sendAdminRequest(baseUrl, `/admin/extensions/bunnyland.3d/3d/room/${encodeURIComponent(selectedRoomId)}/roof`, auth, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ has_roof: roofInput.checked }),
@@ -131,7 +130,7 @@ async function uploadTexture(slot: 'albedo' | 'normal' | 'skybox', file: File): 
   try {
     const result = await sendAdminRequest(
       baseUrl,
-      `/admin/3d/texture/${textureScope.value}/${encodeURIComponent(target)}/${slot}`,
+      `/admin/extensions/bunnyland.3d/3d/texture/${textureScope.value}/${encodeURIComponent(target)}/${slot}`,
       auth,
       { method: 'POST', headers: { 'content-type': file.type }, body: file },
     );
@@ -216,7 +215,7 @@ document.getElementById('btn-apply-decoration')?.addEventListener('click', () =>
 document.getElementById('btn-reroll-decoration')?.addEventListener('click', () => { void decorationAction('reroll'); });
 document.getElementById('btn-apply-outdoors')?.addEventListener('click', async () => {
   try {
-    const result = await sendAdminRequest(baseUrl, '/admin/3d/decoration/apply-outdoors', auth, { method: 'POST' });
+    const result = await sendAdminRequest(baseUrl, '/admin/extensions/bunnyland.3d/3d/decoration/apply-outdoors', auth, { method: 'POST' });
     decorationResult.textContent = JSON.stringify(result);
     status('outdoor rooms decorated', 'ok');
   } catch (err) {

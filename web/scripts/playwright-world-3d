@@ -522,45 +522,47 @@ def route_api(page):
         room_id = unquote(route.request.url.rsplit("/3d/v2/room/", 1)[1])
         route.fulfill(status=200, json=player_3d_scene(room_id))
 
-    page.route("**/mock/play/3d/v2/room/*", scene_route)
-    page.route("**/mock/admin/3d/**", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/extensions/bunnyland.3d/3d/v2/room/**", scene_route)
+    page.route("**/mock/admin/extensions/bunnyland.3d/3d/**", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "status": "preview" if route.request.method == "GET" else "applied",
         "recipe": "meadow",
         "instances": 92,
         "has_roof": bool((route.request.post_data_json or {}).get("has_roof")) if route.request.post_data else False,
     }))
-    page.route("**/mock/admin/world/overview", lambda route: route.fulfill(status=200, json=OVERVIEW))
+    page.route("**/mock/admin/world", lambda route: route.fulfill(status=200, json=OVERVIEW))
     page.route("**/mock/admin/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
-    page.route("**/mock/play/world/characters", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/characters", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "world_epoch": 21,
         "characters": [{"character_id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
     }))
-    page.route("**/mock/play/world/controllers/web/claim", lambda route: route.fulfill(status=200, json={
-        "ok": True,
-        "character_id": "character:ash",
-        "controller_id": "controller:web",
-        "controller_generation": 3,
-        "claim_id": "claim-1",
-        "claim_secret": "secret-1",
-        "fallback_controller": "suspend",
-        "timeout_seconds": 1800,
-    }))
-    page.route("**/mock/play/world/controllers/web/fallback", controller_fallback_route)
-    page.route("**/mock/play/world/controllers/web/release-controller", controller_release_route)
-    page.route("**/mock/play/world/controllers/web/release-claim", claim_release_route)
-    page.route("**/mock/play/world/commands", player_command_route)
+    def claim_route(route):
+        if route.request.method == "DELETE":
+            claim_release_route(route)
+            return
+        payload = route.request.post_data_json or {}
+        if route.request.method == "PATCH" and payload.get("kind") == "fallback":
+            controller_fallback_route(route)
+            return
+        if route.request.method == "PATCH" and payload.get("kind") == "control":
+            controller_release_route(route)
+            return
+        route.fulfill(status=200, headers={"X-Bunnyland-Claim-Secret": "secret-1"}, json={
+            "id": "claim-1",
+            "character_id": "character:ash",
+            "controller_id": "controller:web",
+            "generation": 3,
+            "fallback_controller": "suspend",
+            "timeout_seconds": 1800,
+        })
 
-    def room_route(route):
-        room_id = unquote(route.request.url.rsplit("/world/room/", 1)[1])
-        route.fulfill(status=200, json=ROOMS.get(room_id, ROOMS["room:meadow"]))
-
-    page.route("**/mock/play/world/room/*", room_route)
+    page.route("**/mock/play/claims/**", claim_route)
+    page.route("**/mock/play/claims", claim_route)
 
     def character_route(route):
-        path = route.request.url.split("/mock/play/world/character/", 1)[1].split("?", 1)[0]
-        if path.endswith("/scene-image"):
+        path = route.request.url.split("/mock/play/claims/", 1)[1].split("?", 1)[0]
+        if path.endswith("/jobs"):
             RECENT_EVENTS.append({
                 "event_type": "ImageGenerationCompletedEvent",
                 "event": {
@@ -575,7 +577,7 @@ def route_api(page):
             })
             route.fulfill(status=200, json={"ok": True, "status": "queued"})
             return
-        if path.endswith("/events/recent"):
+        if path.endswith("/events"):
             if route.request.headers.get("x-bunnyland-claim-secret") != "secret-1":
                 route.fulfill(status=403, json={"detail": "missing claim secret"})
                 return
@@ -586,18 +588,18 @@ def route_api(page):
             PLAYER_QUEUE[:] = [command for command in PLAYER_QUEUE if command.get("command_id") != command_id]
             route.fulfill(status=200, json={"ok": True, "cancelled": True, "command_id": command_id})
             return
-        if path.endswith("/commands"):
-            route.fulfill(status=200, json={
-                "ok": True,
-                "character_id": "character:ash",
-                "world_epoch": 21,
-                "next_tick_at_unix": time.time() + 8,
-                "commands": PLAYER_QUEUE,
-            })
+        if path.endswith("/commands") and route.request.method == "POST":
+            player_command_route(route)
             return
-        route.fulfill(status=200, json=player_projection())
+        projection = player_projection()
+        projection.update({"next_tick_at_unix": time.time() + 8, "commands": PLAYER_QUEUE})
+        route.fulfill(status=200, json=projection)
 
-    page.route("**/mock/play/world/character/**", character_route)
+    page.route("**/mock/play/claims/**/projection", character_route)
+    page.route("**/mock/play/claims/**/events", character_route)
+    page.route("**/mock/play/claims/**/jobs", character_route)
+    page.route("**/mock/play/claims/**/commands", character_route)
+    page.route("**/mock/play/claims/**/commands/**", character_route)
 
 
 def player_command_route(route):
@@ -758,6 +760,12 @@ def main() -> None:
             radius_after = page.evaluate("window.__world3d.cameraState().radius")
             if not radius_after < radius_before:
                 raise AssertionError(f"auto camera wheel did not zoom in: {radius_before!r} -> {radius_after!r}")
+            if page.locator('[data-entity-id="item:clover"]').count() == 0:
+                raise AssertionError(
+                    "admin room entities did not load: "
+                    f"status={page.locator('#status').text_content()!r} "
+                    f"entities={page.locator('#selected-entities').text_content()!r}"
+                )
             page.locator('[data-entity-id="item:clover"]').click()
             if "active" not in (page.locator('[data-entity-id="item:clover"]').get_attribute("class") or ""):
                 raise AssertionError("selected entity row did not become active")

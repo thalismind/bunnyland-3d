@@ -87,7 +87,7 @@ npm run dev
 ```
 
 Open the printed Vite URL for the 3D welcome page, then choose the player or admin
-client. Use the same-origin `/api/` server setting; local development should proxy that
+client. Use the same-origin `/api/v1/` server setting; local development should proxy that
 path to the API.
 
 `admin.html` is a 3D inspector. It renders the admin overview and snapshot projections and
