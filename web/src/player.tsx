@@ -17,7 +17,7 @@ import {
   actionUnavailableReason,
   allTargets,
   cancelCommand,
-  characterSheetHref,
+  characterHref,
   claimCharacter,
   createPlayerLiveUpdates,
   drainNarratedEvents,
@@ -636,7 +636,7 @@ async function requestImage(): Promise<void> {
 
 function openSheet(): void {
   if (!baseUrl || !playerId) {
-    pushActivity({ text: 'Select a character before opening a sheet.', kind: 'system' });
+    pushActivity({ text: 'Select a character before opening their profile.', kind: 'system' });
     renderActivity();
     return;
   }
@@ -645,9 +645,9 @@ function openSheet(): void {
     const selected = projection?.room.entities.find(entity => String((entity as Record<string, unknown>).id || '') === selectedTargetId) as Record<string, unknown> | undefined;
     if (selected && (selected.is_character || selected.kind === 'character')) characterId = selectedTargetId;
   }
-  const href = characterSheetHref(baseUrl, characterId);
+  const href = characterHref(baseUrl, characterId);
   const opened = window.open(href, '_blank', 'noopener');
-  pushActivity({ text: opened ? `Opened sheet: ${href}` : `Sheet URL: ${href}`, kind: 'system' });
+  pushActivity({ text: opened ? `Opened character profile: ${href}` : `Character profile URL: ${href}`, kind: 'system' });
   renderActivity();
 }
 

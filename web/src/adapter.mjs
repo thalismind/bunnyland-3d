@@ -171,7 +171,8 @@ export function layoutOverview(overview, snapshot = null) {
 
 export function roomEntities(roomProjection, snapshot = null) {
   const room = roomProjection?.room || {};
-  return (room.entities || []).map((rawEntity, index) => {
+  const entities = roomProjection?.entities || room.entities || [];
+  return entities.map((rawEntity, index) => {
     const entity = withSnapshot3d(rawEntity, snapshot);
     const transform = entity.transform3d || {};
     const render = entity.render3d || {};

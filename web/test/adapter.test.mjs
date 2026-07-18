@@ -57,6 +57,15 @@ test('adapter converts room projection entities with transform3d fallback', () =
   );
 });
 
+test('adapter reads plugin scene entities from the top-level collection', () => {
+  const entities = roomEntities({
+    room: { id: 'room:1', title: 'Moss Room' },
+    entities: [{ id: 'item:1', name: 'Mossy Stone', kind: 'item' }],
+  });
+
+  assert.deepEqual(entities.map(entity => entity.id), ['item:1']);
+});
+
 test('adapter overlays raw snapshot 3D components onto fixed projections', () => {
   const snapshot = snapshot3d({
     entities: [

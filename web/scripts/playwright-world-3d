@@ -481,14 +481,14 @@ def route_api(page):
         "**/assets/3d/prop-generic.glb",
         lambda route: route.fulfill(path=prop_asset, content_type="model/gltf-binary"),
     )
-    page.route("**/mock/play/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/extensions/bunnyland.3d/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "plugin_id": "bunnyland.3d",
         "plugin_version": "0.3.0",
         "scene_schema_version": 4,
         "asset_schema_version": 2,
     }))
-    page.route("**/mock/play/3d/v2/assets/manifest", lambda route: route.fulfill(status=200, json={
+    page.route("**/mock/play/extensions/bunnyland.3d/3d/v2/assets/manifest", lambda route: route.fulfill(status=200, json={
         "schema_version": 2,
         "assets": {
             key: {
@@ -535,7 +535,7 @@ def route_api(page):
     page.route("**/mock/play/characters", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "world_epoch": 21,
-        "characters": [{"character_id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
+        "characters": [{"id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
     }))
     def claim_route(route):
         if route.request.method == "DELETE":
@@ -997,7 +997,7 @@ def main() -> None:
             expect(page.locator("#activity")).to_contain_text("image")
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(2)
             page.locator("#btn-open-sheet").click()
-            expect(page.locator("#activity")).to_contain_text("sheet")
+            expect(page.locator("#activity")).to_contain_text("Character profile")
             player_canvas = ARTIFACT_DIR / "world-3d-player-canvas.png"
             page.locator("#btn-capture").click()
             if "hidden" in (page.locator("#photo-lightbox").get_attribute("class") or ""):
@@ -1027,7 +1027,7 @@ def main() -> None:
             if not CLAIM_RELEASED:
                 raise AssertionError("claim dialog did not release claim")
 
-            page.unroute("**/mock/play/3d/v2/capabilities")
+            page.unroute("**/mock/play/extensions/bunnyland.3d/3d/v2/capabilities")
             page.route(
                 "**/mock/play/3d/v2/capabilities",
                 lambda route: route.fulfill(status=404, json={"detail": "plugin missing"}),
