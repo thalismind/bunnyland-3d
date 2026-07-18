@@ -910,6 +910,19 @@ def main() -> None:
             expect(page.locator("#character-pills")).to_contain_text("ready")
             expect(page.locator("#members")).to_contain_text("Silver Clover")
             expect(page.locator("#inventory")).to_contain_text("Crinkled Map")
+            stable_rows = page.evaluate(
+                """async () => {
+                  const member = document.querySelector('[data-target-id="item:clover"]');
+                  const action = document.querySelector('[data-action="wait"]');
+                  await window.__world3dPlayer.refresh();
+                  return {
+                    member: member === document.querySelector('[data-target-id="item:clover"]'),
+                    action: action === document.querySelector('[data-action="wait"]'),
+                  };
+                }"""
+            )
+            if stable_rows != {"member": True, "action": True}:
+                raise AssertionError(f"Preact replaced unchanged keyed HUD rows: {stable_rows!r}")
             page.locator('[data-target-id="item:map"]').click()
             expect(page.locator("#target-label")).to_contain_text("Crinkled Map")
             page.locator('[data-target-id="item:clover"]').click()

@@ -1,3 +1,4 @@
+import preact from '@preact/preset-vite';
 import { defineConfig } from 'vite';
 
 declare const process: {
@@ -11,6 +12,7 @@ const apiProxyTarget = process.env.BUNNYLAND_API_PROXY || 'http://127.0.0.1:8765
 
 export default defineConfig({
   base: process.env.BUNNYLAND_3D_BASE || '/',
+  plugins: [preact()],
   server: {
     proxy: {
       '/api': {
@@ -21,7 +23,7 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         index: 'index.html',
         admin: 'admin.html',

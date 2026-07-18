@@ -472,7 +472,7 @@
         <button id="btn-capture" type="button">📷 Capture</button>
         <button id="btn-hud" type="button" aria-controls="side" aria-expanded="true">Panels</button>
         <label for="theme-select">Theme</label>
-        <select id="theme-select"></select>
+        <span id="theme-select-root"><select id="theme-select"></select></span>
         <span id="status">Ready</span>
       </div>
       <dialog id="claim-dialog">
@@ -587,6 +587,6 @@
         </div>
       </div>
     </div>
-    <script type="module" src="/src/player.ts"></script>
+    <script type="module" src="/src/player.tsx"></script>
   </body>
 </html>

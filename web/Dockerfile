@@ -1,8 +1,8 @@
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app/web
-COPY --from=bunnyland-ui-web / /bunnyland-ui-web
 COPY package.json package-lock.json ./
+COPY vendor ./vendor
 RUN npm ci
 COPY index.html admin.html player.html vite.config.ts tsconfig.json ./
 COPY src ./src

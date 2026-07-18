@@ -80,8 +80,6 @@ jobs:
           push: false
           load: true
           tags: bunnyland-3d-web-test:ci
-          build-contexts: |
-            bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main
       - name: Run web tests
         run: |
           mkdir -p .reports
@@ -95,8 +93,6 @@ jobs:
           push: false
           load: true
           tags: bunnyland-3d-browser-test:ci
-          build-contexts: |
-            bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main
       - name: Run browser smoke
         run: |
           mkdir -p .reports/artifacts
@@ -134,5 +130,3 @@ jobs:
           target: runtime
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ghcr.io/thalismind/bunnyland-3d-web:main
-          build-contexts: |
-            bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main

@@ -1,6 +1,6 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
-import { bindThemeSelect } from '@bunnyland/ui-web/theme';
-import { escapeHtml } from '@bunnyland/ui-web/widgets';
+import { EmptyState, ThemeSelect } from '@bunnyland/ui-web/preact';
+import { render } from 'preact';
 import { assertSameOriginBase, sendAdmin, sendAdminRequest, sendJson, serverFromUrl, setServerInUrl } from './api';
 import { layoutOverview, roomEntities, roomSummary, snapshot3d, type WorldLayout } from './adapter.mjs';
 import { BunnylandScene, type ViewMode } from './scene';
@@ -16,7 +16,7 @@ const selectedEntitiesEl = document.getElementById('selected-entities') as HTMLE
 const modeButton = document.getElementById('btn-mode') as HTMLButtonElement;
 const cameraButton = document.getElementById('btn-camera') as HTMLButtonElement;
 const captureButton = document.getElementById('btn-capture') as HTMLButtonElement;
-const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
+const themeSelectRoot = document.getElementById('theme-select-root') as HTMLElement;
 const roofInput = document.getElementById('room-has-roof') as HTMLInputElement;
 const textureScope = document.getElementById('texture-scope') as HTMLSelectElement;
 const decorationResult = document.getElementById('decoration-result') as HTMLElement;
@@ -88,7 +88,7 @@ async function selectRoom(roomId: string): Promise<void> {
     };
     roofInput.checked = playerScene.room?.environment3d?.has_roof ?? Boolean(playerScene.room?.indoor);
   } catch (err) {
-    selectedEntitiesEl.textContent = `Room detail failed: ${(err as Error).message}`;
+    render(<EmptyState>Room detail failed: {(err as Error).message}</EmptyState>, selectedEntitiesEl);
   }
 }
 
@@ -145,12 +145,12 @@ async function uploadTexture(slot: 'albedo' | 'normal' | 'skybox', file: File): 
 function renderRooms(): void {
   if (!layout) return;
   epochEl.textContent = `epoch ${layout.epoch}`;
-  roomListEl.innerHTML = layout.rooms.map(room => `
-    <button class="room-row ${room.id === selectedRoomId ? 'active' : ''}" type="button" data-room-id="${escapeHtml(room.id)}">
-      ${escapeHtml(room.title)}
-      <div class="muted">${room.occupantCount} chars / ${room.itemCount} items</div>
+  render(<>{layout.rooms.map(room => (
+    <button key={room.id} class={`room-row ${room.id === selectedRoomId ? 'active' : ''}`} type="button" data-room-id={room.id}>
+      {room.title}
+      <div class="muted">{room.occupantCount} chars / {room.itemCount} items</div>
     </button>
-  `).join('');
+  ))}</>, roomListEl);
 }
 
 function renderSelected(entities: ReturnType<typeof roomEntities> | null): void {
@@ -159,17 +159,15 @@ function renderSelected(entities: ReturnType<typeof roomEntities> | null): void 
   selectedTitleEl.textContent = room.title;
   selectedMetaEl.textContent = `${room.biome} / ${room.exits.length} exits`;
   if (entities === null) {
-    selectedEntitiesEl.textContent = 'Loading room contents...';
+    render(<EmptyState>Loading room contents...</EmptyState>, selectedEntitiesEl);
     return;
   }
-  selectedEntitiesEl.innerHTML = entities.length
-    ? entities.map(entity => `
-      <button class="entity-row ${entity.id === selectedEntityId ? 'active' : ''}" type="button" data-entity-id="${escapeHtml(entity.id)}">
-        ${escapeHtml(entity.name)}
-        <div class="muted">${escapeHtml(entity.kind)}</div>
-      </button>
-    `).join('')
-    : '<span class="muted">No visible room contents.</span>';
+  render(entities.length ? <>{entities.map(entity => (
+    <button key={entity.id} class={`entity-row ${entity.id === selectedEntityId ? 'active' : ''}`} type="button" data-entity-id={entity.id}>
+      {entity.name}
+      <div class="muted">{entity.kind}</div>
+    </button>
+  ))}</> : <EmptyState>No visible room contents.</EmptyState>, selectedEntitiesEl);
 }
 
 function selectEntity(entityId: string): void {
@@ -233,7 +231,7 @@ for (const slot of ['albedo', 'normal', 'skybox'] as const) {
     if (file) void uploadTexture(slot, file);
   });
 }
-bindThemeSelect(themeSelect);
+render(<ThemeSelect id="theme-select" aria-label="Theme" />, themeSelectRoot);
 
 const server = serverFromUrl();
 if (server) void connect(server);

@@ -1,8 +1,9 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
 import { assertSameOriginBase, mediaUrl as sharedMediaUrl, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
-import { bindThemeSelect } from '@bunnyland/ui-web/theme';
+import { EmptyState, Pill, ThemeSelect } from '@bunnyland/ui-web/preact';
 import { escapeHtml } from '@bunnyland/ui-web/widgets';
 import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
+import { Fragment, render as renderView } from 'preact';
 import { PlayerScene, type PlayerSceneExit } from './player-scene';
 import {
   actionArguments,
@@ -105,7 +106,7 @@ const emptyStateEl = document.getElementById('empty-state') as HTMLElement;
 const emptyStateTitleEl = document.getElementById('empty-state-title') as HTMLElement;
 const emptyStateDetailEl = document.getElementById('empty-state-detail') as HTMLElement;
 const controlHintEl = document.getElementById('control-hint') as HTMLElement;
-const themeSelect = document.getElementById('theme-select') as HTMLSelectElement;
+const themeSelectRoot = document.getElementById('theme-select-root') as HTMLElement;
 const claimDialog = document.getElementById('claim-dialog') as HTMLDialogElement;
 const claimFallbackEl = document.getElementById('claim-fallback') as HTMLSelectElement;
 const claimFallbackControllerEl = document.getElementById('claim-fallback-controller') as HTMLInputElement;
@@ -314,11 +315,14 @@ function startPlayerUpdates(): void {
 }
 
 function renderCharacters(): void {
-  characterSelect.innerHTML = '<option value="">Choose...</option>' + characters.map(character => `
-    <option value="${escapeHtml(character.id)}"${character.id === playerId ? ' selected' : ''}>
-      ${escapeHtml(character.name)}${character.suspended ? ' (suspended)' : ''}
-    </option>
-  `).join('');
+  renderView(<>
+    <option value="">Choose...</option>
+    {characters.map(character => (
+      <option key={character.id} value={character.id} selected={character.id === playerId}>
+        {character.name}{character.suspended ? ' (suspended)' : ''}
+      </option>
+    ))}
+  </>, characterSelect);
 }
 
 function render(): void {
@@ -341,11 +345,11 @@ function render(): void {
     renderCharacterPanel();
     roomTitleEl.textContent = 'No character selected';
     roomMetaEl.textContent = 'Connect and choose a character.';
-    membersEl.textContent = 'No visible entities.';
-    exitsEl.textContent = 'No visible exits.';
-    inventoryEl.textContent = 'No inventory loaded.';
-    actionsEl.textContent = 'No actions loaded.';
-    queueEl.textContent = 'No queued actions.';
+    renderView(<EmptyState>No visible entities.</EmptyState>, membersEl);
+    renderView(<EmptyState>No visible exits.</EmptyState>, exitsEl);
+    renderView(<EmptyState>No inventory loaded.</EmptyState>, inventoryEl);
+    renderView(<EmptyState>No actions loaded.</EmptyState>, actionsEl);
+    renderView(<EmptyState>No queued actions.</EmptyState>, queueEl);
     renderSelection();
     renderGallery();
     renderActivity();
@@ -406,45 +410,48 @@ function renderRememberedMap(fog: FogState): void {
   const maxX = Math.max(...fog.rooms.map(room => room.gridX), 0);
   const maxY = Math.max(...fog.rooms.map(room => room.gridY), 0);
   rememberedMapEl.style.gridTemplateColumns = `repeat(${Math.max(1, maxX - minX + 1)}, minmax(0, 1fr))`;
-  rememberedMapEl.innerHTML = fog.rooms.map(room => {
+  renderView(<>{fog.rooms.map(room => {
     const current = room.id === projection?.room.id;
-    return `<div class="map-room ${current ? 'current' : ''}" style="grid-column:${room.gridX - minX + 1};grid-row:${room.gridY - minY + 1}" title="${escapeHtml(room.title)}">${escapeHtml(current ? '●' : '○')}<span>${escapeHtml(room.title)}</span></div>`;
-  }).join('');
+    return (
+      <div
+        key={room.id}
+        class={`map-room ${current ? 'current' : ''}`}
+        style={{ gridColumn: room.gridX - minX + 1, gridRow: room.gridY - minY + 1 }}
+        title={room.title}
+      >
+        {current ? '●' : '○'}<span>{room.title}</span>
+      </div>
+    );
+  })}</>, rememberedMapEl);
 }
 
 function renderRoom(): void {
   if (!projection) return;
-  membersEl.innerHTML = projection.room.entities.length
-    ? projection.room.entities.map(entity => {
+  renderView(projection.room.entities.length ? <>{projection.room.entities.map(entity => {
       const item = entity as Record<string, unknown>;
       const id = String(item.id || '');
       const name = String(item.name || item.label || id);
       const kind = String(item.kind || (item.is_character ? 'character' : 'other'));
-      return `
-        <button class="option-row ${id === selectedTargetId ? 'selected' : ''}" type="button" data-target-id="${escapeHtml(id)}">
-          <span class="row-main"><span>${iconHtml(targetIcon(kind))}${escapeHtml(name)}${id === playerId ? ' (you)' : ''}</span><span>${escapeHtml(kind)}</span></span>
+      return (
+        <button key={id} class={`option-row ${id === selectedTargetId ? 'selected' : ''}`} type="button" data-target-id={id}>
+          <span class="row-main"><span><RowIcon icon={targetIcon(kind)} />{name}{id === playerId ? ' (you)' : ''}</span><span>{kind}</span></span>
         </button>
-      `;
-    }).join('')
-    : '<div class="muted">No visible entities.</div>';
+      );
+    })}</> : <EmptyState>No visible entities.</EmptyState>, membersEl);
 
-  exitsEl.innerHTML = projection.room.exits.length
-    ? projection.room.exits.map(exit => `
-      <button class="option-row" type="button" data-exit-id="${escapeHtml(exit.id)}">
-        <span class="row-main"><span>${iconHtml('🚪')}${escapeHtml(exit.direction || exit.label || exit.id)}</span><span>${exit.locked ? 'locked' : ''}</span></span>
-        <span class="row-detail">${escapeHtml(exit.label || exit.id)}</span>
+  renderView(projection.room.exits.length ? <>{projection.room.exits.map(exit => (
+      <button key={exit.id} class="option-row" type="button" data-exit-id={exit.id}>
+        <span class="row-main"><span><RowIcon icon="🚪" />{exit.direction || exit.label || exit.id}</span><span>{exit.locked ? 'locked' : ''}</span></span>
+        <span class="row-detail">{exit.label || exit.id}</span>
       </button>
-    `).join('')
-    : '<div class="muted">No visible exits.</div>';
+    ))}</> : <EmptyState>No visible exits.</EmptyState>, exitsEl);
 
   const inventory = inventoryEntries(projection);
-  inventoryEl.innerHTML = inventory.length
-    ? inventory.map(item => `
-      <button class="option-row ${item.value === selectedTargetId ? 'selected' : ''}" type="button" data-target-id="${escapeHtml(item.value)}">
-        <span class="row-main"><span>${iconHtml(item.icon)}${escapeHtml(item.label)}</span><span>${escapeHtml(item.kind)}</span></span>
+  renderView(inventory.length ? <>{inventory.map(item => (
+      <button key={item.value} class={`option-row ${item.value === selectedTargetId ? 'selected' : ''}`} type="button" data-target-id={item.value}>
+        <span class="row-main"><span><RowIcon icon={item.icon} />{item.label}</span><span>{item.kind}</span></span>
       </button>
-    `).join('')
-    : '<div class="muted">Nothing carried.</div>';
+    ))}</> : <EmptyState>Nothing carried.</EmptyState>, inventoryEl);
 }
 
 function renderSelection(): void {
@@ -458,33 +465,35 @@ function renderActions(): void {
   actionFilterClearButton.disabled = !actionFilterEl.value;
   const filtered = filterActions(projection.actions, actionFilterEl.value);
   const sections = ['world', 'focus'].map(lane => {
-    const rows = filtered
-      .map((action, index) => ({ action, index }))
-      .filter(item => actionLane(item.action) === lane)
-      .map(item => actionRow(item.action, item.index))
-      .join('');
+    const rows = filtered.map((action, index) => ({ action, index })).filter(item => actionLane(item.action) === lane);
     const count = filtered.filter(action => actionLane(action) === lane).length;
-    return `<div class="section-title">${lane === 'focus' ? 'Focus actions' : 'World actions'} (${count})</div>${rows || '<div class="muted">No matching actions.</div>'}`;
+    return (
+      <Fragment key={lane}>
+        <div class="section-title">{lane === 'focus' ? 'Focus actions' : 'World actions'} ({count})</div>
+        {rows.length ? rows.map(item => <ActionRow key={actionCommandType(item.action)} action={item.action} index={item.index} />) : <EmptyState>No matching actions.</EmptyState>}
+      </Fragment>
+    );
   });
-  actionsEl.innerHTML = sections.join('');
+  renderView(<>{sections}</>, actionsEl);
 }
 
-function actionRow(action: ActionView, index: number): string {
+function ActionRow({ action, index }: { action: ActionView; index: number }) {
   const cost = actionCost(action);
   const available = actionAvailable(action);
   const reason = actionUnavailableReason(action);
-  const costText = cost.action || cost.focus
-    ? [cost.action ? `<span class="cost ap">${cost.action} AP</span>` : '', cost.focus ? `<span class="cost fp">${cost.focus} FP</span>` : ''].filter(Boolean).join(' ')
-    : '<span class="cost free">free</span>';
-  const target = actionArguments(action).some(arg => arg.target_group) ? '<span class="cost free">target</span>' : '';
+  const hasTarget = actionArguments(action).some(arg => arg.target_group);
   const commandType = actionCommandType(action);
   const submitting = submittingAction === commandType;
-  return `
-    <button class="action-row ${available ? '' : 'unavailable'} ${submitting ? 'submitting' : ''}" type="button" data-action="${escapeHtml(commandType)}" data-action-index="${index}"${submitting ? ' disabled' : ''}>
-      <span class="row-main"><span>${iconHtml(actionIcon(action))}${escapeHtml(actionTitle(action))}</span><span>${costText}</span></span>
-      <span class="row-detail">${target}${target ? ' ' : ''}${escapeHtml(submitting ? 'submitting...' : reason || commandType)}</span>
+  return (
+    <button class={`action-row ${available ? '' : 'unavailable'} ${submitting ? 'submitting' : ''}`} type="button" data-action={commandType} data-action-index={index} disabled={submitting}>
+      <span class="row-main"><span><RowIcon icon={actionIcon(action)} />{actionTitle(action)}</span><span>
+        {cost.action ? <span class="cost ap">{cost.action} AP</span> : null}{' '}
+        {cost.focus ? <span class="cost fp">{cost.focus} FP</span> : null}
+        {!cost.action && !cost.focus ? <span class="cost free">free</span> : null}
+      </span></span>
+      <span class="row-detail">{hasTarget ? <><span class="cost free">target</span>{' '}</> : null}{submitting ? 'submitting...' : reason || commandType}</span>
     </button>
-  `;
+  );
 }
 
 function renderCharacterPanel(): void {
@@ -494,31 +503,33 @@ function renderCharacterPanel(): void {
   characterInfoEl.textContent = projection
     ? [sheetText(sheet, 'species'), sheetText(sheet, 'kind'), projection.room.title].filter(Boolean).join(' / ') || projection.characterId
     : 'Connect and choose a character.';
-  portraitFrameEl.innerHTML = portraitHtml();
-  characterStatsEl.innerHTML = projection
-    ? [
-      statChip('HP', hpText(projection)),
-      statChip('AP', pointText(projection.points, 'action', 'action_max')),
-      statChip('FP', pointText(projection.points, 'focus', 'focus_max')),
-    ].join('')
-    : '';
+  const portraitUrl = typeof projection?.portrait?.url === 'string' ? mediaUrl(projection.portrait.url) : '';
+  renderView(projection
+    ? portraitUrl
+      ? <img src={portraitUrl} alt={`${projection.characterName} portrait`} />
+      : <div class="portrait-placeholder">{initials(projection.characterName)}</div>
+    : <div class="portrait-placeholder">?</div>, portraitFrameEl);
+  renderView(projection ? <>
+    <StatChip label="HP" value={hpText(projection)} />
+    <StatChip label="AP" value={pointText(projection.points, 'action', 'action_max')} />
+    <StatChip label="FP" value={pointText(projection.points, 'focus', 'focus_max')} />
+  </> : null, characterStatsEl);
   const extras = extraPills(projection);
-  characterPillsEl.innerHTML = extras.map(item => `<span class="pill">${escapeHtml(item)}</span>`).join('');
+  renderView(<>{extras.map(item => <Pill key={item}>{item}</Pill>)}</>, characterPillsEl);
 }
 
 function renderQueue(): void {
   if (!projection || !queue) return;
   const countdown = queuedCountdownSeconds(queue);
   const title = `Queued actions${countdown == null ? '' : ` / next tick in ${countdown}s`}`;
-  queueEl.innerHTML = `<div id="queue-title" class="section-title">${escapeHtml(title)}</div>` + (
-    queue.commands.length
-      ? queue.commands.map(command => `
-        <button class="queue-row" type="button" data-command-id="${escapeHtml(command.command_id || '')}">
-          <span class="row-main"><span>${escapeHtml(queuedCommandLabel(command, projection?.actions || []))}</span><span>cancel</span></span>
-        </button>
-      `).join('')
-      : '<div class="muted">No queued actions.</div>'
-  );
+  renderView(<>
+    <div id="queue-title" class="section-title">{title}</div>
+    {queue.commands.length ? queue.commands.map(command => (
+      <button key={command.command_id} class="queue-row" type="button" data-command-id={command.command_id || ''}>
+        <span class="row-main"><span>{queuedCommandLabel(command, projection?.actions || [])}</span><span>cancel</span></span>
+      </button>
+    )) : <EmptyState>No queued actions.</EmptyState>}
+  </>, queueEl);
 }
 
 function updateQueueCountdown(): void {
@@ -529,9 +540,9 @@ function updateQueueCountdown(): void {
 }
 
 function renderActivity(): void {
-  activityEl.innerHTML = activityLines.length
-    ? activityLines.map(line => `<div class="activity-row kind-${escapeHtml(line.kind)}">${iconHtml(line.icon || '')}${escapeHtml(line.text)}</div>`).join('')
-    : '<div class="muted">No recent activity.</div>';
+  renderView(activityLines.length ? <>{activityLines.map((line, index) => (
+    <div key={`${line.kind}:${line.text}:${index}`} class={`activity-row kind-${line.kind}`}><RowIcon icon={line.icon || ''} />{line.text}</div>
+  ))}</> : <EmptyState>No recent activity.</EmptyState>, activityEl);
 }
 
 function renderGallery(): void {
@@ -797,13 +808,6 @@ function nameFor(entityId: string): string | null {
     || null;
 }
 
-function portraitHtml(): string {
-  if (!projection) return `<div class="portrait-placeholder">?</div>`;
-  const url = typeof projection.portrait?.url === 'string' ? mediaUrl(projection.portrait.url) : '';
-  if (url) return `<img src="${escapeHtml(url)}" alt="${escapeHtml(projection.characterName)} portrait">`;
-  return `<div class="portrait-placeholder">${escapeHtml(initials(projection.characterName))}</div>`;
-}
-
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts.length ? parts.map(part => part[0]).join('') : '?').slice(0, 2).toUpperCase();
@@ -813,8 +817,8 @@ function mediaUrl(url: string): string {
   return sharedMediaUrl(baseUrl, url);
 }
 
-function statChip(label: string, value: string): string {
-  return `<div class="stat-chip"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`;
+function StatChip({ label, value }: { label: string; value: string }) {
+  return <div class="stat-chip"><strong>{label}</strong><span>{value}</span></div>;
 }
 
 function pointText(points: Record<string, number>, currentKey: string, maxKey: string): string {
@@ -947,8 +951,8 @@ function targetIcon(kind: string): string {
   return '⬡';
 }
 
-function iconHtml(icon: string): string {
-  return showActionIcons && icon ? `<span class="row-icon">${escapeHtml(icon)}</span>` : '';
+function RowIcon({ icon }: { icon: string }) {
+  return showActionIcons && icon ? <span class="row-icon">{icon}</span> : null;
 }
 
 connectButton.addEventListener('click', () => { void connect(apiInput.value); });
@@ -1023,7 +1027,7 @@ document.addEventListener('keydown', event => {
     void confirmNearbyExit();
   }
 });
-bindThemeSelect(themeSelect);
+renderView(<ThemeSelect id="theme-select" aria-label="Theme" />, themeSelectRoot);
 const queueCountdownTimer = window.setInterval(updateQueueCountdown, 250);
 window.addEventListener('beforeunload', () => {
   window.clearInterval(queueCountdownTimer);
