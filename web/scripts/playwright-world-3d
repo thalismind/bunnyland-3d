@@ -386,7 +386,11 @@ def player_3d_scene(room_id: str):
 
 def url_ok(url: str) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=0.5) as response:
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 BunnylandPlaywright/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
             return 200 <= response.status < 400
     except OSError:
         return False
