@@ -129,7 +129,7 @@ The root Dockerfiles extend the published Bunnyland images instead of replacing 
 
 ```bash
 docker build -f Dockerfile.server \
-  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:b163ec731bc173928c13d610545e0b245fe21611a2217c135fdd260d65979d82 \
+  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:adccae84bc13b650e0b4d6df5c5df48316b1e4b755ce22fac3e1aa4d6864fac5 \
   -t bunnyland-3d-server .
 
 docker build -f Dockerfile.web \
