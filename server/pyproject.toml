@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-bunnyland = { git = "https://github.com/thalismind/bunnyland-server.git", tag = "v0.2.1" }
+bunnyland = { git = "https://github.com/thalismind/bunnyland-server.git", rev = "1aa5ed83851237c3d68ebbb6230510952697fd37" }
 
 [build-system]
 requires = ["hatchling"]

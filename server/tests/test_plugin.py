@@ -415,10 +415,10 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
     assert preview.status_code == 200
     assert applied.status_code == 200
     assert roofed.json()["has_roof"] is True
-    assert uploaded.status_code == 200
+    assert uploaded.status_code == 200, uploaded.json()
     assert scene["room"]["environment3d"]["has_roof"] is True
     assert scene["room"]["environment3d"]["skybox_url"].startswith(
-        "/public/media/textures3d/"
+        "/v1/public/media/textures3d/"
     )
     assert len(scene["decorations"]) == 4
     assert scene["entities"] == []

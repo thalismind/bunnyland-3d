@@ -70,7 +70,7 @@ def test_registry_publishes_content_addressed_glb_without_source_paths(tmp_path,
     asset = manifest["assets"]["vendor.plugin/lantern"]
 
     assert manifest["schema_version"] == 2
-    assert asset["url"].startswith("/public/media/models3d/")
+    assert asset["url"].startswith("/v1/public/media/models3d/")
     assert asset["url"].endswith(".glb")
     assert asset["transform"]["scale"] == 0.5
     assert asset["clips"] == {"idle": "Glow"}

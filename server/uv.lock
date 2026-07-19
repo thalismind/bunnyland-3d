@@ -83,7 +83,7 @@ wheels = [
 [[package]]
 name = "bunnyland"
 version = "0.2.1"
-source = { git = "https://github.com/thalismind/bunnyland-server.git?tag=v0.2.1#254d0c50635a916052a62ecf5aac606cd7efb3a6" }
+source = { git = "https://github.com/thalismind/bunnyland-server.git?rev=1aa5ed83851237c3d68ebbb6230510952697fd37#1aa5ed83851237c3d68ebbb6230510952697fd37" }
 dependencies = [
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic" },
@@ -116,7 +116,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bunnyland", extras = ["server"], git = "https://github.com/thalismind/bunnyland-server.git?tag=v0.2.1" },
+    { name = "bunnyland", extras = ["server"], git = "https://github.com/thalismind/bunnyland-server.git?rev=1aa5ed83851237c3d68ebbb6230510952697fd37" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "relics" },
     { name = "trimesh", specifier = "==4.12.2" },
