@@ -443,10 +443,12 @@ export class PlayerScene {
   async loadRoom(data: PlayerRoomScene, playerId: string): Promise<void> {
     const generation = ++this.loadGeneration;
     const sameRoom = data.room.id === this.roomId;
+    const sameRoomLastPick = sameRoom ? this.lastPick : null;
     this.roomId = data.room.id;
     this.playerId = playerId;
     this.bounds = this.readBounds(data);
     this.clearRoom();
+    this.lastPick = sameRoomLastPick;
     this.applyEnvironment(data);
     this.addDecorations(data.decorations || []);
     this.addExits(data.exits, data.room.indoor);
