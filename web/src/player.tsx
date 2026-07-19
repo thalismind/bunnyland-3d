@@ -1,9 +1,9 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
 import { assertSameOriginBase, mediaUrl as sharedMediaUrl, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
 import { EmptyState, Pill, ThemeSelect } from '@bunnyland/ui-web/preact';
-import { escapeHtml } from '@bunnyland/ui-web/widgets';
 import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
 import { Fragment, render as renderView } from 'preact';
+import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { PlayerScene, type PlayerSceneExit } from './player-scene';
 import {
   actionArguments,
@@ -138,6 +138,8 @@ let liveUpdates: PlayerLiveUpdates | null = null;
 let liveState = 'fallback';
 let liveToken = 0;
 let lobbyTimer: ReturnType<typeof setInterval> | null = null;
+let lobbyGeneration = 0;
+let requestGeneration = 0;
 
 const scene = new PlayerScene(
   viewer,
@@ -156,28 +158,37 @@ function status(text: string, cls = ''): void {
 }
 
 async function connect(rawBase: string): Promise<void> {
+  const nextBase = assertSameOriginBase(rawBase);
+  if (!nextBase) return;
+  const generation = ++requestGeneration;
   stopPlayerUpdates();
   stopLobbyPolling();
-  baseUrl = assertSameOriginBase(rawBase);
-  if (!baseUrl) return;
+  baseUrl = nextBase;
   apiInput.value = baseUrl;
   connectionReady = false;
   status('loading characters...');
   try {
     await fetch3dCapabilities(baseUrl);
+    if (generation !== requestGeneration || baseUrl !== nextBase) return;
     try {
-      scene.configureServerAssets(await fetch3dAssetManifest(baseUrl));
+      const manifest = await fetch3dAssetManifest(baseUrl);
+      if (generation !== requestGeneration || baseUrl !== nextBase) return;
+      scene.configureServerAssets(manifest);
     } catch (error) {
+      if (generation !== requestGeneration || baseUrl !== nextBase) return;
       console.warn('Bunnyland 3D server assets unavailable; using bundled models:', error);
       scene.configureServerAssets(null);
     }
-    characters = await fetchCharacters(baseUrl);
+    const nextCharacters = await fetchCharacters(baseUrl);
+    if (generation !== requestGeneration || baseUrl !== nextBase) return;
+    characters = nextCharacters;
     connectionReady = true;
     renderCharacters();
     setServerInUrl(baseUrl);
     status(`loaded ${characters.length} characters`, 'ok');
     startLobbyPolling();
   } catch (err) {
+    if (generation !== requestGeneration || baseUrl !== nextBase) return;
     connectionReady = false;
     characters = [];
     renderCharacters();
@@ -187,6 +198,7 @@ async function connect(rawBase: string): Promise<void> {
 }
 
 async function selectCharacter(characterId: string): Promise<void> {
+  const generation = ++requestGeneration;
   stopPlayerUpdates();
   if (!baseUrl) return;
   if (!characterId) {
@@ -206,9 +218,13 @@ async function selectCharacter(characterId: string): Promise<void> {
   eventsPrimed = false;
   status('claiming...');
   try {
-    control = await claimCharacter(baseUrl, characterId, claimOptionsFromForm());
+    const requestBase = baseUrl;
+    const nextControl = await claimCharacter(requestBase, characterId, claimOptionsFromForm());
+    if (generation !== requestGeneration || requestBase !== baseUrl || characterId !== playerId) return;
+    control = nextControl;
     startPlayerUpdates();
   } catch (err) {
+    if (generation !== requestGeneration || characterId !== playerId) return;
     status(`claim failed: ${(err as Error).message}`, 'err');
   }
   render();
@@ -216,62 +232,77 @@ async function selectCharacter(characterId: string): Promise<void> {
 
 async function refresh(): Promise<void> {
   if (!baseUrl || !playerId || !control) return;
+  const generation = ++requestGeneration;
+  const requestBase = baseUrl;
+  const requestPlayerId = playerId;
+  const requestControl = control;
   try {
-    projection = await fetchProjection(baseUrl, playerId, control);
-    if (projection.controller?.generation != null) control.generation = Number(projection.controller.generation || control.generation);
-    queue = await fetchQueue(baseUrl, playerId, control);
-    const fog = updateFog(baseUrl, projection);
+    const [nextProjection, nextQueue] = await Promise.all([
+      fetchProjection(requestBase, requestPlayerId, requestControl),
+      fetchQueue(requestBase, requestPlayerId, requestControl),
+    ]);
+    if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
+    if (nextProjection.controller?.generation != null) {
+      requestControl.generation = Number(nextProjection.controller.generation || requestControl.generation);
+    }
+    const nextControl = requestControl;
+    const [roomScene, messages] = await Promise.all([
+      fetch3dRoomScene(requestBase, nextProjection.room.id),
+      fetchCharacterRecentEvents(requestBase, requestPlayerId, nextControl).catch(() => null),
+    ]);
+    if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
+    projection = nextProjection;
+    queue = nextQueue;
+    control = nextControl;
+    const fog = updateFog(requestBase, nextProjection);
     renderRememberedMap(fog);
-    const roomScene = await fetch3dRoomScene(baseUrl, projection.room.id);
-    await scene.loadRoom(roomScene, playerId);
+    await scene.loadRoom(roomScene, requestPlayerId);
+    if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
     if (selectedTargetId) scene.selectEntity(selectedTargetId);
-    await refreshActivity();
+    if (messages) applyActivity(messages, requestBase);
     render();
     if (liveState === 'live') status('Live', 'ok');
   } catch (err) {
+    if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
     status(`refresh failed: ${(err as Error).message}`, 'err');
   }
 }
 
-async function refreshActivity(): Promise<void> {
-  if (!baseUrl || !projection) return;
-  try {
-    const messages = await fetchCharacterRecentEvents(baseUrl, playerId, control);
-    const drained = drainNarratedEvents(messages, {
-      seenIds: seenEventIds,
-      playerId,
-      roomOf,
-      nameFor,
-    });
-    seenEventIds = drained.seenIds;
-    for (const image of imageCompletions(messages, baseUrl, 'event')) {
-      addGalleryItem({
-        id: `scene:${image.epoch}:${image.url}`,
-        src: image.url,
-        title: `Scene image${image.epoch ? ` @ ${image.epoch}` : ''}`,
-        detail: 'server scene image',
-        filename: `bunnyland-scene-${image.epoch || Date.now()}.png`,
-        createdAt: image.epoch || Date.now(),
-      }, false);
-    }
-    const latest = latestImageCompletion(messages, baseUrl, 'event');
-    if (latest && latest.url !== eventImageUrl) {
-      eventImageUrl = latest.url;
-      if (eventsPrimed) pushActivity({ text: `📸 scene image ready: ${latest.url}`, kind: 'system' });
-    }
-    const failure = latestImageFailure(messages, 'event');
-    if (failure && failure.epoch !== eventImageFailureEpoch) {
-      eventImageFailureEpoch = failure.epoch;
-      if (eventsPrimed) pushActivity({ text: `⚠️ image request failed: ${failure.reason}`, kind: 'rejection' });
-    }
-    if (eventsPrimed) pushActivity(...drained.lines);
-    eventsPrimed = true;
-  } catch (_err) {
-    // Activity is opportunistic; stale event state should not block play.
+function applyActivity(messages: Awaited<ReturnType<typeof fetchCharacterRecentEvents>>, requestBase: string): void {
+  if (!projection) return;
+  const drained = drainNarratedEvents(messages, {
+    seenIds: seenEventIds,
+    playerId,
+    roomOf,
+    nameFor,
+  });
+  seenEventIds = drained.seenIds;
+  for (const image of imageCompletions(messages, requestBase, 'event')) {
+    addGalleryItem({
+      id: `scene:${image.epoch}:${image.url}`,
+      src: image.url,
+      title: `Scene image${image.epoch ? ` @ ${image.epoch}` : ''}`,
+      detail: 'server scene image',
+      filename: `bunnyland-scene-${image.epoch || Date.now()}.png`,
+      createdAt: image.epoch || Date.now(),
+    }, false);
   }
+  const latest = latestImageCompletion(messages, requestBase, 'event');
+  if (latest && latest.url !== eventImageUrl) {
+    eventImageUrl = latest.url;
+    if (eventsPrimed) pushActivity({ text: `📸 scene image ready: ${latest.url}`, kind: 'system' });
+  }
+  const failure = latestImageFailure(messages, 'event');
+  if (failure && failure.epoch !== eventImageFailureEpoch) {
+    eventImageFailureEpoch = failure.epoch;
+    if (eventsPrimed) pushActivity({ text: `⚠️ image request failed: ${failure.reason}`, kind: 'rejection' });
+  }
+  if (eventsPrimed) pushActivity(...drained.lines);
+  eventsPrimed = true;
 }
 
 function stopLobbyPolling(): void {
+  lobbyGeneration += 1;
   if (lobbyTimer != null) clearInterval(lobbyTimer);
   lobbyTimer = null;
 }
@@ -279,9 +310,13 @@ function stopLobbyPolling(): void {
 function startLobbyPolling(): void {
   stopLobbyPolling();
   if (!baseUrl || playerId) return;
+  const generation = ++lobbyGeneration;
+  const requestBase = baseUrl;
   lobbyTimer = setInterval(async () => {
     try {
-      characters = await fetchCharacters(baseUrl);
+      const nextCharacters = await fetchCharacters(requestBase);
+      if (generation !== lobbyGeneration || requestBase !== baseUrl || playerId) return;
+      characters = nextCharacters;
       renderCharacters();
     } catch (_err) {
       // The lobby remains usable with its last successful character list.
@@ -540,9 +575,13 @@ function updateQueueCountdown(): void {
 }
 
 function renderActivity(): void {
-  renderView(activityLines.length ? <>{activityLines.map((line, index) => (
-    <div key={`${line.kind}:${line.text}:${index}`} class={`activity-row kind-${line.kind}`}><RowIcon icon={line.icon || ''} />{line.text}</div>
-  ))}</> : <EmptyState>No recent activity.</EmptyState>, activityEl);
+  const occurrences = new Map<string, number>();
+  renderView(activityLines.length ? <>{activityLines.map(line => {
+    const contentKey = `${line.kind}:${line.icon || ''}:${line.text}`;
+    const occurrence = (occurrences.get(contentKey) || 0) + 1;
+    occurrences.set(contentKey, occurrence);
+    return <div key={`${contentKey}:${occurrence}`} class={`activity-row kind-${line.kind}`}><RowIcon icon={line.icon || ''} />{line.text}</div>;
+  })}</> : <EmptyState>No recent activity.</EmptyState>, activityEl);
 }
 
 function renderGallery(): void {
@@ -703,74 +742,95 @@ async function releasePlayerClaim(): Promise<void> {
   }
 }
 
-function actionForm(action: ActionView, fields: ReturnType<typeof actionFields>): Promise<Record<string, unknown> | null> {
+type ActionFormField = ReturnType<typeof actionFields>[number];
+
+function ActionFormOverlay({ action, fields, initialTarget, onClose }: {
+  action: ActionView;
+  fields: ActionFormField[];
+  initialTarget: string;
+  onClose: (value: Record<string, unknown> | null) => void;
+}) {
+  const formRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState('');
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(
+    fields.map(field => [
+      field.key,
+      field.candidates?.some(candidate => candidate.value === initialTarget) ? initialTarget : '',
+    ]),
+  ));
+  const submit = useCallback((): void => {
+    const payload: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = values[field.key]?.trim() || '';
+      if (field.required && !value) {
+        setError(`${field.label} is required.`);
+        return;
+      }
+      if (value) {
+        if (field.kind === 'number') payload[field.key] = Number(value);
+        else if (field.kind === 'boolean') payload[field.key] = value === 'true';
+        else payload[field.key] = value;
+      }
+    }
+    onClose(payload);
+  }, [fields, onClose, values]);
+  useLayoutEffect(() => formRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>('[data-field]')?.focus(), []);
+  return <div
+    id="action-form-backdrop"
+    onClick={event => { if (event.currentTarget === event.target) onClose(null); }}
+    onKeyDown={event => {
+      if (event.key === 'Escape') onClose(null);
+      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) submit();
+    }}
+  >
+    <div class="action-form-card">
+      <h2>{actionTitle(action)}</h2>
+      <div class="form-body" ref={formRef}>
+        {fields.map((field, index) => <label class="form-field" key={field.key}>
+          <span>{field.label}{field.required ? ' *' : ''}</span>
+          {field.candidates ? <select
+            data-field={index}
+            value={values[field.key] || ''}
+            onChange={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+          >
+            <option value="">Choose...</option>
+            {field.candidates.map(candidate => <option key={candidate.value} value={candidate.value}>{candidate.icon} {candidate.label}</option>)}
+          </select> : field.kind === 'boolean' ? <select
+            data-field={index}
+            value={values[field.key] || ''}
+            onChange={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+          >
+            <option value="">Choose...</option><option value="true">yes</option><option value="false">no</option>
+          </select> : <input
+            data-field={index}
+            type={field.kind === 'number' ? 'number' : 'text'}
+            value={values[field.key] || ''}
+            onInput={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+          />}
+        </label>)}
+        <div class="form-error">{error}</div>
+      </div>
+      <div class="form-actions">
+        <button type="button" data-form-cancel onClick={() => onClose(null)}>Cancel</button>
+        <button type="button" data-form-submit onClick={submit}>Submit</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function actionForm(action: ActionView, fields: ActionFormField[]): Promise<Record<string, unknown> | null> {
   return new Promise(resolve => {
     scene.setEnabled(false);
     const backdrop = document.createElement('div');
-    backdrop.id = 'action-form-backdrop';
-    backdrop.innerHTML = `
-      <div class="action-form-card">
-        <h2>${escapeHtml(actionTitle(action))}</h2>
-        <div class="form-body">
-          ${fields.map((field, index) => fieldHtml(field, index)).join('')}
-          <div class="form-error"></div>
-        </div>
-        <div class="form-actions">
-          <button type="button" data-form-cancel>Cancel</button>
-          <button type="button" data-form-submit>Submit</button>
-        </div>
-      </div>
-    `;
     const close = (value: Record<string, unknown> | null): void => {
-      document.removeEventListener('keydown', onKey);
+      renderView(null, backdrop);
       backdrop.remove();
       scene.setEnabled(true);
       resolve(value);
     };
-    const submit = (): void => {
-      const payload: Record<string, unknown> = {};
-      for (const [index, field] of fields.entries()) {
-        const input = backdrop.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-field="${index}"]`);
-        const value = input?.value.trim() || '';
-        if (field.required && !value) {
-          const error = backdrop.querySelector('.form-error') as HTMLElement;
-          error.textContent = `${field.label} is required.`;
-          return;
-        }
-        if (value) {
-          if (field.kind === 'number') payload[field.key] = Number(value);
-          else if (field.kind === 'boolean') payload[field.key] = value === 'true';
-          else payload[field.key] = value;
-        }
-      }
-      close(payload);
-    };
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') close(null);
-      if (event.key === 'Enter' && (event.target as HTMLElement).tagName === 'INPUT') submit();
-    };
-    backdrop.addEventListener('click', event => { if (event.target === backdrop) close(null); });
-    backdrop.querySelector('[data-form-cancel]')?.addEventListener('click', () => close(null));
-    backdrop.querySelector('[data-form-submit]')?.addEventListener('click', submit);
-    document.addEventListener('keydown', onKey);
     document.body.appendChild(backdrop);
-    backdrop.querySelector<HTMLInputElement | HTMLSelectElement>('[data-field]')?.focus();
+    renderView(<ActionFormOverlay action={action} fields={fields} initialTarget={selectedTargetId} onClose={close} />, backdrop);
   });
-}
-
-function fieldHtml(field: ReturnType<typeof actionFields>[number], index: number): string {
-  const label = `${escapeHtml(field.label)}${field.required ? ' *' : ''}`;
-  if (field.candidates) {
-    const options = ['<option value="">Choose...</option>', ...field.candidates.map(candidate => {
-      const selected = candidate.value === selectedTargetId ? ' selected' : '';
-      return `<option value="${escapeHtml(candidate.value)}"${selected}>${escapeHtml(candidate.icon)} ${escapeHtml(candidate.label)}</option>`;
-    })];
-    return `<label class="form-field"><span>${label}</span><select data-field="${index}">${options.join('')}</select></label>`;
-  }
-  if (field.kind === 'boolean') {
-    return `<label class="form-field"><span>${label}</span><select data-field="${index}"><option value="">Choose...</option><option value="true">yes</option><option value="false">no</option></select></label>`;
-  }
-  return `<label class="form-field"><span>${label}</span><input data-field="${index}" type="${field.kind === 'number' ? 'number' : 'text'}"></label>`;
 }
 
 function selectTarget(entityId: string): void {

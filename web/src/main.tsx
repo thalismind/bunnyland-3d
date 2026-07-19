@@ -30,6 +30,8 @@ let selectedEntityId = '';
 let selectedEntities: ReturnType<typeof roomEntities> = [];
 let viewMode: ViewMode = '3d';
 let manualCamera = false;
+let connectGeneration = 0;
+let roomGeneration = 0;
 
 const scene = new BunnylandScene(
   viewer,
@@ -44,22 +46,31 @@ function status(text: string, cls = ''): void {
 }
 
 async function connect(rawBase: string): Promise<void> {
-  baseUrl = assertSameOriginBase(rawBase);
-  if (!baseUrl) return;
+  const nextBase = assertSameOriginBase(rawBase);
+  if (!nextBase) return;
+  const generation = ++connectGeneration;
+  roomGeneration += 1;
+  baseUrl = nextBase;
   apiInput.value = baseUrl;
   status('loading...', '');
   try {
     const overview = await sendAdmin(baseUrl, '/admin/world', auth);
+    if (generation !== connectGeneration || baseUrl !== nextBase) return;
     const snapshot = await sendAdmin(baseUrl, '/admin/world/snapshot', auth);
-    snapshot3dMap = snapshot3d(snapshot);
-    layout = layoutOverview(overview, snapshot3dMap);
+    if (generation !== connectGeneration || baseUrl !== nextBase) return;
+    const nextSnapshot3dMap = snapshot3d(snapshot);
+    const nextLayout = layoutOverview(overview, nextSnapshot3dMap);
+    snapshot3dMap = nextSnapshot3dMap;
+    layout = nextLayout;
     selectedRoomId = selectedRoomId || location.hash.slice(1) || layout.rooms[0]?.id || '';
     scene.loadLayout(layout);
     renderRooms();
     setServerInUrl(baseUrl);
     if (selectedRoomId) await selectRoom(selectedRoomId);
+    if (generation !== connectGeneration || baseUrl !== nextBase) return;
     status(`loaded ${layout.roomCount} rooms`, 'ok');
   } catch (err) {
+    if (generation !== connectGeneration || baseUrl !== nextBase) return;
     status(`load failed: ${(err as Error).message}`, 'err');
   }
 }
@@ -70,6 +81,8 @@ async function refresh(): Promise<void> {
 
 async function selectRoom(roomId: string): Promise<void> {
   if (!layout || !roomSummary(layout, roomId)) return;
+  const generation = ++roomGeneration;
+  const requestBase = baseUrl;
   selectedRoomId = roomId;
   selectedEntityId = '';
   selectedEntities = [];
@@ -78,15 +91,17 @@ async function selectRoom(roomId: string): Promise<void> {
   renderSelected(null);
   history.replaceState(null, '', `#${encodeURIComponent(roomId)}`);
   try {
-    const playerScene = await sendAdmin(baseUrl, `/play/extensions/bunnyland.3d/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
+    const playerScene = await sendAdmin(requestBase, `/play/extensions/bunnyland.3d/3d/v2/room/${encodeURIComponent(roomId)}`, auth) as {
       room?: { indoor?: boolean; environment3d?: { has_roof?: boolean } | null };
     };
+    if (generation !== roomGeneration || requestBase !== baseUrl || roomId !== selectedRoomId) return;
     const entities = roomEntities(playerScene, snapshot3dMap);
     selectedEntities = entities;
     scene.loadRoomEntities(roomId, entities);
     renderSelected(entities);
     roofInput.checked = playerScene.room?.environment3d?.has_roof ?? Boolean(playerScene.room?.indoor);
   } catch (err) {
+    if (generation !== roomGeneration || requestBase !== baseUrl || roomId !== selectedRoomId) return;
     render(<EmptyState>Room detail failed: {(err as Error).message}</EmptyState>, selectedEntitiesEl);
   }
 }

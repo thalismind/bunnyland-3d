@@ -210,7 +210,7 @@ export async function releaseController(base: string, characterId: string, contr
     }),
   });
   const next = controlFromResponse(
-    { ...(data as object), claim_secret: control.claimSecret },
+    { ...(data as Record<string, unknown>), claim_secret: control.claimSecret },
     characterId,
     { active: false },
   ) || { ...control, active: false };

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:9ee226984e22e2b36ea967e46e592fad148f4a5d6469181d0d60537513c5b303
+ARG BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:fcee3c51af729cbd4fd03e6e0362be519425b5c501e92b62be1dae9b719ef280
 
 FROM node:22-bookworm-slim AS build
 

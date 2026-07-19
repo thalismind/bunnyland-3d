@@ -134,7 +134,7 @@ docker build -f Dockerfile.server \
 
 docker build -f Dockerfile.web \
   --build-context bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main \
-  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:9ee226984e22e2b36ea967e46e592fad148f4a5d6469181d0d60537513c5b303 \
+  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:fcee3c51af729cbd4fd03e6e0362be519425b5c501e92b62be1dae9b719ef280 \
   -t bunnyland-3d-web .
 ```
 
