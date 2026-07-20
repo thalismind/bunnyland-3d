@@ -9,24 +9,9 @@
       * { box-sizing: border-box; }
       html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
       #app { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-      #app > #toolbar {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: nowrap;
-        gap: 8px;
-        align-items: center;
-        min-width: 0;
-        overflow-x: auto;
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--bl-border);
-        background: var(--bl-bg-strong);
-        font-size: var(--bl-text-md);
-        white-space: nowrap;
-      }
-      #api-url { width: 250px; flex: 0 0 250px; }
-      #character-select { min-width: 190px; flex: 0 0 190px; }
+      #api-url { width: 250px; flex: 0 1 250px; }
+      #character-select { min-width: 190px; flex: 0 1 190px; }
       #claim-timeout { width: 62px; }
-      #app > #toolbar > * { flex: 0 0 auto; }
       input, select, button {
         min-height: 28px;
         border: 1px solid var(--bl-border-control);

@@ -1,7 +1,8 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
+import '@bunnyland/ui-web/assets/bunnyland-ui.js';
 import './canvas-loading.css';
 import { serverFromUrl } from '@bunnyland/ui-web/api';
-import { AuthGate, AuthProvider, ThemeSelect } from '@bunnyland/ui-web/preact';
+import { AuthGate, AuthProvider, ThemeSelect, Toolbar, ToolbarBrand, ToolbarRow } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { CanvasLoading } from './canvas-loading';
@@ -10,6 +11,10 @@ type RendererState = { kind: 'loading' | 'ready'; error: '' } | { kind: 'error';
 
 function AdminShell() {
   const [renderer, setRenderer] = useState<RendererState>({ kind: 'loading', error: '' });
+  useEffect(() => {
+    const menu = window.BunnylandUI.initClientMenu({ baseUrl: new URL('../', window.location.href).toString() });
+    return () => menu?.close?.();
+  }, []);
   useEffect(() => {
     let active = true;
     void import('./admin-controller').then(() => {
@@ -23,11 +28,18 @@ function AdminShell() {
     return () => { active = false; };
   }, []);
   return <>
-    <div id="toolbar">
-      <strong>Bunnyland 3D Admin</strong>
+    <Toolbar id="toolbar">
+      <ToolbarRow class="toolbar-heading" id="toolbar-row1">
+        <ToolbarBrand>Bunnyland 3D Admin</ToolbarBrand>
+        <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row2">
       <label for="api-url">Server</label>
       <input id="api-url" defaultValue="/api/v1/" spellcheck={false} />
       <button id="btn-load" type="button">Load</button>
+      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row3">
       <button id="btn-refresh" type="button">Refresh</button>
       <button id="btn-mode" type="button">2D</button>
       <button id="btn-camera" type="button">Auto Camera</button>
@@ -35,8 +47,8 @@ function AdminShell() {
       <label for="theme-select">Theme</label>
       <span id="theme-select-root"><ThemeSelect id="theme-select" aria-label="Theme" /></span>
       <span id="epoch"></span>
-      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
-    </div>
+      </ToolbarRow>
+    </Toolbar>
     <main id="main">
       <section id="viewer" aria-busy={renderer.kind === 'loading'}>
         {renderer.kind !== 'ready' && <CanvasLoading error={renderer.error} />}

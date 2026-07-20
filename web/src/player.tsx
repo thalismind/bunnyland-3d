@@ -1,7 +1,8 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
+import '@bunnyland/ui-web/assets/bunnyland-ui.js';
 import './canvas-loading.css';
 import { serverFromUrl } from '@bunnyland/ui-web/api';
-import { AuthGate, AuthProvider, ThemeSelect } from '@bunnyland/ui-web/preact';
+import { AuthGate, AuthProvider, ThemeSelect, Toolbar, ToolbarBrand, ToolbarRow } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { CanvasLoading } from './canvas-loading';
@@ -19,6 +20,10 @@ function PlayerShell() {
   const [renderer, setRenderer] = useState<RendererState>({
     kind: 'loading', error: '', label: 'Loading 3D renderer…', loaded: 0, total: 0,
   });
+  useEffect(() => {
+    const menu = window.BunnylandUI.initClientMenu({ baseUrl: new URL('../', window.location.href).toString() });
+    return () => menu?.close?.();
+  }, []);
   useEffect(() => {
     let active = true;
     const onProgress = (event: Event): void => {
@@ -49,22 +54,31 @@ function PlayerShell() {
     };
   }, []);
   return <>
-    <div id="toolbar">
-      <strong>Bunnyland 3D Player</strong>
+    <Toolbar id="toolbar">
+      <ToolbarRow class="toolbar-heading" id="toolbar-row1">
+        <ToolbarBrand>Bunnyland 3D Player</ToolbarBrand>
+        <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row2">
       <label for="api-url">Server</label>
       <input id="api-url" defaultValue="/api/v1/" spellcheck={false} />
       <button id="btn-connect" type="button">Connect</button>
+      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row3">
       <label for="character-select">Character</label>
       <select id="character-select"><option value="">Choose...</option></select>
       <button id="btn-claim" type="button" disabled>Claim</button>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row4">
       <button id="btn-request-image" type="button">📷 image</button>
       <button id="btn-refresh" type="button">Refresh</button>
       <button id="btn-capture" type="button">📷 Capture</button>
       <button id="btn-hud" type="button" aria-controls="side" aria-expanded="true">Panels</button>
       <label for="theme-select">Theme</label>
       <span id="theme-select-root"><ThemeSelect id="theme-select" aria-label="Theme" /></span>
-      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
-    </div>
+      </ToolbarRow>
+    </Toolbar>
     <dialog id="claim-dialog">
       <form method="dialog" class="claim-dialog-form">
         <h3>Claim</h3>

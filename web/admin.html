@@ -27,28 +27,9 @@
         grid-template-rows: auto minmax(0, 1fr);
       }
 
-      #app > #toolbar {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: nowrap;
-        gap: 8px;
-        align-items: center;
-        min-width: 0;
-        overflow-x: auto;
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--bl-border);
-        background: var(--bl-bg-strong);
-        font-size: var(--bl-text-md);
-        white-space: nowrap;
-      }
-
       #api-url {
         width: 260px;
-        flex: 0 0 260px;
-      }
-
-      #app > #toolbar > * {
-        flex: 0 0 auto;
+        flex: 0 1 260px;
       }
 
       input,

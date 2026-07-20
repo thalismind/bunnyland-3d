@@ -802,6 +802,67 @@ def patch_player_scene(page, patch):
     )
 
 
+def assert_responsive_toolbar(page, name: str, *, character: bool = False) -> None:
+    original_viewport = page.viewport_size
+    page.set_viewport_size({"width": 390, "height": 760})
+    layout = page.evaluate(
+        """async ({character}) => {
+          const toolbar = document.querySelector('#toolbar');
+          const status = document.querySelector('#status');
+          const originalStatus = status?.textContent || '';
+          if (status) {
+            status.textContent = 'Connection failed: ' +
+              'upstream-gateway-with-an-unusually-long-hostname.example.invalid/'.repeat(5);
+          }
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const rows = [...toolbar.querySelectorAll(':scope > .toolbar-row')].map((row, index) => ({
+            index,
+            brand: Boolean(row.querySelector('.toolbar-brand')),
+            menu: Boolean(row.querySelector('#btn-client-menu')),
+            api: Boolean(row.querySelector('#api-url')),
+            character: Boolean(row.querySelector('#character-select')),
+            borderTopWidth: getComputedStyle(row).borderTopWidth,
+            clientWidth: row.clientWidth,
+            scrollWidth: row.scrollWidth,
+          }));
+          const result = {
+            rows,
+            clientWidth: toolbar.clientWidth,
+            scrollWidth: toolbar.scrollWidth,
+            documentScrollWidth: document.documentElement.scrollWidth,
+            viewportWidth: innerWidth,
+            expectsCharacter: character,
+          };
+          if (status) status.textContent = originalStatus;
+          return result;
+        }""",
+        {"character": character},
+    )
+    if layout["scrollWidth"] > layout["clientWidth"] + 1 or layout["documentScrollWidth"] > layout["viewportWidth"] + 1:
+        raise AssertionError(f"{name} toolbar overflows horizontally: {layout!r}")
+    rows = layout["rows"]
+    if not rows or not rows[0]["brand"] or not rows[0]["menu"]:
+        raise AssertionError(f"{name} title and menu are not together on the first row: {layout!r}")
+    if not any(row["api"] and row["index"] == 1 for row in rows):
+        raise AssertionError(f"{name} server controls are not on the second row: {layout!r}")
+    if character and not any(row["character"] and row["index"] == 2 for row in rows):
+        raise AssertionError(f"{name} character selection is not on the third row: {layout!r}")
+    for row in rows:
+        if row["scrollWidth"] > row["clientWidth"] + 1:
+            raise AssertionError(f"{name} toolbar row overflows horizontally: {layout!r}")
+        if row["index"] and row["borderTopWidth"] == "0px":
+            raise AssertionError(f"{name} toolbar row lacks a separator: {layout!r}")
+    page.locator("#btn-client-menu").click()
+    menu_link = page.locator("#client-menu-dialog .client-menu-item").filter(has_text="Toon Client").first
+    menu_link.wait_for(state="visible")
+    menu_href = menu_link.get_attribute("href") or ""
+    if menu_href.split("?", 1)[0] != "/toon-client.html":
+        raise AssertionError(f"{name} menu link does not resolve from the site root: {menu_href!r}")
+    page.keyboard.press("Escape")
+    if original_viewport:
+        page.set_viewport_size(original_viewport)
+
+
 def main() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     proc, base_url = ensure_server()
@@ -838,6 +899,7 @@ def main() -> None:
             if not any("three.module-" in url for url in requested_urls):
                 raise AssertionError("admin page did not load the deferred Three.js chunk")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
+            assert_responsive_toolbar(page, "3D admin")
             page.locator("#btn-preview-decoration").click()
             expect(page.locator("#decoration-result")).to_contain_text('"instances":92')
             page.locator("#room-has-roof").check()
@@ -918,6 +980,7 @@ def main() -> None:
             page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
             expect(page.locator("#status")).to_contain_text("loaded 1 characters")
+            assert_responsive_toolbar(page, "3D player", character=True)
             expect(page.locator("#empty-state-title")).to_contain_text("Pick a character to start")
             idle_render = page.evaluate("window.__world3dPlayer.renderState()")
             if idle_render["frames"] != 0 or idle_render["scheduled"]:
