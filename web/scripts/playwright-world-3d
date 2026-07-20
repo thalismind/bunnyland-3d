@@ -1200,8 +1200,19 @@ def main() -> None:
             avatar_after = page.evaluate("window.__world3dPlayer.avatarState()")
             if avatar_after == avatar_before:
                 raise AssertionError(f"WASD did not move the local avatar: {avatar_before!r}")
+            projection_requests_before_refresh = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
+            )
             page.locator("#btn-refresh").click()
             page.wait_for_timeout(250)
+            projection_requests_after_refresh = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
+            )
+            if projection_requests_after_refresh != projection_requests_before_refresh + 1:
+                raise AssertionError(
+                    "one player refresh fetched the character projection more than once: "
+                    f"{projection_requests_before_refresh} -> {projection_requests_after_refresh}"
+                )
             avatar_refreshed = page.evaluate("window.__world3dPlayer.avatarState()")
             if avatar_refreshed != avatar_after:
                 raise AssertionError(

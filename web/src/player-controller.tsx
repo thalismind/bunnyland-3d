@@ -26,8 +26,7 @@ import {
   fetch3dCapabilities,
   fetch3dAssetManifest,
   fetch3dRoomScene,
-  fetchProjection,
-  fetchQueue,
+  fetchPlayerState,
   fetchCharacterRecentEvents,
   filterActions,
   iconPreference,
@@ -247,10 +246,11 @@ async function refresh(): Promise<void> {
     let nextProjection: CharacterProjection;
     let nextQueue: QueuedProjection;
     try {
-      [nextProjection, nextQueue] = await Promise.all([
-        fetchProjection(requestBase, requestPlayerId, requestControl),
-        fetchQueue(requestBase, requestPlayerId, requestControl),
-      ]);
+      [nextProjection, nextQueue] = await fetchPlayerState(
+        requestBase,
+        requestPlayerId,
+        requestControl,
+      );
     } catch (err) {
       if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
       if (isMissingClaim(err)) {

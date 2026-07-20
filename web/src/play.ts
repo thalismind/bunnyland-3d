@@ -17,9 +17,7 @@ import {
   controlFromResponse,
   createPlayerLiveUpdates,
   drainNarratedEvents,
-  fetchCharacterProjection,
   fetchCharacters,
-  fetchQueuedCommands,
   fetchCharacterRecentEvents,
   filterActions,
   iconPreference as sharedIconPreference,
@@ -30,6 +28,8 @@ import {
   latestImageFailure,
   queuedCommandLabel,
   queuedCountdownSeconds,
+  parseCharacterProjection,
+  parseQueuedCommands,
   setIconPreference as sharedSetIconPreference,
   storedClaimControl,
   storeClaimControl,
@@ -240,16 +240,15 @@ export async function releaseClaim(base: string, characterId: string, control: C
   return result;
 }
 
-export async function fetchProjection(base: string, characterId: string, control: ControlClaim): Promise<CharacterProjection> {
-  const projection = await fetchCharacterProjection(base, characterId, control);
+export async function fetchPlayerState(base: string, characterId: string, control: ControlClaim): Promise<[CharacterProjection, QueuedProjection]> {
+  const data = await sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/projection`, {
+    headers: claimHeaders(control),
+  });
+  const projection = parseCharacterProjection(data);
   if (!projection) throw new Error(`No projection for ${characterId}`);
-  return projection;
-}
-
-export async function fetchQueue(base: string, characterId: string, control: ControlClaim): Promise<QueuedProjection> {
-  const queue = await fetchQueuedCommands(base, characterId, control);
+  const queue = parseQueuedCommands(data);
   if (!queue) throw new Error(`No queue for ${characterId}`);
-  return queue;
+  return [projection, queue];
 }
 
 export async function submitAction(base: string, projection: CharacterProjection, control: ControlClaim, action: ActionView, payload: Record<string, unknown>): Promise<unknown> {
