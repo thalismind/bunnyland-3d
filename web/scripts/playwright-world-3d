@@ -1200,11 +1200,18 @@ def main() -> None:
             avatar_after = page.evaluate("window.__world3dPlayer.avatarState()")
             if avatar_after == avatar_before:
                 raise AssertionError(f"WASD did not move the local avatar: {avatar_before!r}")
+            projection_requests_before_poll = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
+            )
+            page.wait_for_function(
+                """async before => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests > before)""",
+                arg=projection_requests_before_poll,
+            )
             projection_requests_before_refresh = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
             )
             page.locator("#btn-refresh").click()
-            page.wait_for_timeout(250)
+            page.evaluate("window.__world3dPlayer.refresh()")
             projection_requests_after_refresh = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
             )
