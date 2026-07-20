@@ -129,12 +129,12 @@ The root Dockerfiles extend the published Bunnyland images instead of replacing 
 
 ```bash
 docker build -f Dockerfile.server \
-  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:49f2b06e2080c23a05778eb3142c64c5f72193d9cf0164935b0fe985eeeb64d9 \
+  --build-arg BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:01b83f910a539662a8c4b742894f79c1531ae4026aaf3087dc512c90c25d5982 \
   -t bunnyland-3d-server .
 
 docker build -f Dockerfile.web \
   --build-context bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main \
-  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:777481f167398f40ea01e14d0015dd579fabae4922d5eaaad61494dada3c2001 \
+  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:92d20fdc4ceb4c73c55355798cb8009dd9c98cd636ae627d0fce41c7c692da93 \
   -t bunnyland-3d-web .
 ```
 

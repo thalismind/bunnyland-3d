@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:49f2b06e2080c23a05778eb3142c64c5f72193d9cf0164935b0fe985eeeb64d9
+ARG BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:01b83f910a539662a8c4b742894f79c1531ae4026aaf3087dc512c90c25d5982
 FROM ${BUNNYLAND_SERVER_IMAGE} AS plugin
 
 WORKDIR /plugin/bunnyland-3d
