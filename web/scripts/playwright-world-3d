@@ -439,6 +439,10 @@ def ensure_server() -> tuple[subprocess.Popen[bytes] | None, str]:
 
 
 def route_api(page):
+    page.route("**/mock/auth/session", lambda route: route.fulfill(status=200, json={
+        "subject": "test-admin", "scopes": ["world:admin"],
+        "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+    }))
     prop_asset = (
         Path(__file__).resolve().parents[1]
         / "dist"
