@@ -1286,7 +1286,13 @@ def main() -> None:
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
             page.locator("#btn-refresh").click()
-            page.evaluate("window.__world3dPlayer.refresh()")
+            page.wait_for_function(
+                """async before => (await fetch('./mock/test-claim')).json().then(state =>
+                  state.projection_requests > before.projection_requests &&
+                  state.room_requests > before.room_requests &&
+                  state.event_requests > before.event_requests)""",
+                arg=requests_before_refresh,
+            )
             requests_after_refresh = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
