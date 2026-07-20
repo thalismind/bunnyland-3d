@@ -725,6 +725,14 @@ def main() -> None:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport=VIEWPORT)
+            requested_urls = []
+            page.on("request", lambda request: requested_urls.append(request.url))
+            page.add_init_script("""
+              window.__playerProgressEvents = [];
+              window.addEventListener('bunnyland:3d-player-progress', event => {
+                window.__playerProgressEvents.push(event.detail);
+              });
+            """)
             route_api(page)
             page.goto(f"{base_url}/index.html", wait_until="networkidle")
             expect(page.locator("#welcome-title")).to_contain_text("Play and inspect")
@@ -739,8 +747,12 @@ def main() -> None:
             )
             if welcome_theme != {"current": "anime-light", "anime": True}:
                 raise AssertionError(f"welcome page did not use shared theme setup: {welcome_theme!r}")
+            if any("three.module-" in url or "gltf-assets-" in url for url in requested_urls):
+                raise AssertionError("welcome page eagerly loaded the 3D renderer or model tools")
             page.goto(f"{base_url}/admin.html?server={base_url}/mock", wait_until="networkidle")
             page.wait_for_function("window.__world3d && window.__world3d.ready")
+            if not any("three.module-" in url for url in requested_urls):
+                raise AssertionError("admin page did not load the deferred Three.js chunk")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
             page.locator("#btn-preview-decoration").click()
             expect(page.locator("#decoration-result")).to_contain_text('"instances":92')
@@ -801,6 +813,13 @@ def main() -> None:
             )
             page.locator("#btn-mode").click()
             page.wait_for_timeout(150)
+            static_frames = page.evaluate("window.__world3d.renderState().frames")
+            page.wait_for_timeout(180)
+            settled_frames = page.evaluate("window.__world3d.renderState().frames")
+            if settled_frames != static_frames:
+                raise AssertionError(
+                    f"static 2D admin view kept rendering: {static_frames} -> {settled_frames}"
+                )
             canvas_2d = ARTIFACT_DIR / "world-3d-canvas-2d.png"
             download_capture_from_button(page, canvas_2d)
             if not png_has_detail(canvas_2d):
@@ -816,6 +835,11 @@ def main() -> None:
             page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
             expect(page.locator("#status")).to_contain_text("loaded 1 characters")
             expect(page.locator("#empty-state-title")).to_contain_text("Pick a character to start")
+            idle_render = page.evaluate("window.__world3dPlayer.renderState()")
+            if idle_render["frames"] != 0 or idle_render["scheduled"]:
+                raise AssertionError(f"player rendered before a room was selected: {idle_render!r}")
+            if any("gltf-assets-" in url for url in requested_urls):
+                raise AssertionError("player loaded model tools before a character selected a room")
             empty_state = page.evaluate(
                 """() => {
                   const main = document.querySelector('#main').getBoundingClientRect();
@@ -841,6 +865,18 @@ def main() -> None:
             page.wait_for_function(
                 "window.__world3dPlayer.entityVisualState('item:crate')?.attachmentCount === 1"
             )
+            if not any("gltf-assets-" in url for url in requested_urls):
+                raise AssertionError("player did not defer model tools until room assets were needed")
+            progress_events = page.evaluate("window.__playerProgressEvents")
+            if not any(event["active"] and event["total"] > 0 for event in progress_events):
+                raise AssertionError(f"scene asset loading progress was not reported: {progress_events!r}")
+            if not progress_events or progress_events[-1]["active"]:
+                raise AssertionError(f"scene asset loading did not settle: {progress_events!r}")
+            expect(page.locator("#viewer .canvas-loading")).to_have_count(0)
+            player_frames = page.evaluate("window.__world3dPlayer.renderState().frames")
+            page.wait_for_timeout(120)
+            if page.evaluate("window.__world3dPlayer.renderState().frames") <= player_frames:
+                raise AssertionError("active player room did not continue rendering")
             entity_visual = page.evaluate(
                 "window.__world3dPlayer.entityVisualState('item:crate')"
             )

@@ -113,6 +113,7 @@ export class BunnylandScene {
   private pointerDown: { x: number; y: number; button: number; moved: boolean } | null = null;
   private lastFrameTime = performance.now();
   private frameRequest: number | null = null;
+  private renderedFrames = 0;
 
   constructor(
     private readonly container: HTMLElement,
@@ -246,6 +247,10 @@ export class BunnylandScene {
       radius: this.cameraRadius,
       moving: this.cameraTransition !== null,
     };
+  }
+
+  renderState(): { frames: number; scheduled: boolean } {
+    return { frames: this.renderedFrames, scheduled: this.frameRequest !== null };
   }
 
   themeState(): SceneThemeState {
@@ -431,6 +436,7 @@ export class BunnylandScene {
     if (this.mode === '3d' && !this.manualCamera) this.cameraTheta += dt * 0.08;
     this.applyCamera();
     this.renderer.render(this.scene, this.activeCamera());
+    this.renderedFrames += 1;
     if ((this.mode === '3d' && !this.manualCamera) || this.cameraTransition || this.pointerDown) {
       this.requestRender();
     }

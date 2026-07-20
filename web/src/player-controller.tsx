@@ -3,6 +3,7 @@ import { EmptyState, Pill } from '@bunnyland/ui-web/preact';
 import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
 import { Fragment, render as renderView } from 'preact';
 import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { reportPlayerCanvasProgress } from './canvas-progress';
 import { PlayerScene, type PlayerSceneExit } from './player-scene';
 import {
   actionArguments,
@@ -148,6 +149,9 @@ const scene = new PlayerScene(
     nearbyExit = exit;
     renderExitPrompt();
   },
+  progress => reportPlayerCanvasProgress(progress
+    ? { active: true, loaded: progress.loaded, total: progress.total }
+    : { active: false, loaded: 0, total: 0 }),
 );
 
 function status(text: string, cls = ''): void {
@@ -1110,6 +1114,7 @@ declare global {
       exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
       visualState: () => ReturnType<PlayerScene['visualState']>;
+      renderState: () => ReturnType<PlayerScene['renderState']>;
       avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
       capture: () => string;
     };
@@ -1128,6 +1133,7 @@ window.__world3dPlayer = {
   exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
   visualState: () => scene.visualState(),
+  renderState: () => scene.renderState(),
   avatarState: () => scene.cameraState().avatar,
   capture: captureImage,
 };

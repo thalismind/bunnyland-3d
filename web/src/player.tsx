@@ -5,22 +5,48 @@ import { AuthGate, AuthProvider, ThemeSelect } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { CanvasLoading } from './canvas-loading';
+import { PLAYER_CANVAS_PROGRESS_EVENT, type CanvasProgress } from './canvas-progress';
 
-type RendererState = { kind: 'loading' | 'ready'; error: '' } | { kind: 'error'; error: string };
+interface RendererState {
+  kind: 'loading' | 'ready' | 'error';
+  error: string;
+  label: string;
+  loaded: number;
+  total: number;
+}
 
 function PlayerShell() {
-  const [renderer, setRenderer] = useState<RendererState>({ kind: 'loading', error: '' });
+  const [renderer, setRenderer] = useState<RendererState>({
+    kind: 'loading', error: '', label: 'Loading 3D renderer…', loaded: 0, total: 0,
+  });
   useEffect(() => {
     let active = true;
+    const onProgress = (event: Event): void => {
+      if (!active) return;
+      const progress = (event as CustomEvent<CanvasProgress>).detail;
+      setRenderer(progress.active
+        ? {
+            kind: 'loading', error: '', label: 'Loading scene assets…',
+            loaded: progress.loaded, total: progress.total,
+          }
+        : { kind: 'ready', error: '', label: '', loaded: 0, total: 0 });
+    };
+    window.addEventListener(PLAYER_CANVAS_PROGRESS_EVENT, onProgress);
     void import('./player-controller').then(() => {
-      if (active) setRenderer({ kind: 'ready', error: '' });
+      if (active) setRenderer({ kind: 'ready', error: '', label: '', loaded: 0, total: 0 });
     }).catch((loadError: unknown) => {
       if (active) setRenderer({
         kind: 'error',
         error: loadError instanceof Error ? loadError.message : String(loadError),
+        label: '',
+        loaded: 0,
+        total: 0,
       });
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      window.removeEventListener(PLAYER_CANVAS_PROGRESS_EVENT, onProgress);
+    };
   }, []);
   return <>
     <div id="toolbar">
@@ -63,7 +89,12 @@ function PlayerShell() {
     </dialog>
     <main id="main">
       <section id="viewer" aria-busy={renderer.kind === 'loading'}>
-        {renderer.kind !== 'ready' && <CanvasLoading error={renderer.error} />}
+        {renderer.kind !== 'ready' && <CanvasLoading
+          error={renderer.error}
+          label={renderer.label}
+          loaded={renderer.loaded}
+          total={renderer.total}
+        />}
       </section>
       <div id="empty-state" aria-live="polite">
         <div id="empty-state-title">Connect to a server</div>

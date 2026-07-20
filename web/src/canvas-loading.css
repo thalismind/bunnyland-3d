@@ -53,6 +53,13 @@
   animation: canvas-loading-progress 1.2s ease-in-out infinite;
 }
 
+.canvas-loading-meter.determinate > span {
+  width: 0;
+  animation: none;
+  transform: none;
+  transition: width 160ms ease-out;
+}
+
 @keyframes canvas-loading-spin {
   to { transform: rotate(360deg); }
 }

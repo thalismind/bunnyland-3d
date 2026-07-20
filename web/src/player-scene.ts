@@ -213,6 +213,11 @@ export interface PlayerSceneExit {
   locked: boolean;
 }
 
+export interface SceneLoadProgress {
+  loaded: number;
+  total: number;
+}
+
 export interface PlayerRoomScene {
   ok: boolean;
   schema_version: number;
@@ -410,11 +415,15 @@ export class PlayerScene {
   private enabled = true;
   private particleTime = 0;
   private frameRequest: number | null = null;
+  private roomAssetTasks: Promise<void>[] = [];
+  private roomAssetsLoaded = 0;
+  private renderedFrames = 0;
 
   constructor(
     private readonly container: HTMLElement,
     private readonly onSelectEntity: (entityId: string) => void,
     private readonly onNearbyExit: (exit: PlayerSceneExit | null) => void,
+    private readonly onLoadProgress: (progress: SceneLoadProgress | null) => void = () => {},
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
@@ -459,6 +468,8 @@ export class PlayerScene {
     this.roomId = data.room.id;
     this.playerId = playerId;
     this.bounds = this.readBounds(data);
+    this.roomAssetTasks = [];
+    this.roomAssetsLoaded = 0;
     this.clearRoom();
     this.lastPick = sameRoomLastPick;
     this.applyEnvironment(data);
@@ -481,6 +492,15 @@ export class PlayerScene {
     this.applySelection();
     this.refreshAnimatedEffects();
     this.requestFrame();
+    const tasks = this.roomAssetTasks;
+    if (tasks.length) {
+      this.onLoadProgress({ loaded: 0, total: tasks.length });
+      void Promise.allSettled(tasks).then(() => {
+        if (generation === this.loadGeneration) this.onLoadProgress(null);
+      });
+    } else {
+      this.onLoadProgress(null);
+    }
     if (generation !== this.loadGeneration) return;
   }
 
@@ -508,6 +528,10 @@ export class PlayerScene {
       actualRadius: this.camera.position.distanceTo(this.cameraTarget),
       avatar: { x: this.avatarPosition.x, y: this.avatarPosition.y, z: this.avatarPosition.z },
     };
+  }
+
+  renderState(): { frames: number; scheduled: boolean } {
+    return { frames: this.renderedFrames, scheduled: this.frameRequest !== null };
   }
 
   exitScreenPoint(exitId: string): { x: number; y: number } | null {
@@ -680,6 +704,18 @@ export class PlayerScene {
     this.onNearbyExit(null);
   }
 
+  private trackRoomAsset(task: Promise<void>, generation: number): void {
+    const tracked = task.finally(() => {
+      if (generation !== this.loadGeneration) return;
+      this.roomAssetsLoaded += 1;
+      this.onLoadProgress({
+        loaded: this.roomAssetsLoaded,
+        total: this.roomAssetTasks.length,
+      });
+    });
+    this.roomAssetTasks.push(tracked);
+  }
+
   private applyEnvironment(data: PlayerRoomScene): void {
     const palette = BIOME_PALETTES[data.room.biome] || BIOME_PALETTES.unknown;
     const environment = data.room.environment3d;
@@ -708,7 +744,7 @@ export class PlayerScene {
     floor.receiveShadow = true;
     this.environment.add(floor);
 
-    this.loadMaterialTexture(environment?.albedo_url, true, texture => {
+    const albedo = this.loadMaterialTexture(environment?.albedo_url, true, texture => {
       if (floor.parent) {
         floorMaterial.map?.dispose();
         floorMaterial.map = texture;
@@ -716,13 +752,15 @@ export class PlayerScene {
         floorMaterial.needsUpdate = true;
       } else texture.dispose();
     }, finite(environment?.texture_scale, 4));
-    this.loadMaterialTexture(environment?.normal_url, false, texture => {
+    if (albedo) this.trackRoomAsset(albedo, this.loadGeneration);
+    const normal = this.loadMaterialTexture(environment?.normal_url, false, texture => {
       if (floor.parent) {
         floorMaterial.normalMap = texture;
         floorMaterial.normalScale.set(0.65, 0.65);
         floorMaterial.needsUpdate = true;
       } else texture.dispose();
     }, finite(environment?.texture_scale, 4));
+    if (normal) this.trackRoomAsset(normal, this.loadGeneration);
 
     if (!hasRoof) this.addSkybox(environment, color(environment?.sky_color, fogColor));
 
@@ -775,16 +813,27 @@ export class PlayerScene {
     return texture;
   }
 
-  private loadMaterialTexture(url: string | undefined, srgb: boolean, apply: (texture: THREE.Texture) => void, repeat = 1): void {
-    if (!url) return;
+  private loadMaterialTexture(
+    url: string | undefined,
+    srgb: boolean,
+    apply: (texture: THREE.Texture) => void,
+    repeat = 1,
+  ): Promise<void> | null {
+    if (!url) return null;
     const resolved = new URL(url, window.location.origin);
-    if (!/^https?:$/.test(resolved.protocol) || !/\/media\/[a-z0-9]+\/[a-z0-9]+\.(png|jpg|webp)$/.test(resolved.pathname)) return;
-    this.textureLoader.load(resolved.href, texture => {
-      texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(repeat, repeat);
-      apply(texture);
-    }, undefined, error => console.warn(`Bunnyland 3D texture fallback for ${url}:`, error));
+    if (!/^https?:$/.test(resolved.protocol) || !/\/media\/[a-z0-9]+\/[a-z0-9]+\.(png|jpg|webp)$/.test(resolved.pathname)) return null;
+    return new Promise(resolve => {
+      this.textureLoader.load(resolved.href, texture => {
+        texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(repeat, repeat);
+        apply(texture);
+        resolve();
+      }, undefined, error => {
+        console.warn(`Bunnyland 3D texture fallback for ${url}:`, error);
+        resolve();
+      });
+    });
   }
 
   private addSkybox(environment: Environment3DView | null | undefined, skyColor: number): void {
@@ -803,7 +852,7 @@ export class PlayerScene {
       (this.bounds.minZ + this.bounds.maxZ) / 2,
     );
     this.environment.add(sky);
-    this.loadMaterialTexture(environment?.skybox_url, true, texture => {
+    const skybox = this.loadMaterialTexture(environment?.skybox_url, true, texture => {
       if (sky.parent) {
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -813,6 +862,7 @@ export class PlayerScene {
         material.needsUpdate = true;
       } else texture.dispose();
     });
+    if (skybox) this.trackRoomAsset(skybox, this.loadGeneration);
   }
 
   private proceduralSkybox(skyColor: number, definition?: Skybox3DView): THREE.CanvasTexture {
@@ -949,7 +999,10 @@ export class PlayerScene {
         const root = new THREE.Group();
         root.add(mesh);
         this.environment.add(root);
-        void this.replaceDecorationWithAsset(root, group, source, this.loadGeneration);
+        this.trackRoomAsset(
+          this.replaceDecorationWithAsset(root, group, source, this.loadGeneration),
+          this.loadGeneration,
+        );
       }
       if (decoration.light3d && lights < MAX_LOCAL_LIGHTS) {
         const view = decoration.light3d;
@@ -1114,7 +1167,7 @@ export class PlayerScene {
     const assetKey = entity.visual3d?.base_model_key
       || entity.render3d?.asset_key
       || (entity.is_character ? 'avatar.leporid' : '');
-    if (assetKey) void this.replaceWithAsset(tracked, assetKey, generation);
+    if (assetKey) this.trackRoomAsset(this.replaceWithAsset(tracked, assetKey, generation), generation);
   }
 
   private proceduralAvatar(entity: PlayerSceneEntity): THREE.Group {
@@ -1811,6 +1864,7 @@ export class PlayerScene {
     this.updateNearbyExit();
     this.updateCamera(delta);
     this.renderer.render(this.scene, this.camera);
+    this.renderedFrames += 1;
     this.requestFrame();
   };
 

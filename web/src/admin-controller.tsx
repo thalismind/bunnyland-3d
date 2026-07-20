@@ -257,6 +257,7 @@ declare global {
       capture: () => string;
       themeState: () => ReturnType<BunnylandScene['themeState']>;
       cameraState: () => ReturnType<BunnylandScene['cameraState']>;
+      renderState: () => ReturnType<BunnylandScene['renderState']>;
     };
   }
 }
@@ -273,4 +274,5 @@ window.__world3d = {
   capture: captureImage,
   themeState: () => scene.themeState(),
   cameraState: () => scene.cameraState(),
+  renderState: () => scene.renderState(),
 };
