@@ -139,6 +139,7 @@ let liveToken = 0;
 let lobbyTimer: ReturnType<typeof setInterval> | null = null;
 let lobbyGeneration = 0;
 let requestGeneration = 0;
+let refreshPromise: Promise<void> | null = null;
 
 const scene = new PlayerScene(
   viewer,
@@ -236,7 +237,7 @@ async function selectCharacter(characterId: string): Promise<void> {
   render();
 }
 
-async function refresh(): Promise<void> {
+async function refreshOnce(): Promise<void> {
   if (!baseUrl || !playerId || !control) return;
   const generation = ++requestGeneration;
   const requestBase = baseUrl;
@@ -284,6 +285,17 @@ async function refresh(): Promise<void> {
     if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
     status(`refresh failed: ${(err as Error).message}`, 'err');
   }
+}
+
+function refresh(): Promise<void> {
+  if (refreshPromise) return refreshPromise;
+  const current = refreshOnce();
+  refreshPromise = current;
+  const clear = (): void => {
+    if (refreshPromise === current) refreshPromise = null;
+  };
+  void current.then(clear, clear);
+  return current;
 }
 
 function applyActivity(messages: Awaited<ReturnType<typeof fetchCharacterRecentEvents>>, requestBase: string): void {
