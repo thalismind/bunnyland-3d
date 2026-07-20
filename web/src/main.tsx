@@ -1,15 +1,26 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
+import './canvas-loading.css';
 import { serverFromUrl } from '@bunnyland/ui-web/api';
 import { AuthGate, AuthProvider, ThemeSelect } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import { CanvasLoading } from './canvas-loading';
+
+type RendererState = { kind: 'loading' | 'ready'; error: '' } | { kind: 'error'; error: string };
 
 function AdminShell() {
-  const [error, setError] = useState('');
+  const [renderer, setRenderer] = useState<RendererState>({ kind: 'loading', error: '' });
   useEffect(() => {
-    void import('./admin-controller').catch((loadError: unknown) => {
-      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    let active = true;
+    void import('./admin-controller').then(() => {
+      if (active) setRenderer({ kind: 'ready', error: '' });
+    }).catch((loadError: unknown) => {
+      if (active) setRenderer({
+        kind: 'error',
+        error: loadError instanceof Error ? loadError.message : String(loadError),
+      });
     });
+    return () => { active = false; };
   }, []);
   return <>
     <div id="toolbar">
@@ -24,10 +35,12 @@ function AdminShell() {
       <label for="theme-select">Theme</label>
       <span id="theme-select-root"><ThemeSelect id="theme-select" aria-label="Theme" /></span>
       <span id="epoch"></span>
-      <span id="status">{error ? `Load failed: ${error}` : 'Ready'}</span>
+      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
     </div>
     <main id="main">
-      <section id="viewer"></section>
+      <section id="viewer" aria-busy={renderer.kind === 'loading'}>
+        {renderer.kind !== 'ready' && <CanvasLoading error={renderer.error} />}
+      </section>
       <aside id="side">
         <section class="panel">
           <h2 id="selected-title">No room selected</h2>

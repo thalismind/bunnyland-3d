@@ -1,0 +1,70 @@
+.canvas-loading {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, var(--bl-accent-wash), transparent 18rem),
+    var(--bl-bg);
+  color: var(--bl-text);
+  text-align: center;
+}
+
+.canvas-loading.failed {
+  color: var(--bl-error);
+}
+
+.canvas-loading-spinner {
+  width: 42px;
+  height: 42px;
+  border: 4px solid var(--bl-border-control);
+  border-top-color: var(--bl-accent);
+  border-radius: 50%;
+  animation: canvas-loading-spin 900ms linear infinite;
+}
+
+.canvas-loading-detail {
+  max-width: 34rem;
+  color: var(--bl-text-soft);
+  font-size: var(--bl-text-sm);
+  line-height: 1.5;
+}
+
+.canvas-loading-meter {
+  position: relative;
+  width: min(240px, 70vw);
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bl-border-muted);
+}
+
+.canvas-loading-meter > span {
+  position: absolute;
+  inset-block: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--bl-accent);
+  animation: canvas-loading-progress 1.2s ease-in-out infinite;
+}
+
+@keyframes canvas-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes canvas-loading-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(350%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-loading-spinner,
+  .canvas-loading-meter > span {
+    animation-duration: 3s;
+  }
+}

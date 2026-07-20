@@ -1,15 +1,26 @@
 import '@bunnyland/ui-web/assets/bunnyland-ui.css';
+import './canvas-loading.css';
 import { serverFromUrl } from '@bunnyland/ui-web/api';
 import { AuthGate, AuthProvider, ThemeSelect } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import { CanvasLoading } from './canvas-loading';
+
+type RendererState = { kind: 'loading' | 'ready'; error: '' } | { kind: 'error'; error: string };
 
 function PlayerShell() {
-  const [error, setError] = useState('');
+  const [renderer, setRenderer] = useState<RendererState>({ kind: 'loading', error: '' });
   useEffect(() => {
-    void import('./player-controller').catch((loadError: unknown) => {
-      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    let active = true;
+    void import('./player-controller').then(() => {
+      if (active) setRenderer({ kind: 'ready', error: '' });
+    }).catch((loadError: unknown) => {
+      if (active) setRenderer({
+        kind: 'error',
+        error: loadError instanceof Error ? loadError.message : String(loadError),
+      });
     });
+    return () => { active = false; };
   }, []);
   return <>
     <div id="toolbar">
@@ -26,7 +37,7 @@ function PlayerShell() {
       <button id="btn-hud" type="button" aria-controls="side" aria-expanded="true">Panels</button>
       <label for="theme-select">Theme</label>
       <span id="theme-select-root"><ThemeSelect id="theme-select" aria-label="Theme" /></span>
-      <span id="status">{error ? `Load failed: ${error}` : 'Ready'}</span>
+      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
     </div>
     <dialog id="claim-dialog">
       <form method="dialog" class="claim-dialog-form">
@@ -51,7 +62,9 @@ function PlayerShell() {
       </form>
     </dialog>
     <main id="main">
-      <section id="viewer"></section>
+      <section id="viewer" aria-busy={renderer.kind === 'loading'}>
+        {renderer.kind !== 'ready' && <CanvasLoading error={renderer.error} />}
+      </section>
       <div id="empty-state" aria-live="polite">
         <div id="empty-state-title">Connect to a server</div>
         <div id="empty-state-detail">Enter a Bunnyland API URL above, then choose a character.</div>
