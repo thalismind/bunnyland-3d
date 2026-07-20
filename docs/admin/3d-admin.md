@@ -84,7 +84,7 @@ Build the web image with the published shared UI image as a build context:
 ```bash
 docker build -f Dockerfile.web \
   --build-context bunnyland-ui-web=docker-image://ghcr.io/thalismind/bunnyland-ui-web:main \
-  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:92d20fdc4ceb4c73c55355798cb8009dd9c98cd636ae627d0fce41c7c692da93 \
+  --build-arg BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:631b8f15e18db9838ab025d81c9ef9913d6b5a3781ce496b4d374ab503a40aec \
   -t bunnyland-3d-web .
 ```
 
