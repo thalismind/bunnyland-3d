@@ -12,6 +12,7 @@ RUN npm ci
 COPY web/index.html web/admin.html web/player.html web/vite.config.ts web/tsconfig.json ./
 COPY web/src ./src
 COPY web/public ./public
+COPY web/scripts ./scripts
 
 ENV BUNNYLAND_3D_BASE=/3d/
 RUN npm run build
