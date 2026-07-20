@@ -384,9 +384,13 @@ export class PlayerScene {
   private readonly keys = new Set<string>();
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCamera = new THREE.Vector3();
+  private readonly cameraDirection = new THREE.Vector3();
+  private readonly cameraHits: THREE.Intersection[] = [];
   private readonly movement = new THREE.Vector3();
   private readonly forward = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
+  private readonly animatedParticles: THREE.Points[] = [];
+  private readonly animatedLightning: THREE.Line[] = [];
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private roomId = '';
   private playerId = '';
@@ -412,7 +416,7 @@ export class PlayerScene {
     private readonly onSelectEntity: (entityId: string) => void,
     private readonly onNearbyExit: (exit: PlayerSceneExit | null) => void,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -475,6 +479,7 @@ export class PlayerScene {
     if (avatar) avatar.root.position.copy(this.avatarPosition);
     this.cameraTarget.set(this.avatarPosition.x, this.avatarPosition.y + 1.15, this.avatarPosition.z);
     this.applySelection();
+    this.refreshAnimatedEffects();
     this.requestFrame();
     if (generation !== this.loadGeneration) return;
   }
@@ -598,8 +603,22 @@ export class PlayerScene {
   }
 
   capturePng(): string {
-    this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL('image/png');
+    const canvas = document.createElement('canvas');
+    const width = Math.max(1, this.renderer.domElement.width);
+    const height = Math.max(1, this.renderer.domElement.height);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, canvas, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(width, height, false);
+    renderer.outputColorSpace = this.renderer.outputColorSpace;
+    renderer.toneMapping = this.renderer.toneMapping;
+    renderer.toneMappingExposure = this.renderer.toneMappingExposure;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = this.renderer.shadowMap.type;
+    renderer.render(this.scene, this.camera);
+    renderer.getContext().finish();
+    const dataUrl = canvas.toDataURL('image/png');
+    renderer.dispose();
+    return dataUrl;
   }
 
   visualState(): { propInstances: number; modelPropInstances: number; particles: number; localLights: number; skybox: boolean; skyboxPreset: string; particleSystems: string[] } {
@@ -654,6 +673,8 @@ export class PlayerScene {
     this.exits.length = 0;
     this.obstacles.length = 0;
     this.cameraOccluders.length = 0;
+    this.animatedParticles.length = 0;
+    this.animatedLightning.length = 0;
     this.nearbyExitId = '';
     this.lastPick = null;
     this.onNearbyExit(null);
@@ -1187,6 +1208,7 @@ export class PlayerScene {
       tracked.root.add(model);
       this.clearRegisteredEffects(tracked.root);
       this.addRegisteredEffects(tracked.root, model, tracked.entity);
+      this.refreshAnimatedEffects();
       await this.addAttachments(model, tracked.entity, generation);
       this.addParticleEffects(model, tracked.entity);
       if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
@@ -1197,6 +1219,7 @@ export class PlayerScene {
       tracked.idle = idleClip ? tracked.mixer.clipAction(idleClip) : null;
       tracked.walk = walkClip ? tracked.mixer.clipAction(walkClip) : null;
       tracked.idle?.play();
+      this.refreshAnimatedEffects();
     } catch (error) {
       console.warn(`Bunnyland 3D asset fallback for ${assetKey}:`, error);
     }
@@ -1658,8 +1681,7 @@ export class PlayerScene {
 
   private updateParticles(delta: number): void {
     this.particleTime += delta;
-    this.scene.traverse(object => {
-      if (!(object instanceof THREE.Points) || !object.userData.particleEmitter) return;
+    for (const object of this.animatedParticles) {
       const emitter = object.userData.particleEmitter as NonNullable<PlayerSceneDecoration['particle_emitter3d']> & { baseY: number };
       const system = emitter.system;
       const attribute = object.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -1678,9 +1700,8 @@ export class PlayerScene {
       const material = object.material as THREE.PointsMaterial;
       const pulse = finite(system?.pulse_amount, emitter.preset === 'fireflies' ? 0.4 : 0);
       material.opacity = emitter.opacity * (1 - pulse + pulse * Math.sin(this.particleTime * finite(system?.pulse_speed, 2.4)));
-    });
-    this.scene.traverse(object => {
-      if (!(object instanceof THREE.Line) || !object.userData.lightningEffect) return;
+    }
+    for (const object of this.animatedLightning) {
       const effect = object.userData.lightningEffect as {
         basePositions: Float32Array;
         opacity: number;
@@ -1699,17 +1720,32 @@ export class PlayerScene {
       material.opacity = effect.opacity * (0.45 + 0.55 * Math.abs(
         Math.sin(this.particleTime * effect.flickerSpeed + effect.phase),
       ));
+    }
+  }
+
+  private refreshAnimatedEffects(): void {
+    this.animatedParticles.length = 0;
+    this.animatedLightning.length = 0;
+    this.scene.traverse(object => {
+      if (object instanceof THREE.Points && object.userData.particleEmitter) {
+        this.animatedParticles.push(object);
+      }
+      if (object instanceof THREE.Line && object.userData.lightningEffect) {
+        this.animatedLightning.push(object);
+      }
     });
   }
 
   private updateNearbyExit(): void {
     let nearest: TrackedExit | null = null;
-    let nearestDistance = EXIT_RANGE;
+    let nearestDistanceSquared = EXIT_RANGE * EXIT_RANGE;
     for (const tracked of this.exits) {
-      const distance = tracked.position.distanceTo(this.avatarPosition.clone().setY(tracked.position.y));
-      if (distance < nearestDistance) {
+      const dx = tracked.position.x - this.avatarPosition.x;
+      const dz = tracked.position.z - this.avatarPosition.z;
+      const distanceSquared = dx * dx + dz * dz;
+      if (distanceSquared < nearestDistanceSquared) {
         nearest = tracked;
-        nearestDistance = distance;
+        nearestDistanceSquared = distanceSquared;
       }
     }
     const next = nearest?.exit.id || '';
@@ -1745,14 +1781,18 @@ export class PlayerScene {
       this.cameraTarget.y + Math.sin(this.cameraPitch) * this.cameraRadius,
       this.cameraTarget.z + Math.cos(this.cameraYaw) * horizontal,
     );
-    const direction = this.desiredCamera.clone().sub(this.cameraTarget);
-    const distance = direction.length();
-    direction.normalize();
-    this.raycaster.set(this.cameraTarget, direction);
+    this.cameraDirection.copy(this.desiredCamera).sub(this.cameraTarget);
+    const distance = this.cameraDirection.length();
+    this.cameraDirection.normalize();
+    this.raycaster.set(this.cameraTarget, this.cameraDirection);
     this.raycaster.far = distance;
-    const hits = this.raycaster.intersectObjects(this.cameraOccluders, true);
-    if (hits[0] && hits[0].distance > 0.35) {
-      this.desiredCamera.copy(this.cameraTarget).addScaledVector(direction, Math.max(0.4, hits[0].distance - 0.18));
+    this.cameraHits.length = 0;
+    this.raycaster.intersectObjects(this.cameraOccluders, true, this.cameraHits);
+    if (this.cameraHits[0] && this.cameraHits[0].distance > 0.35) {
+      this.desiredCamera.copy(this.cameraTarget).addScaledVector(
+        this.cameraDirection,
+        Math.max(0.4, this.cameraHits[0].distance - 0.18),
+      );
     }
     const alpha = this.reducedMotion ? 1 : 1 - Math.exp(-delta * 13);
     this.camera.position.lerp(this.desiredCamera, alpha);

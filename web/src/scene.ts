@@ -120,8 +120,8 @@ export class BunnylandScene {
     private readonly onSelectEntity: (entityId: string) => void,
     private readonly onSelectExit: (exitId: string, sourceRoomId: string) => void = () => {},
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.domElement.tabIndex = 0;
     container.appendChild(this.renderer.domElement);
     this.applyTheme();
