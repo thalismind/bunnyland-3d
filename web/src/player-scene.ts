@@ -405,6 +405,7 @@ export class PlayerScene {
   private loadGeneration = 0;
   private enabled = true;
   private particleTime = 0;
+  private frameRequest: number | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -432,8 +433,8 @@ export class PlayerScene {
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', () => this.keys.clear());
     window.addEventListener('resize', this.resize);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.resize();
-    this.animate();
   }
 
   configureServerAssets(manifest: ServerAssetManifest | null): void {
@@ -474,6 +475,7 @@ export class PlayerScene {
     if (avatar) avatar.root.position.copy(this.avatarPosition);
     this.cameraTarget.set(this.avatarPosition.x, this.avatarPosition.y + 1.15, this.avatarPosition.z);
     this.applySelection();
+    this.requestFrame();
     if (generation !== this.loadGeneration) return;
   }
 
@@ -1758,7 +1760,8 @@ export class PlayerScene {
   }
 
   private animate = (): void => {
-    requestAnimationFrame(this.animate);
+    this.frameRequest = null;
+    if (document.hidden || !this.roomId) return;
     const now = performance.now();
     const delta = Math.min(MAX_FRAME_DELTA, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
@@ -1768,6 +1771,23 @@ export class PlayerScene {
     this.updateNearbyExit();
     this.updateCamera(delta);
     this.renderer.render(this.scene, this.camera);
+    this.requestFrame();
+  };
+
+  private requestFrame(): void {
+    if (document.hidden || !this.roomId || this.frameRequest !== null) return;
+    this.frameRequest = requestAnimationFrame(this.animate);
+  }
+
+  private onVisibilityChange = (): void => {
+    if (document.hidden) {
+      if (this.frameRequest !== null) cancelAnimationFrame(this.frameRequest);
+      this.frameRequest = null;
+      this.keys.clear();
+      return;
+    }
+    this.lastFrame = performance.now();
+    this.requestFrame();
   };
 
   private resize = (): void => {

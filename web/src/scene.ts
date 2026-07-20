@@ -112,6 +112,7 @@ export class BunnylandScene {
   private orthoHalf = 8;
   private pointerDown: { x: number; y: number; button: number; moved: boolean } | null = null;
   private lastFrameTime = performance.now();
+  private frameRequest: number | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -140,17 +141,20 @@ export class BunnylandScene {
     window.addEventListener('pointerup', this.onPointerUp);
     this.renderer.domElement.addEventListener('wheel', this.onWheel, { passive: false });
     window.addEventListener('resize', () => this.resize());
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.resize();
-    this.animate();
+    this.requestRender();
   }
 
   setMode(mode: ViewMode): void {
     this.mode = mode;
     this.resize();
+    this.requestRender();
   }
 
   setManualCamera(enabled: boolean): void {
     this.manualCamera = enabled;
+    this.requestRender();
   }
 
   capturePng(): string {
@@ -190,6 +194,7 @@ export class BunnylandScene {
     if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false, false);
     this.updateSelection();
     this.resize();
+    this.requestRender();
   }
 
   loadRoomEntities(roomId: string, entities: RoomRenderEntity[]): void {
@@ -202,6 +207,7 @@ export class BunnylandScene {
     if (!room) return;
     for (const entity of entities) this.addEntity(room, entity);
     this.updateSelection();
+    this.requestRender();
   }
 
   loadPlayerRoom(layout: WorldLayout, roomId: string, entities: RoomRenderEntity[]): void {
@@ -216,6 +222,7 @@ export class BunnylandScene {
     this.selectedRoomId = roomId;
     this.focusRoom(roomId, animate);
     this.updateSelection();
+    this.requestRender();
     if (notify) this.onSelectRoom(roomId);
   }
 
@@ -223,6 +230,7 @@ export class BunnylandScene {
     if (!this.entities.has(entityId)) return false;
     this.selectedEntityId = entityId;
     this.updateEntitySelection();
+    this.requestRender();
     if (notify) this.onSelectEntity(entityId);
     return true;
   }
@@ -414,7 +422,8 @@ export class BunnylandScene {
   }
 
   private animate = (): void => {
-    requestAnimationFrame(this.animate);
+    this.frameRequest = null;
+    if (document.hidden) return;
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
@@ -422,6 +431,24 @@ export class BunnylandScene {
     if (this.mode === '3d' && !this.manualCamera) this.cameraTheta += dt * 0.08;
     this.applyCamera();
     this.renderer.render(this.scene, this.activeCamera());
+    if ((this.mode === '3d' && !this.manualCamera) || this.cameraTransition || this.pointerDown) {
+      this.requestRender();
+    }
+  };
+
+  private requestRender(): void {
+    if (document.hidden || this.frameRequest !== null) return;
+    this.frameRequest = requestAnimationFrame(this.animate);
+  }
+
+  private onVisibilityChange = (): void => {
+    if (document.hidden) {
+      if (this.frameRequest !== null) cancelAnimationFrame(this.frameRequest);
+      this.frameRequest = null;
+      return;
+    }
+    this.lastFrameTime = performance.now();
+    this.requestRender();
   };
 
   private activeCamera(): THREE.Camera {
@@ -454,6 +481,7 @@ export class BunnylandScene {
     this.ortho.top = this.orthoHalf;
     this.ortho.bottom = -this.orthoHalf;
     this.ortho.updateProjectionMatrix();
+    this.requestRender();
   }
 
   private pick(event: PointerEvent, meshes: THREE.Object3D[], key: string): string {
@@ -489,6 +517,7 @@ export class BunnylandScene {
   private onPointerDown = (event: PointerEvent): void => {
     this.pointerDown = { x: event.clientX, y: event.clientY, button: event.button, moved: false };
     this.renderer.domElement.setPointerCapture(event.pointerId);
+    this.requestRender();
   };
 
   private onPointerMove = (event: PointerEvent): void => {
@@ -503,10 +532,12 @@ export class BunnylandScene {
     const orbit = this.mode === '3d' && (this.pointerDown.button === 2 || event.altKey);
     if (!orbit) {
       this.panCamera(dx, dy);
+      this.requestRender();
       return;
     }
     this.cameraTheta += dx * 0.008;
     this.cameraPhi = THREE.MathUtils.clamp(this.cameraPhi - dy * 0.006, 0.25, 1.25);
+    this.requestRender();
   };
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -537,6 +568,7 @@ export class BunnylandScene {
     }
     this.cameraRadius = THREE.MathUtils.clamp(this.cameraRadius + Math.sign(event.deltaY) * 1.2, 4, 160);
     this.resize();
+    this.requestRender();
   };
 
   private panCamera(dx: number, dy: number): void {
@@ -602,6 +634,7 @@ export class BunnylandScene {
     }
     for (const tracked of this.exits) this.updateLabel(tracked.marker);
     this.updateSelection();
+    this.requestRender();
   }
 
   private updateLabel(label: THREE.Sprite): void {
