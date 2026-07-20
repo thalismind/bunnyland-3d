@@ -154,6 +154,16 @@ RECENT_EVENTS = [{
 FALLBACK_SAVED = False
 CONTROLLER_RELEASED = False
 CLAIM_RELEASED = False
+SCENE_STATE = {
+    "crate_x": 12,
+    "effect_remaining": -1,
+    "extra_effect": False,
+    "hidden_entities": [],
+    "model_opacity": 0.42,
+    "model_asset": "bunnyland.test/prop",
+    "decoration_color": "#82b85f",
+    "sky_color": "#96c9ee",
+}
 
 
 def player_projection():
@@ -268,13 +278,14 @@ def player_3d_scene(room_id: str):
             "collider3d": collider,
         }
         if item["id"] == "item:crate":
+            view["transform3d"]["position"]["x"] = SCENE_STATE["crate_x"]
             view["render3d"]["color"] = "#112233"
             view["visual3d"] = {
-                "base_model_key": "bunnyland.test/prop",
+                "base_model_key": SCENE_STATE["model_asset"],
                 "semantic_roles": {"state-indicator": ["GenericProp"]},
                 "node_patches": [
                     {"target": "*", "opacity": 0.5},
-                    {"target": "GenericProp", "opacity": 0.42, "emissive": "#224466"},
+                    {"target": "GenericProp", "opacity": SCENE_STATE["model_opacity"], "emissive": "#224466"},
                 ],
                 "attachments": [{
                     "key": "bunnyland.test/indicator",
@@ -300,7 +311,7 @@ def player_3d_scene(room_id: str):
             }
             view["effects3d"] = [{
                 "key": "bunnyland.test/chaos",
-                "remaining_seconds": -1,
+                "remaining_seconds": SCENE_STATE["effect_remaining"],
                 "source_key": "bunnyland.test/state",
                 "state_rule_key": "bunnyland.test/state",
                 "seed": 91,
@@ -312,7 +323,20 @@ def player_3d_scene(room_id: str):
                 ],
                 "lightning_layers": [{"color": "#a020f0", "bolt_count": 3, "segment_count": 7, "radius": 0.5, "height": 1.2, "jitter": 0.12, "opacity": 0.8, "flicker_speed": 8, "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]}}],
             }]
+            if SCENE_STATE["extra_effect"]:
+                view["effects3d"].append({
+                    "key": "bunnyland.test/sparkle",
+                    "remaining_seconds": 9,
+                    "source_key": "bunnyland.test/bonus",
+                    "state_rule_key": "bunnyland.test/sparkle",
+                    "seed": 117,
+                    "anchor_role": "entity-aura",
+                    "anchor_required": False,
+                    "particle_layers": [{"system_key": "vendor.weather/embers", "system": {"key": "vendor.weather/embers", "blending": "additive", "vertical_motion": "rise", "vertical_scale": 0.4, "lateral_wobble": 0.05, "pulse_amount": 0, "pulse_speed": 2.4}, "count": 3, "bounds": {"x": 0.3, "y": 0.6, "z": 0.3}, "color": "#ffe066", "size": 0.05, "speed": 0.2, "opacity": 0.8, "transform": {"scale": 1, "rotation": [0, 0, 0], "translation": [0, 0, 0]}}],
+                    "lightning_layers": [],
+                })
         entities.append(view)
+    entities = [item for item in entities if item["id"] not in SCENE_STATE["hidden_entities"]]
     entities = [item for item in entities if item["id"] != "character:ash"]
     entities.append({
         "id": "character:ash",
@@ -335,7 +359,7 @@ def player_3d_scene(room_id: str):
             "bounds3d": {"origin": {"x": 0, "y": 0, "z": 0}, "size": {"x": 16, "y": 8, "z": 16}},
             "render3d": {"color": "#668a4d" if biome == "meadow" else "#406c61", "asset_key": f"room.{biome}"},
             "environment3d": {
-                "sky_color": "#96c9ee",
+                "sky_color": SCENE_STATE["sky_color"],
                 "fog_color": "#78a982",
                 "fog_density": 0.012,
                 "ambient_color": "#dff4ff",
@@ -360,7 +384,7 @@ def player_3d_scene(room_id: str):
                 "prop_group3d": {
                     "recipe_key": biome,
                     "asset_key": "bunnyland.wildsim/deciduous-tree",
-                    "color": "#82b85f",
+                    "color": SCENE_STATE["decoration_color"],
                     "instances": [
                         {"id": "camera-blocker", "position": {"x": 14.5, "y": 0, "z": 5.5}, "rotation_y": 0, "scale": 1.5},
                         *[
@@ -485,6 +509,10 @@ def route_api(page):
         "**/assets/3d/prop-generic.glb",
         lambda route: route.fulfill(path=prop_asset, content_type="model/gltf-binary"),
     )
+    page.route(
+        "**/assets/3d/prop-delayed.glb",
+        lambda route: (time.sleep(0.35), route.fulfill(path=prop_asset, content_type="model/gltf-binary")),
+    )
     page.route("**/mock/play/extensions/bunnyland.3d/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,
         "plugin_id": "bunnyland.3d",
@@ -499,6 +527,8 @@ def route_api(page):
                 "url": (
                     "/assets/3d/prop-hidden.glb"
                     if key == "bunnyland.test/prop"
+                    else "/assets/3d/prop-delayed.glb"
+                    if key == "bunnyland.test/delayed"
                     else "/assets/3d/prop-generic.glb"
                 ),
                 "digest": f"fake-{key.rsplit('/', 1)[-1]}",
@@ -517,10 +547,17 @@ def route_api(page):
                 "bunnyland.wildsim/berry-bush",
                 "bunnyland.wildsim/deciduous-tree",
                 "bunnyland.test/prop",
+                "bunnyland.test/delayed",
                 "bunnyland.test/attachment",
             )
         },
     }))
+
+    def scene_control_route(route):
+        SCENE_STATE.update(route.request.post_data_json or {})
+        route.fulfill(status=200, json={"ok": True, "state": SCENE_STATE})
+
+    page.route("**/mock/test-scene", scene_control_route)
 
     def scene_route(route):
         room_id = unquote(route.request.url.rsplit("/3d/v2/room/", 1)[1])
@@ -718,6 +755,22 @@ def download_lightbox_photo(page, path: Path) -> None:
     download.save_as(path)
 
 
+def patch_player_scene(page, patch):
+    page.evaluate(
+        """async patch => {
+          await fetch('./mock/test-scene', {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(patch),
+          });
+          await window.__world3dPlayer.refresh();
+          await new Promise(resolve => setTimeout(resolve, 20));
+          await window.__world3dPlayer.refresh();
+        }""",
+        patch,
+    )
+
+
 def main() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     proc, base_url = ensure_server()
@@ -892,6 +945,114 @@ def main() -> None:
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
             if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 48, "localLights": 1, "skybox": True, "skyboxPreset": "vendor.weather/day", "particleSystems": ["vendor.weather/embers", "vendor.weather/snow"]}:
                 raise AssertionError(f"provider model did not replace the procedural decoration: {visual_state!r}")
+
+            page.evaluate("window.__world3dPlayer.selectTarget('item:crate')")
+            before_reconcile = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            progress_count = page.evaluate("window.__playerProgressEvents.length")
+            page.evaluate("window.__world3dPlayer.refresh()")
+            after_reconcile = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            if after_reconcile["environment"] != before_reconcile["environment"]:
+                raise AssertionError("identical refresh replaced the environment")
+            if after_reconcile["decorations"] != before_reconcile["decorations"] or after_reconcile["exits"] != before_reconcile["exits"]:
+                raise AssertionError("identical refresh replaced room decorations or exits")
+            for entity_id, before_entity in before_reconcile["entities"].items():
+                after_entity = after_reconcile["entities"][entity_id]
+                for field in ("root", "model", "selection", "legacyEffects", "registeredEffects"):
+                    if after_entity[field] != before_entity[field]:
+                        raise AssertionError(f"identical refresh replaced {entity_id} {field}")
+            if after_reconcile["entities"]["character:ash"]["mixerTime"] < before_reconcile["entities"]["character:ash"]["mixerTime"]:
+                raise AssertionError("identical refresh reset player animation time")
+            if after_reconcile["resources"] != before_reconcile["resources"]:
+                raise AssertionError(f"identical refresh changed resource counts: {before_reconcile['resources']!r} -> {after_reconcile['resources']!r}")
+            refresh_progress = page.evaluate("start => window.__playerProgressEvents.slice(start)", progress_count)
+            if any(event["active"] for event in refresh_progress):
+                raise AssertionError(f"identical refresh flashed asset progress: {refresh_progress!r}")
+
+            original_effects = after_reconcile["entities"]["item:crate"]["registeredEffects"]
+            patch_player_scene(page, {"effect_remaining": 4})
+            countdown_state = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            if countdown_state["entities"]["item:crate"]["registeredEffects"] != original_effects:
+                raise AssertionError("effect countdown refresh rebuilt particle or lightning buffers")
+
+            crate_root = countdown_state["entities"]["item:crate"]["root"]
+            crate_model = countdown_state["entities"]["item:crate"]["model"]
+            patch_player_scene(page, {"crate_x": 11.25})
+            moved_state = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            moved_crate = moved_state["entities"]["item:crate"]
+            if moved_crate["root"] != crate_root or moved_crate["model"] != crate_model or abs(moved_crate["position"][0] - 11.25) > 0.001:
+                raise AssertionError(f"remote transform did not patch the existing visual: {moved_crate!r}")
+
+            patch_player_scene(page, {"extra_effect": True})
+            added_effect_state = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            added_effects = added_effect_state["entities"]["item:crate"]["registeredEffects"]
+            if len(added_effects) != 2 or not set(original_effects.items()).issubset(set(added_effects.items())):
+                raise AssertionError(f"adding one effect replaced existing effects: {original_effects!r} -> {added_effects!r}")
+            patch_player_scene(page, {"extra_effect": False})
+            removed_effects = page.evaluate("window.__world3dPlayer.reconciliationState().entities['item:crate'].registeredEffects")
+            if removed_effects != original_effects:
+                raise AssertionError(f"removing one effect replaced the surviving effect: {removed_effects!r}")
+
+            before_structure = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            patch_player_scene(page, {"model_opacity": 0.31})
+            page.wait_for_function("Math.abs(window.__world3dPlayer.entityVisualState('item:crate').opacity - 0.31) < 0.001")
+            after_structure = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            if after_structure["entities"]["item:crate"]["root"] != before_structure["entities"]["item:crate"]["root"] or after_structure["entities"]["item:crate"]["model"] == before_structure["entities"]["item:crate"]["model"]:
+                raise AssertionError("node patch change did not localize replacement to the entity model")
+            if after_structure["entities"]["character:ash"]["model"] != before_structure["entities"]["character:ash"]["model"]:
+                raise AssertionError("crate node patch replaced the player model")
+
+            delayed_root = after_structure["entities"]["item:crate"]["root"]
+            delayed_old_model = after_structure["entities"]["item:crate"]["model"]
+            page.evaluate(
+                """async () => {
+                  await fetch('./mock/test-scene', {
+                    method: 'POST',
+                    headers: {'content-type': 'application/json'},
+                    body: JSON.stringify({model_asset: 'bunnyland.test/delayed'}),
+                  });
+                  await window.__world3dPlayer.refresh();
+                  setTimeout(() => { void window.__world3dPlayer.refresh(); }, 25);
+                }"""
+            )
+            page.wait_for_function(
+                "oldModel => window.__world3dPlayer.reconciliationState().entities['item:crate'].model !== oldModel",
+                arg=delayed_old_model,
+            )
+            delayed_state = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            if delayed_state["entities"]["item:crate"]["root"] != delayed_root:
+                raise AssertionError("unchanged projection replaced an entity while its model load was pending")
+            patch_player_scene(page, {"model_asset": "bunnyland.test/prop"})
+            page.wait_for_function("window.__world3dPlayer.entityVisualState('item:crate')?.attachmentCount === 1")
+
+            before_decoration = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            patch_player_scene(page, {"decoration_color": "#71a84f"})
+            page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
+            after_decoration = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            if after_decoration["decorations"]["decoration:flora"] == before_decoration["decorations"]["decoration:flora"]:
+                raise AssertionError("changed decoration was not rebuilt")
+            for decoration_id in ("decoration:light", "decoration:particles"):
+                if after_decoration["decorations"][decoration_id] != before_decoration["decorations"][decoration_id]:
+                    raise AssertionError(f"flora change replaced unrelated {decoration_id}")
+
+            patch_player_scene(page, {"sky_color": "#88bde4"})
+            after_environment = page.evaluate("window.__world3dPlayer.reconciliationState()")
+            if after_environment["environment"] == after_decoration["environment"]:
+                raise AssertionError("environment definition change was not rendered")
+            if after_environment["decorations"] != after_decoration["decorations"]:
+                raise AssertionError("environment change replaced decorations")
+            if {key: value["root"] for key, value in after_environment["entities"].items()} != {key: value["root"] for key, value in after_decoration["entities"].items()}:
+                raise AssertionError("environment change replaced entities")
+
+            departed_root = after_environment["entities"]["item:crate"]["root"]
+            patch_player_scene(page, {"hidden_entities": ["item:crate"]})
+            if page.evaluate("'item:crate' in window.__world3dPlayer.reconciliationState().entities"):
+                raise AssertionError("removed entity remained in the scene")
+            patch_player_scene(page, {"hidden_entities": []})
+            page.wait_for_function("window.__world3dPlayer.entityVisualState('item:crate')?.attachmentCount === 1")
+            returned_root = page.evaluate("window.__world3dPlayer.reconciliationState().entities['item:crate'].root")
+            if returned_root == departed_root:
+                raise AssertionError("entity returning after an absence reused a disposed visual")
+
             page.wait_for_timeout(600)
             camera_clearance = page.evaluate("window.__world3dPlayer.cameraState()")
             if abs(camera_clearance["actualRadius"] - camera_clearance["radius"]) > 0.25:
@@ -1024,6 +1185,9 @@ def main() -> None:
                 raise AssertionError(
                     f"same-room refresh reset local movement: {avatar_after!r} -> {avatar_refreshed!r}"
                 )
+            player_visual_before_travel = page.evaluate(
+                "window.__world3dPlayer.reconciliationState().entities['character:ash']"
+            )
             expect(page.locator("#exit-prompt")).not_to_have_class("hidden")
             page.locator("#btn-exit-prompt").click()
             expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
@@ -1033,6 +1197,11 @@ def main() -> None:
             player_after = page.evaluate("window.__world3dPlayer.cameraState()")
             if player_after["target"] == player_before["target"]:
                 raise AssertionError(f"player camera did not follow room move: {player_before!r} -> {player_after!r}")
+            player_visual_after_travel = page.evaluate(
+                "window.__world3dPlayer.reconciliationState().entities['character:ash']"
+            )
+            if player_visual_after_travel["root"] != player_visual_before_travel["root"] or player_visual_after_travel["model"] != player_visual_before_travel["model"]:
+                raise AssertionError("room travel replaced the continuously visible player visual")
             page.locator("#btn-request-image").click()
             expect(page.locator("#activity")).to_contain_text("image")
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(2)

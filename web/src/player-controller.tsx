@@ -1114,6 +1114,7 @@ declare global {
       exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
       visualState: () => ReturnType<PlayerScene['visualState']>;
+      reconciliationState: () => ReturnType<PlayerScene['reconciliationState']>;
       renderState: () => ReturnType<PlayerScene['renderState']>;
       avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
       capture: () => string;
@@ -1133,6 +1134,7 @@ window.__world3dPlayer = {
   exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
   visualState: () => scene.visualState(),
+  reconciliationState: () => scene.reconciliationState(),
   renderState: () => scene.renderState(),
   avatarState: () => scene.cameraState().avatar,
   capture: captureImage,

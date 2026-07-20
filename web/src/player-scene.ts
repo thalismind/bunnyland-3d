@@ -259,15 +259,34 @@ interface Obstacle2D {
 interface TrackedEntity {
   entity: PlayerSceneEntity;
   root: THREE.Group;
+  model: THREE.Object3D;
+  modelSignature: string;
+  pickSignature: string;
+  revision: number;
   mixer: THREE.AnimationMixer | null;
   idle: THREE.AnimationAction | null;
   walk: THREE.AnimationAction | null;
+  legacyEffects: Map<string, TrackedEffect>;
+  registeredEffects: Map<string, TrackedEffect>;
 }
 
 interface TrackedExit {
   exit: PlayerSceneExit;
   root: THREE.Group;
   position: THREE.Vector3;
+  signature: string;
+}
+
+interface TrackedDecoration {
+  decoration: PlayerSceneDecoration;
+  root: THREE.Group;
+  signature: string;
+  revision: number;
+}
+
+interface TrackedEffect {
+  root: THREE.Object3D;
+  signature: string;
 }
 
 interface AssetManifest {
@@ -347,6 +366,20 @@ function randomFrom(seed: number): () => number {
   };
 }
 
+function signature(value: unknown): string {
+  const canonical = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(canonical);
+    if (!item || typeof item !== 'object') return item;
+    return Object.fromEntries(
+      Object.entries(item as Record<string, unknown>)
+        .filter(([, child]) => child !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonical(child)]),
+    );
+  };
+  return JSON.stringify(canonical(value));
+}
+
 function activeControl(): boolean {
   const active = document.activeElement as HTMLElement | null;
   if (!active) return false;
@@ -355,17 +388,20 @@ function activeControl(): boolean {
 }
 
 function disposeObject(root: THREE.Object3D): void {
+  const textures = new Set<THREE.Texture>();
   root.traverse(child => {
+    if (child instanceof THREE.Light) child.dispose();
     const mesh = child as THREE.Mesh;
     mesh.geometry?.dispose();
     const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
     for (const material of materials) {
       for (const value of Object.values(material)) {
-        if (value instanceof THREE.Texture) value.dispose();
+        if (value instanceof THREE.Texture && value.userData.instanceOwned) textures.add(value);
       }
       material.dispose();
     }
   });
+  for (const texture of textures) texture.dispose();
 }
 
 export class PlayerScene {
@@ -374,6 +410,7 @@ export class PlayerScene {
   private readonly camera = new THREE.PerspectiveCamera(58, 1, 0.08, 180);
   private readonly world = new THREE.Group();
   private readonly environment = new THREE.Group();
+  private readonly decorationGroup = new THREE.Group();
   private readonly entityGroup = new THREE.Group();
   private readonly exitGroup = new THREE.Group();
   private readonly raycaster = new THREE.Raycaster();
@@ -383,7 +420,8 @@ export class PlayerScene {
   private assetManifest: Promise<AssetManifest> | null = null;
   private serverAssets: ServerAssetManifest | null = null;
   private readonly entities = new Map<string, TrackedEntity>();
-  private readonly exits: TrackedExit[] = [];
+  private readonly exits = new Map<string, TrackedExit>();
+  private readonly decorations = new Map<string, TrackedDecoration>();
   private readonly obstacles: Obstacle2D[] = [];
   private readonly cameraOccluders: THREE.Object3D[] = [];
   private readonly keys = new Set<string>();
@@ -411,12 +449,14 @@ export class PlayerScene {
   private lastPick: { x: number; y: number; ids: string[]; index: number; at: number } | null = null;
   private nearbyExitId = '';
   private lastFrame = performance.now();
-  private loadGeneration = 0;
+  private environmentSignature = '';
+  private environmentRevision = 0;
   private enabled = true;
   private particleTime = 0;
   private frameRequest: number | null = null;
-  private roomAssetTasks: Promise<void>[] = [];
-  private roomAssetsLoaded = 0;
+  private pendingAssetTasks = 0;
+  private assetTasksLoaded = 0;
+  private assetTasksTotal = 0;
   private renderedFrames = 0;
 
   constructor(
@@ -435,7 +475,7 @@ export class PlayerScene {
     this.renderer.domElement.tabIndex = 0;
     this.renderer.domElement.setAttribute('aria-label', 'Third-person Bunnyland room view');
     this.scene.add(this.world);
-    this.world.add(this.environment, this.entityGroup, this.exitGroup);
+    this.world.add(this.environment, this.decorationGroup, this.entityGroup, this.exitGroup);
     this.container.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
@@ -462,20 +502,16 @@ export class PlayerScene {
   }
 
   async loadRoom(data: PlayerRoomScene, playerId: string): Promise<void> {
-    const generation = ++this.loadGeneration;
     const sameRoom = data.room.id === this.roomId;
     const sameRoomLastPick = sameRoom ? this.lastPick : null;
     this.roomId = data.room.id;
     this.playerId = playerId;
     this.bounds = this.readBounds(data);
-    this.roomAssetTasks = [];
-    this.roomAssetsLoaded = 0;
-    this.clearRoom();
     this.lastPick = sameRoomLastPick;
-    this.applyEnvironment(data);
-    this.addDecorations(data.decorations || []);
-    this.addExits(data.exits, data.room.indoor);
-    for (const entity of data.entities) this.addEntity(entity, generation);
+    this.reconcileEnvironment(data);
+    this.reconcileDecorations(data.decorations || []);
+    this.reconcileExits(data.exits, data.room.indoor);
+    this.reconcileEntities(data.entities, sameRoom);
 
     if (!sameRoom || !this.positionValid(this.avatarPosition, playerId)) {
       const anchor = data.entities.find(entity => entity.id === playerId)?.transform3d?.position;
@@ -492,16 +528,6 @@ export class PlayerScene {
     this.applySelection();
     this.refreshAnimatedEffects();
     this.requestFrame();
-    const tasks = this.roomAssetTasks;
-    if (tasks.length) {
-      this.onLoadProgress({ loaded: 0, total: tasks.length });
-      void Promise.allSettled(tasks).then(() => {
-        if (generation === this.loadGeneration) this.onLoadProgress(null);
-      });
-    } else {
-      this.onLoadProgress(null);
-    }
-    if (generation !== this.loadGeneration) return;
   }
 
   selectEntity(entityId: string): boolean {
@@ -517,7 +543,7 @@ export class PlayerScene {
   }
 
   nearbyExit(): PlayerSceneExit | null {
-    return this.exits.find(item => item.exit.id === this.nearbyExitId)?.exit || null;
+    return this.exits.get(this.nearbyExitId)?.exit || null;
   }
 
   cameraState(): PlayerCameraState {
@@ -534,8 +560,56 @@ export class PlayerScene {
     return { frames: this.renderedFrames, scheduled: this.frameRequest !== null };
   }
 
+  reconciliationState(): {
+    environment: string;
+    entities: Record<string, {
+      root: string;
+      model: string;
+      position: number[];
+      mixerTime: number;
+      selection: string;
+      legacyEffects: Record<string, string>;
+      registeredEffects: Record<string, string>;
+    }>;
+    decorations: Record<string, string>;
+    exits: Record<string, string>;
+    resources: { objects: number; geometries: number; materials: number; textures: number };
+  } {
+    const geometries = new Set<string>();
+    const materials = new Set<string>();
+    const textures = new Set<string>();
+    let objects = 0;
+    this.scene.traverse(object => {
+      objects += 1;
+      const mesh = object as THREE.Mesh;
+      if (mesh.geometry) geometries.add(mesh.geometry.uuid);
+      const sources = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      for (const material of sources) {
+        materials.add(material.uuid);
+        for (const value of Object.values(material)) {
+          if (value instanceof THREE.Texture) textures.add(value.uuid);
+        }
+      }
+    });
+    return {
+      environment: this.environment.children[0]?.uuid || '',
+      entities: Object.fromEntries([...this.entities].map(([id, tracked]) => [id, {
+        root: tracked.root.uuid,
+        model: tracked.model.uuid,
+        position: tracked.root.position.toArray(),
+        mixerTime: tracked.mixer?.time || 0,
+        selection: tracked.root.getObjectByName('selection-ring')?.uuid || '',
+        legacyEffects: Object.fromEntries([...tracked.legacyEffects].map(([key, effect]) => [key, effect.root.uuid])),
+        registeredEffects: Object.fromEntries([...tracked.registeredEffects].map(([key, effect]) => [key, effect.root.uuid])),
+      }])),
+      decorations: Object.fromEntries([...this.decorations].map(([id, tracked]) => [id, tracked.root.uuid])),
+      exits: Object.fromEntries([...this.exits].map(([id, tracked]) => [id, tracked.root.uuid])),
+      resources: { objects, geometries: geometries.size, materials: materials.size, textures: textures.size },
+    };
+  }
+
   exitScreenPoint(exitId: string): { x: number; y: number } | null {
-    const tracked = this.exits.find(item => item.exit.id === exitId);
+    const tracked = this.exits.get(exitId);
     if (!tracked) return null;
     const projected = tracked.position.clone().project(this.camera);
     if (projected.z < -1 || projected.z > 1) return null;
@@ -617,7 +691,7 @@ export class PlayerScene {
   }
 
   exitStates(): Array<{ id: string; side: string; rotationY: number; x: number; z: number }> {
-    return this.exits.map(tracked => ({
+    return [...this.exits.values()].map(tracked => ({
       id: tracked.exit.id,
       side: this.cardinal(tracked.exit.direction),
       rotationY: tracked.root.rotation.y,
@@ -686,37 +760,43 @@ export class PlayerScene {
     };
   }
 
-  private clearRoom(): void {
-    disposeObject(this.environment);
-    disposeObject(this.entityGroup);
-    disposeObject(this.exitGroup);
-    this.environment.clear();
-    this.entityGroup.clear();
-    this.exitGroup.clear();
-    this.entities.clear();
-    this.exits.length = 0;
-    this.obstacles.length = 0;
-    this.cameraOccluders.length = 0;
-    this.animatedParticles.length = 0;
-    this.animatedLightning.length = 0;
-    this.nearbyExitId = '';
-    this.lastPick = null;
-    this.onNearbyExit(null);
+  private trackAsset(task: Promise<void>): void {
+    if (this.pendingAssetTasks === 0) {
+      this.assetTasksLoaded = 0;
+      this.assetTasksTotal = 0;
+    }
+    this.pendingAssetTasks += 1;
+    this.assetTasksTotal += 1;
+    this.onLoadProgress({ loaded: this.assetTasksLoaded, total: this.assetTasksTotal });
+    const finish = (): void => {
+      this.pendingAssetTasks -= 1;
+      this.assetTasksLoaded += 1;
+      if (this.pendingAssetTasks === 0) this.onLoadProgress(null);
+      else this.onLoadProgress({ loaded: this.assetTasksLoaded, total: this.assetTasksTotal });
+    };
+    void task.then(finish, finish);
   }
 
-  private trackRoomAsset(task: Promise<void>, generation: number): void {
-    const tracked = task.finally(() => {
-      if (generation !== this.loadGeneration) return;
-      this.roomAssetsLoaded += 1;
-      this.onLoadProgress({
-        loaded: this.roomAssetsLoaded,
-        total: this.roomAssetTasks.length,
-      });
+  private reconcileEnvironment(data: PlayerRoomScene): void {
+    const nextSignature = signature({
+      roomId: data.room.id,
+      biome: data.room.biome,
+      indoor: data.room.indoor,
+      bounds3d: data.room.bounds3d,
+      render3d: data.room.render3d,
+      environment3d: data.room.environment3d,
+      wallExits: data.room.indoor ? data.exits.map(exit => ({ id: exit.id, direction: exit.direction })) : [],
     });
-    this.roomAssetTasks.push(tracked);
+    if (nextSignature === this.environmentSignature) return;
+    this.environmentSignature = nextSignature;
+    this.environmentRevision += 1;
+    disposeObject(this.environment);
+    this.environment.clear();
+    this.cameraOccluders.length = 0;
+    this.applyEnvironment(data, this.environmentRevision);
   }
 
-  private applyEnvironment(data: PlayerRoomScene): void {
+  private applyEnvironment(data: PlayerRoomScene, revision: number): void {
     const palette = BIOME_PALETTES[data.room.biome] || BIOME_PALETTES.unknown;
     const environment = data.room.environment3d;
     const roomColor = color(data.room.render3d?.color, palette.ground);
@@ -745,24 +825,24 @@ export class PlayerScene {
     this.environment.add(floor);
 
     const albedo = this.loadMaterialTexture(environment?.albedo_url, true, texture => {
-      if (floor.parent) {
+      if (revision === this.environmentRevision && floor.parent) {
         floorMaterial.map?.dispose();
         floorMaterial.map = texture;
         floorMaterial.color.set(0xffffff);
         floorMaterial.needsUpdate = true;
       } else texture.dispose();
     }, finite(environment?.texture_scale, 4));
-    if (albedo) this.trackRoomAsset(albedo, this.loadGeneration);
+    if (albedo) this.trackAsset(albedo);
     const normal = this.loadMaterialTexture(environment?.normal_url, false, texture => {
-      if (floor.parent) {
+      if (revision === this.environmentRevision && floor.parent) {
         floorMaterial.normalMap = texture;
         floorMaterial.normalScale.set(0.65, 0.65);
         floorMaterial.needsUpdate = true;
       } else texture.dispose();
     }, finite(environment?.texture_scale, 4));
-    if (normal) this.trackRoomAsset(normal, this.loadGeneration);
+    if (normal) this.trackAsset(normal);
 
-    if (!hasRoof) this.addSkybox(environment, color(environment?.sky_color, fogColor));
+    if (!hasRoof) this.addSkybox(environment, color(environment?.sky_color, fogColor), revision);
 
     const hemisphere = new THREE.HemisphereLight(
       color(environment?.ambient_color, 0xcfe8ff),
@@ -807,6 +887,7 @@ export class PlayerScene {
     }
     context.globalAlpha = 1;
     const texture = new THREE.CanvasTexture(canvas);
+    texture.userData.instanceOwned = true;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(repeat, repeat);
@@ -824,6 +905,7 @@ export class PlayerScene {
     if (!/^https?:$/.test(resolved.protocol) || !/\/media\/[a-z0-9]+\/[a-z0-9]+\.(png|jpg|webp)$/.test(resolved.pathname)) return null;
     return new Promise(resolve => {
       this.textureLoader.load(resolved.href, texture => {
+        texture.userData.instanceOwned = true;
         texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
         texture.repeat.set(repeat, repeat);
@@ -836,7 +918,11 @@ export class PlayerScene {
     });
   }
 
-  private addSkybox(environment: Environment3DView | null | undefined, skyColor: number): void {
+  private addSkybox(
+    environment: Environment3DView | null | undefined,
+    skyColor: number,
+    revision: number,
+  ): void {
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       map: this.proceduralSkybox(skyColor, environment?.skybox),
@@ -853,16 +939,17 @@ export class PlayerScene {
     );
     this.environment.add(sky);
     const skybox = this.loadMaterialTexture(environment?.skybox_url, true, texture => {
-      if (sky.parent) {
+      if (revision === this.environmentRevision && sky.parent) {
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
         texture.repeat.set(1, 1);
+        material.map?.dispose();
         material.map = texture;
         material.color.set(0xffffff);
         material.needsUpdate = true;
       } else texture.dispose();
     });
-    if (skybox) this.trackRoomAsset(skybox, this.loadGeneration);
+    if (skybox) this.trackAsset(skybox);
   }
 
   private proceduralSkybox(skyColor: number, definition?: Skybox3DView): THREE.CanvasTexture {
@@ -913,6 +1000,7 @@ export class PlayerScene {
       context.fill();
     }
     const texture = new THREE.CanvasTexture(canvas);
+    texture.userData.instanceOwned = true;
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
   }
@@ -967,73 +1055,120 @@ export class PlayerScene {
     vertical('east', this.bounds.maxX);
   }
 
-  private addDecorations(decorations: PlayerSceneDecoration[]): void {
+  private reconcileDecorations(decorations: PlayerSceneDecoration[]): void {
+    const visible = new Set(decorations.map(decoration => decoration.id));
+    for (const [id, tracked] of this.decorations) {
+      if (visible.has(id)) continue;
+      tracked.revision += 1;
+      tracked.root.removeFromParent();
+      disposeObject(tracked.root);
+      this.decorations.delete(id);
+    }
+
     let instances = 0;
     let particles = 0;
     let lights = 0;
     let shadowLights = 0;
     for (const decoration of decorations) {
-      if (decoration.prop_group3d && instances < MAX_PROP_INSTANCES) {
-        const available = MAX_PROP_INSTANCES - instances;
-        const group = decoration.prop_group3d;
-        const source = group.instances.slice(0, available);
-        instances += source.length;
-        const geometry = this.propGeometry(group.asset_key);
-        const material = new THREE.MeshStandardMaterial({
-          color: color(group.color, 0x7ca85c), roughness: 0.88, vertexColors: false,
-        });
-        const mesh = new THREE.InstancedMesh(geometry, material, source.length);
-        const dummy = new THREE.Object3D();
-        source.forEach((instance, index) => {
-          dummy.position.set(instance.position.x, this.bounds.ground + this.propHeight(group.asset_key, instance.scale), instance.position.z);
-          dummy.rotation.set(0, instance.rotation_y, 0);
-          dummy.scale.setScalar(instance.scale);
-          dummy.updateMatrix();
-          mesh.setMatrixAt(index, dummy.matrix);
-        });
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.userData.decorationProps = true;
-        mesh.userData.modelDecoration = true;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        const root = new THREE.Group();
-        root.add(mesh);
-        this.environment.add(root);
-        this.trackRoomAsset(
-          this.replaceDecorationWithAsset(root, group, source, this.loadGeneration),
-          this.loadGeneration,
-        );
+      const propCount = decoration.prop_group3d
+        ? Math.min(decoration.prop_group3d.instances.length, MAX_PROP_INSTANCES - instances)
+        : 0;
+      const particleCount = decoration.particle_emitter3d
+        ? Math.min(decoration.particle_emitter3d.count, MAX_PARTICLES - particles)
+        : 0;
+      const includeLight = Boolean(decoration.light3d && lights < MAX_LOCAL_LIGHTS);
+      const includeShadow = Boolean(includeLight && decoration.light3d?.cast_shadow && shadowLights < MAX_SHADOW_LIGHTS);
+      instances += propCount;
+      particles += particleCount;
+      if (includeLight) lights += 1;
+      if (includeShadow) shadowLights += 1;
+
+      const nextSignature = signature({
+        decoration,
+        propCount,
+        particleCount,
+        includeLight,
+        includeShadow,
+        ground: this.bounds.ground,
+      });
+      const current = this.decorations.get(decoration.id);
+      if (current?.signature === nextSignature) {
+        current.decoration = decoration;
+        continue;
       }
-      if (decoration.light3d && lights < MAX_LOCAL_LIGHTS) {
-        const view = decoration.light3d;
-        const position = decoration.transform3d?.position || {};
-        const shouldShadow = view.cast_shadow && shadowLights < MAX_SHADOW_LIGHTS;
-        let light: THREE.Light;
-        if (view.kind === 'spot') {
-          const spot = new THREE.SpotLight(color(view.color, 0xffd38a), view.intensity, view.range, view.cone, 0.3, view.decay);
-          spot.castShadow = shouldShadow;
-          light = spot;
-        } else if (view.kind === 'directional') {
-          const directional = new THREE.DirectionalLight(color(view.color, 0xffd38a), view.intensity);
-          directional.castShadow = shouldShadow;
-          light = directional;
-        } else {
-          const point = new THREE.PointLight(color(view.color, 0xffd38a), view.intensity, view.range, view.decay);
-          point.castShadow = shouldShadow;
-          light = point;
-        }
-        light.position.set(finite(position.x, 8), finite(position.y, 2.4), finite(position.z, 8));
-        light.userData.localLight = true;
-        this.environment.add(light);
-        lights += 1;
-        if (shouldShadow) shadowLights += 1;
+      if (current) {
+        current.revision += 1;
+        current.root.removeFromParent();
+        disposeObject(current.root);
       }
-      if (decoration.particle_emitter3d && particles < MAX_PARTICLES) {
-        const emitter = decoration.particle_emitter3d;
-        const count = Math.min(emitter.count, MAX_PARTICLES - particles);
-        particles += count;
-        this.addParticleEmitter(emitter, count, decoration.transform3d?.position);
+      const tracked: TrackedDecoration = {
+        decoration,
+        root: new THREE.Group(),
+        signature: nextSignature,
+        revision: (current?.revision || 0) + 1,
+      };
+      tracked.root.userData.decorationId = decoration.id;
+      this.decorations.set(decoration.id, tracked);
+      this.decorationGroup.add(tracked.root);
+      this.buildDecoration(tracked, propCount, particleCount, includeLight, includeShadow);
+    }
+  }
+
+  private buildDecoration(
+    tracked: TrackedDecoration,
+    propCount: number,
+    particleCount: number,
+    includeLight: boolean,
+    includeShadow: boolean,
+  ): void {
+    const decoration = tracked.decoration;
+    if (decoration.prop_group3d && propCount > 0) {
+      const group = decoration.prop_group3d;
+      const source = group.instances.slice(0, propCount);
+      const geometry = this.propGeometry(group.asset_key);
+      const material = new THREE.MeshStandardMaterial({
+        color: color(group.color, 0x7ca85c), roughness: 0.88, vertexColors: false,
+      });
+      const mesh = new THREE.InstancedMesh(geometry, material, source.length);
+      const dummy = new THREE.Object3D();
+      source.forEach((instance, index) => {
+        dummy.position.set(instance.position.x, this.bounds.ground + this.propHeight(group.asset_key, instance.scale), instance.position.z);
+        dummy.rotation.set(0, instance.rotation_y, 0);
+        dummy.scale.setScalar(instance.scale);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(index, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.decorationProps = true;
+      mesh.userData.modelDecoration = true;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      tracked.root.add(mesh);
+      this.trackAsset(this.replaceDecorationWithAsset(tracked, group, source, tracked.revision));
+    }
+    if (decoration.light3d && includeLight) {
+      const view = decoration.light3d;
+      const position = decoration.transform3d?.position || {};
+      let light: THREE.Light;
+      if (view.kind === 'spot') {
+        light = new THREE.SpotLight(color(view.color, 0xffd38a), view.intensity, view.range, view.cone, 0.3, view.decay);
+      } else if (view.kind === 'directional') {
+        light = new THREE.DirectionalLight(color(view.color, 0xffd38a), view.intensity);
+      } else {
+        light = new THREE.PointLight(color(view.color, 0xffd38a), view.intensity, view.range, view.decay);
       }
+      light.castShadow = includeShadow;
+      light.position.set(finite(position.x, 8), finite(position.y, 2.4), finite(position.z, 8));
+      light.userData.localLight = true;
+      tracked.root.add(light);
+    }
+    if (decoration.particle_emitter3d && particleCount > 0) {
+      this.addParticleEmitter(
+        tracked.root,
+        decoration.particle_emitter3d,
+        particleCount,
+        decoration.transform3d?.position,
+      );
     }
   }
 
@@ -1058,6 +1193,7 @@ export class PlayerScene {
   }
 
   private addParticleEmitter(
+    parent: THREE.Object3D,
     emitter: NonNullable<PlayerSceneDecoration['particle_emitter3d']>,
     count: number,
     position: Partial<Vector3View> | undefined,
@@ -1081,10 +1217,17 @@ export class PlayerScene {
     });
     const points = new THREE.Points(geometry, material);
     points.userData.particleEmitter = { ...emitter, baseY: this.bounds.ground };
-    this.environment.add(points);
+    parent.add(points);
   }
 
-  private addExits(exits: PlayerSceneExit[], indoor: boolean): void {
+  private reconcileExits(exits: PlayerSceneExit[], indoor: boolean): void {
+    const visible = new Set(exits.map(exit => exit.id));
+    for (const [id, tracked] of this.exits) {
+      if (visible.has(id)) continue;
+      tracked.root.removeFromParent();
+      disposeObject(tracked.root);
+      this.exits.delete(id);
+    }
     const counts = new Map<string, number>();
     for (const exit of exits) counts.set(this.cardinal(exit.direction), (counts.get(this.cardinal(exit.direction)) || 0) + 1);
     const indexes = new Map<string, number>();
@@ -1093,6 +1236,16 @@ export class PlayerScene {
       const index = indexes.get(side) || 0;
       indexes.set(side, index + 1);
       const position = this.exitPosition(side, index, counts.get(side) || 1, indoor);
+      const nextSignature = signature({ exit, indoor, position: position.toArray() });
+      const current = this.exits.get(exit.id);
+      if (current?.signature === nextSignature) {
+        current.exit = exit;
+        continue;
+      }
+      if (current) {
+        current.root.removeFromParent();
+        disposeObject(current.root);
+      }
       const root = new THREE.Group();
       root.position.copy(position);
       if (side === 'east' || side === 'west') root.rotation.y = Math.PI / 2;
@@ -1110,7 +1263,16 @@ export class PlayerScene {
       root.add(left, right);
       root.traverse(child => { child.userData.exitId = exit.id; });
       this.exitGroup.add(root);
-      this.exits.push({ exit, root, position: position.clone().add(new THREE.Vector3(0, 0.9, 0)) });
+      this.exits.set(exit.id, {
+        exit,
+        root,
+        position: position.clone().add(new THREE.Vector3(0, 0.9, 0)),
+        signature: nextSignature,
+      });
+    }
+    if (this.nearbyExitId && !this.exits.has(this.nearbyExitId)) {
+      this.nearbyExitId = '';
+      this.onNearbyExit(null);
     }
   }
 
@@ -1141,33 +1303,137 @@ export class PlayerScene {
     return new THREE.Vector3(this.bounds.maxX - inset, this.bounds.ground, axis);
   }
 
-  private addEntity(entity: PlayerSceneEntity, generation: number): void {
-    if (entity.render3d?.visible === false) return;
-    const root = new THREE.Group();
-    const position = entity.transform3d?.position || {};
-    root.position.set(finite(position.x, 8), this.bounds.ground, finite(position.z, 8));
-    root.rotation.y = finite(entity.transform3d?.rotation?.y, 0);
-    root.scale.set(
-      finite(entity.transform3d?.scale?.x, 1),
-      finite(entity.transform3d?.scale?.y, 1),
-      finite(entity.transform3d?.scale?.z, 1),
+  private entityAssetKey(entity: PlayerSceneEntity): string {
+    return entity.visual3d?.base_model_key
+      || entity.render3d?.asset_key
+      || (entity.is_character ? 'avatar.leporid' : '');
+  }
+
+  private entityModelSignature(entity: PlayerSceneEntity): string {
+    return signature({
+      assetKey: this.entityAssetKey(entity),
+      isCharacter: entity.is_character,
+      render3d: {
+        shape: entity.render3d?.shape,
+        color: entity.render3d?.color,
+        emissive: entity.render3d?.emissive,
+        opacity: entity.render3d?.opacity,
+        variantKey: entity.render3d?.variant_key,
+      },
+      nodePatches: entity.visual3d?.node_patches || [],
+      attachments: entity.visual3d?.attachments || [],
+    });
+  }
+
+  private entityPickSignature(entity: PlayerSceneEntity): string {
+    return signature({ isCharacter: entity.is_character, collider3d: entity.collider3d });
+  }
+
+  private reconcileEntities(entities: PlayerSceneEntity[], sameRoom: boolean): void {
+    const visible = new Map(
+      entities
+        .filter(entity => entity.render3d?.visible !== false)
+        .map(entity => [entity.id, entity]),
     );
+    for (const [id, tracked] of this.entities) {
+      if (visible.has(id)) continue;
+      this.disposeEntity(tracked);
+      this.entities.delete(id);
+      if (this.selectedEntityId === id) this.selectedEntityId = '';
+    }
+
+    this.obstacles.length = 0;
+    for (const entity of visible.values()) {
+      const tracked = this.entities.get(entity.id);
+      if (!tracked) {
+        this.addEntity(entity);
+      } else {
+        const modelSignature = this.entityModelSignature(entity);
+        const pickSignature = this.entityPickSignature(entity);
+        tracked.entity = entity;
+        if (pickSignature !== tracked.pickSignature) {
+          const old = tracked.root.getObjectByName('pick-volume');
+          if (old) {
+            tracked.root.remove(old);
+            disposeObject(old);
+          }
+          tracked.root.add(this.pickVolume(entity));
+          tracked.pickSignature = pickSignature;
+        }
+        if (modelSignature !== tracked.modelSignature) {
+          tracked.modelSignature = modelSignature;
+          tracked.revision += 1;
+          const assetKey = this.entityAssetKey(entity);
+          if (assetKey) this.trackAsset(this.replaceWithAsset(tracked, assetKey, tracked.revision));
+          else this.replaceWithProceduralModel(tracked);
+        }
+        this.reconcileEntityEffects(tracked);
+      }
+      const current = this.entities.get(entity.id)!;
+      if (entity.id !== this.playerId || !sameRoom) this.applyEntityTransform(current.root, entity);
+      current.root.traverse(child => { child.userData.entityId = entity.id; });
+      this.addObstacle(entity);
+    }
+  }
+
+  private addEntity(entity: PlayerSceneEntity): void {
+    const root = new THREE.Group();
+    this.applyEntityTransform(root, entity);
     root.userData.entityId = entity.id;
     const effectGroup = new THREE.Group();
     effectGroup.name = 'entity-effects';
     effectGroup.userData.entityEffects = true;
     const placeholder = entity.is_character ? this.proceduralAvatar(entity) : this.proceduralProp(entity);
     root.add(placeholder, this.pickVolume(entity), effectGroup);
-    this.addRegisteredEffects(root, placeholder, entity);
     root.traverse(child => { child.userData.entityId = entity.id; });
     this.entityGroup.add(root);
-    const tracked: TrackedEntity = { entity, root, mixer: null, idle: null, walk: null };
+    const tracked: TrackedEntity = {
+      entity,
+      root,
+      model: placeholder,
+      modelSignature: this.entityModelSignature(entity),
+      pickSignature: this.entityPickSignature(entity),
+      revision: 1,
+      mixer: null,
+      idle: null,
+      walk: null,
+      legacyEffects: new Map(),
+      registeredEffects: new Map(),
+    };
     this.entities.set(entity.id, tracked);
-    this.addObstacle(entity);
-    const assetKey = entity.visual3d?.base_model_key
-      || entity.render3d?.asset_key
-      || (entity.is_character ? 'avatar.leporid' : '');
-    if (assetKey) this.trackRoomAsset(this.replaceWithAsset(tracked, assetKey, generation), generation);
+    this.reconcileEntityEffects(tracked);
+    const assetKey = this.entityAssetKey(entity);
+    if (assetKey) this.trackAsset(this.replaceWithAsset(tracked, assetKey, tracked.revision));
+  }
+
+  private applyEntityTransform(root: THREE.Object3D, entity: PlayerSceneEntity): void {
+    const position = entity.transform3d?.position || {};
+    root.position.set(finite(position.x, 8), this.bounds.ground, finite(position.z, 8));
+    root.rotation.set(
+      finite(entity.transform3d?.rotation?.x, 0),
+      finite(entity.transform3d?.rotation?.y, 0),
+      finite(entity.transform3d?.rotation?.z, 0),
+    );
+    root.scale.set(
+      finite(entity.transform3d?.scale?.x, 1),
+      finite(entity.transform3d?.scale?.y, 1),
+      finite(entity.transform3d?.scale?.z, 1),
+    );
+  }
+
+  private disposeEntity(tracked: TrackedEntity): void {
+    tracked.revision += 1;
+    tracked.mixer?.stopAllAction();
+    tracked.mixer?.uncacheRoot(tracked.model);
+    tracked.root.removeFromParent();
+    disposeObject(tracked.root);
+  }
+
+  private replaceWithProceduralModel(tracked: TrackedEntity): void {
+    const model = tracked.entity.is_character
+      ? this.proceduralAvatar(tracked.entity)
+      : this.proceduralProp(tracked.entity);
+    this.installEntityModel(tracked, model, null, null, null);
   }
 
   private proceduralAvatar(entity: PlayerSceneEntity): THREE.Group {
@@ -1217,19 +1483,12 @@ export class PlayerScene {
     return volume;
   }
 
-  private async replaceWithAsset(tracked: TrackedEntity, assetKey: string, generation: number): Promise<void> {
+  private async replaceWithAsset(tracked: TrackedEntity, assetKey: string, revision: number): Promise<void> {
     try {
       const { gltf, descriptor } = await this.loadAsset(assetKey);
-      if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
-      const pickVolume = tracked.root.getObjectByName('pick-volume');
-      const effectGroup = tracked.root.getObjectByName('entity-effects');
-      for (const child of [...tracked.root.children]) {
-        if (child === pickVolume || child === effectGroup) continue;
-        tracked.root.remove(child);
-        disposeObject(child);
-      }
+      if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) return;
       const { cloneGltfScene } = await loadGltfAssets();
-      if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
+      if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) return;
       const model = cloneGltfScene(gltf.scene);
       this.applyAssetTransform(model, descriptor);
       model.traverse(child => {
@@ -1258,24 +1517,46 @@ export class PlayerScene {
         }
       });
       this.applyNodePatches(model, tracked.entity.visual3d?.node_patches || []);
-      tracked.root.add(model);
-      this.clearRegisteredEffects(tracked.root);
-      this.addRegisteredEffects(tracked.root, model, tracked.entity);
-      this.refreshAnimatedEffects();
-      await this.addAttachments(model, tracked.entity, generation);
-      this.addParticleEffects(model, tracked.entity);
-      if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
-      tracked.mixer = new THREE.AnimationMixer(model);
+      await this.addAttachments(model, tracked, revision);
+      if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) {
+        disposeObject(model);
+        return;
+      }
+      const mixer = new THREE.AnimationMixer(model);
       const aliases = Array.isArray(descriptor.clips) ? {} : descriptor.clips || {};
       const idleClip = THREE.AnimationClip.findByName(gltf.animations, aliases.idle || 'Idle');
       const walkClip = THREE.AnimationClip.findByName(gltf.animations, aliases.walk || 'Walk');
-      tracked.idle = idleClip ? tracked.mixer.clipAction(idleClip) : null;
-      tracked.walk = walkClip ? tracked.mixer.clipAction(walkClip) : null;
-      tracked.idle?.play();
-      this.refreshAnimatedEffects();
+      const idle = idleClip ? mixer.clipAction(idleClip) : null;
+      const walk = walkClip ? mixer.clipAction(walkClip) : null;
+      idle?.play();
+      this.installEntityModel(tracked, model, mixer, idle, walk);
     } catch (error) {
       console.warn(`Bunnyland 3D asset fallback for ${assetKey}:`, error);
     }
+  }
+
+  private installEntityModel(
+    tracked: TrackedEntity,
+    model: THREE.Object3D,
+    mixer: THREE.AnimationMixer | null,
+    idle: THREE.AnimationAction | null,
+    walk: THREE.AnimationAction | null,
+  ): void {
+    for (const effect of [...tracked.legacyEffects.values(), ...tracked.registeredEffects.values()]) {
+      effect.root.removeFromParent();
+    }
+    tracked.mixer?.stopAllAction();
+    tracked.mixer?.uncacheRoot(tracked.model);
+    tracked.model.removeFromParent();
+    disposeObject(tracked.model);
+    tracked.model = model;
+    tracked.mixer = mixer;
+    tracked.idle = idle;
+    tracked.walk = walk;
+    tracked.root.add(model);
+    this.reconcileEntityEffects(tracked);
+    tracked.root.traverse(child => { child.userData.entityId = tracked.entity.id; });
+    this.refreshAnimatedEffects();
   }
 
   private applyNodePatches(model: THREE.Object3D, patches: Visual3DView['node_patches']): void {
@@ -1321,13 +1602,13 @@ export class PlayerScene {
 
   private async addAttachments(
     model: THREE.Object3D,
-    entity: PlayerSceneEntity,
-    generation: number,
+    tracked: TrackedEntity,
+    revision: number,
   ): Promise<void> {
-    for (const attachment of entity.visual3d?.attachments || []) {
+    for (const attachment of tracked.entity.visual3d?.attachments || []) {
       if (!attachment.visible) continue;
       try {
-        await this.addAttachment(model, entity, attachment, generation);
+        await this.addAttachment(model, tracked, attachment, revision);
       } catch (error) {
         console.warn(`Bunnyland 3D attachment fallback for ${attachment.model_key}:`, error);
       }
@@ -1336,16 +1617,16 @@ export class PlayerScene {
 
   private async addAttachment(
     model: THREE.Object3D,
-    entity: PlayerSceneEntity,
+    tracked: TrackedEntity,
     attachment: Visual3DView['attachments'][number],
-    generation: number,
+    revision: number,
   ): Promise<void> {
     const anchor = attachment.anchor === '*' ? model : model.getObjectByName(attachment.anchor);
     if (!anchor) return;
     const { gltf, descriptor } = await this.loadAsset(attachment.model_key);
-    if (generation !== this.loadGeneration) return;
+    if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) return;
     const { cloneGltfScene } = await loadGltfAssets();
-    if (generation !== this.loadGeneration) return;
+    if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) return;
     const root = cloneGltfScene(gltf.scene);
     this.applyAssetTransform(root, descriptor);
     const transform = attachment.transform;
@@ -1360,7 +1641,7 @@ export class PlayerScene {
     ));
     root.name = attachment.key;
     root.traverse(child => {
-      child.userData.entityId = entity.id;
+      child.userData.entityId = tracked.entity.id;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.geometry = mesh.geometry.clone();
@@ -1373,58 +1654,96 @@ export class PlayerScene {
     anchor.add(root);
   }
 
-  private addParticleEffects(model: THREE.Object3D, entity: PlayerSceneEntity): void {
-    for (const effect of entity.visual3d?.particle_effects || []) {
-      const anchor = effect.anchor === '*' ? model : model.getObjectByName(effect.anchor);
-      if (!anchor) continue;
-      const random = randomFrom(effect.seed);
-      const values = new Float32Array(effect.count * 3);
-      for (let index = 0; index < effect.count; index += 1) {
-        values[index * 3] = (random() - 0.5) * effect.bounds.x;
-        values[index * 3 + 1] = random() * effect.bounds.y;
-        values[index * 3 + 2] = (random() - 0.5) * effect.bounds.z;
+  private reconcileEntityEffects(tracked: TrackedEntity): void {
+    const legacy = new Map(
+      (tracked.entity.visual3d?.particle_effects || []).map(effect => [effect.key, effect]),
+    );
+    for (const [key, current] of tracked.legacyEffects) {
+      if (legacy.has(key)) continue;
+      current.root.removeFromParent();
+      disposeObject(current.root);
+      tracked.legacyEffects.delete(key);
+    }
+    for (const [key, effect] of legacy) {
+      const nextSignature = signature(effect);
+      let current = tracked.legacyEffects.get(key);
+      if (current && current.signature !== nextSignature) {
+        current.root.removeFromParent();
+        disposeObject(current.root);
+        tracked.legacyEffects.delete(key);
+        current = undefined;
       }
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
-      const material = new THREE.PointsMaterial({
-        color: color(effect.color, 0xff7a24),
-        size: effect.size,
-        transparent: true,
-        opacity: effect.opacity,
-        depthWrite: false,
-        blending: effect.system?.blending === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending,
-      });
-      const points = new THREE.Points(geometry, material);
-      points.userData.entityId = entity.id;
-      points.userData.particleEmitter = { ...effect, baseY: 0 };
-      const root = new THREE.Group();
-      root.name = effect.key;
-      root.userData.entityId = entity.id;
-      root.scale.setScalar(finite(effect.transform.scale, 1));
-      root.rotation.set(
-        finite(effect.transform.rotation?.[0], 0),
-        finite(effect.transform.rotation?.[1], 0),
-        finite(effect.transform.rotation?.[2], 0),
-      );
-      root.position.set(
-        finite(effect.transform.translation?.[0], 0),
-        finite(effect.transform.translation?.[1], 0),
-        finite(effect.transform.translation?.[2], 0),
-      );
-      root.add(points);
-      anchor.add(root);
+      const anchor = effect.anchor === '*' ? tracked.model : tracked.model.getObjectByName(effect.anchor);
+      if (!current && anchor) {
+        current = { root: this.createLegacyEffect(tracked.entity, effect), signature: nextSignature };
+        tracked.legacyEffects.set(key, current);
+      }
+      if (current) {
+        if (anchor) anchor.add(current.root);
+        else current.root.removeFromParent();
+      }
+    }
+
+    const registered = new Map(
+      (tracked.entity.effects3d || []).map(effect => [this.registeredEffectKey(effect), effect]),
+    );
+    for (const [key, current] of tracked.registeredEffects) {
+      if (registered.has(key)) continue;
+      current.root.removeFromParent();
+      disposeObject(current.root);
+      tracked.registeredEffects.delete(key);
+    }
+    for (const [key, effect] of registered) {
+      const nextSignature = signature({ ...effect, remaining_seconds: undefined });
+      let current = tracked.registeredEffects.get(key);
+      if (current && current.signature !== nextSignature) {
+        current.root.removeFromParent();
+        disposeObject(current.root);
+        tracked.registeredEffects.delete(key);
+        current = undefined;
+      }
+      const anchor = this.effectAnchor(tracked.root, tracked.model, tracked.entity, effect);
+      if (!current && anchor) {
+        current = { root: this.createRegisteredEffect(tracked.entity, effect), signature: nextSignature };
+        tracked.registeredEffects.set(key, current);
+      }
+      if (current) {
+        if (anchor) anchor.add(current.root);
+        else current.root.removeFromParent();
+      }
     }
   }
 
-  private clearRegisteredEffects(root: THREE.Object3D): void {
-    const stale: THREE.Object3D[] = [];
-    root.traverse(child => {
-      if (child.userData.registeredEntityEffect) stale.push(child);
-    });
-    for (const child of stale) {
-      child.parent?.remove(child);
-      disposeObject(child);
+  private createLegacyEffect(
+    entity: PlayerSceneEntity,
+    effect: NonNullable<Visual3DView['particle_effects']>[number],
+  ): THREE.Object3D {
+    const random = randomFrom(effect.seed);
+    const values = new Float32Array(effect.count * 3);
+    for (let index = 0; index < effect.count; index += 1) {
+      values[index * 3] = (random() - 0.5) * effect.bounds.x;
+      values[index * 3 + 1] = random() * effect.bounds.y;
+      values[index * 3 + 2] = (random() - 0.5) * effect.bounds.z;
     }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+    const material = new THREE.PointsMaterial({
+      color: color(effect.color, 0xff7a24),
+      size: effect.size,
+      transparent: true,
+      opacity: effect.opacity,
+      depthWrite: false,
+      blending: effect.system?.blending === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending,
+    });
+    const points = new THREE.Points(geometry, material);
+    points.userData.entityId = entity.id;
+    points.userData.particleEmitter = { ...effect, baseY: 0 };
+    const root = new THREE.Group();
+    root.name = effect.key;
+    root.userData.entityId = entity.id;
+    this.applyEffectTransform(root, effect.transform);
+    root.add(points);
+    return root;
   }
 
   private effectAnchor(
@@ -1457,15 +1776,19 @@ export class PlayerScene {
     );
   }
 
-  private addRegisteredEffects(
-    root: THREE.Object3D,
-    model: THREE.Object3D,
+  private registeredEffectKey(effect: VisualEffect3DView): string {
+    return signature([effect.key, effect.source_key, effect.state_rule_key]);
+  }
+
+  private createRegisteredEffect(
     entity: PlayerSceneEntity,
-  ): void {
-    for (const effect of entity.effects3d || []) {
-      const anchor = this.effectAnchor(root, model, entity, effect);
-      if (!anchor) continue;
-      effect.particle_layers.forEach((layer, layerIndex) => {
+    effect: VisualEffect3DView,
+  ): THREE.Object3D {
+    const effectRoot = new THREE.Group();
+    effectRoot.name = `registered-effect:${effect.key}`;
+    effectRoot.userData.entityId = entity.id;
+    effectRoot.userData.registeredEntityEffect = true;
+    effect.particle_layers.forEach((layer, layerIndex) => {
         const random = randomFrom(effect.seed + layerIndex * 104729);
         const values = new Float32Array(layer.count * 3);
         for (let index = 0; index < layer.count; index += 1) {
@@ -1499,9 +1822,9 @@ export class PlayerScene {
         layerRoot.userData.registeredEntityEffect = true;
         this.applyEffectTransform(layerRoot, layer.transform);
         layerRoot.add(points);
-        anchor.add(layerRoot);
+        effectRoot.add(layerRoot);
       });
-      effect.lightning_layers.forEach((layer, layerIndex) => {
+    effect.lightning_layers.forEach((layer, layerIndex) => {
         const random = randomFrom(effect.seed + layerIndex * 130363);
         for (let boltIndex = 0; boltIndex < layer.bolt_count; boltIndex += 1) {
           const angle = random() * Math.PI * 2;
@@ -1536,10 +1859,10 @@ export class PlayerScene {
             phase: random() * Math.PI * 2,
           };
           this.applyEffectTransform(line, layer.transform);
-          anchor.add(line);
+          effectRoot.add(line);
         }
       });
-    }
+    return effectRoot;
   }
 
   private loadAsset(assetKey: string): Promise<LoadedAsset> {
@@ -1603,16 +1926,16 @@ export class PlayerScene {
   }
 
   private async replaceDecorationWithAsset(
-    root: THREE.Group,
+    tracked: TrackedDecoration,
     group: NonNullable<PlayerSceneDecoration['prop_group3d']>,
     source: NonNullable<PlayerSceneDecoration['prop_group3d']>['instances'],
-    generation: number,
+    revision: number,
   ): Promise<void> {
     try {
       const { gltf, descriptor } = await this.loadAsset(group.asset_key);
-      if (!descriptor.instanced || generation !== this.loadGeneration || !root.parent) return;
+      if (!descriptor.instanced || revision !== tracked.revision || this.decorations.get(tracked.decoration.id) !== tracked) return;
       const { cloneGltfScene } = await loadGltfAssets();
-      if (generation !== this.loadGeneration || !root.parent) return;
+      if (revision !== tracked.revision || this.decorations.get(tracked.decoration.id) !== tracked) return;
       const model = cloneGltfScene(gltf.scene);
       this.applyAssetTransform(model, descriptor);
       model.updateMatrixWorld(true);
@@ -1648,12 +1971,13 @@ export class PlayerScene {
         mesh.receiveShadow = true;
         replacements.push(mesh);
       });
-      if (!replacements.length || generation !== this.loadGeneration || !root.parent) return;
-      for (const child of [...root.children]) {
-        root.remove(child);
+      if (!replacements.length || revision !== tracked.revision || this.decorations.get(tracked.decoration.id) !== tracked) return;
+      for (const child of [...tracked.root.children]) {
+        if (!child.userData.decorationProps) continue;
+        tracked.root.remove(child);
         disposeObject(child);
       }
-      root.add(...replacements);
+      tracked.root.add(...replacements);
     } catch (error) {
       console.warn(`Bunnyland 3D decoration asset fallback for ${group.asset_key}:`, error);
     }
@@ -1792,7 +2116,7 @@ export class PlayerScene {
   private updateNearbyExit(): void {
     let nearest: TrackedExit | null = null;
     let nearestDistanceSquared = EXIT_RANGE * EXIT_RANGE;
-    for (const tracked of this.exits) {
+    for (const tracked of this.exits.values()) {
       const dx = tracked.position.x - this.avatarPosition.x;
       const dz = tracked.position.z - this.avatarPosition.z;
       const distanceSquared = dx * dx + dz * dz;
@@ -1810,11 +2134,11 @@ export class PlayerScene {
   private applySelection(): void {
     for (const [id, tracked] of this.entities) {
       const old = tracked.root.getObjectByName('selection-ring');
-      if (old) {
+      if (old && id !== this.selectedEntityId) {
         tracked.root.remove(old);
         disposeObject(old);
       }
-      if (id !== this.selectedEntityId) continue;
+      if (id !== this.selectedEntityId || old) continue;
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(0.42, 0.53, 28),
         new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.92, side: THREE.DoubleSide }),
