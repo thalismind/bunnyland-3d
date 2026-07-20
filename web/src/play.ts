@@ -1,4 +1,4 @@
-import { claimHeaders, mediaUrl, normalizeBase, requestSceneImage, sendJson } from '@bunnyland/ui-web/api';
+import { ApiError, claimHeaders, mediaUrl, normalizeBase, requestSceneImage, sendJson } from '@bunnyland/ui-web/api';
 import {
   actionArguments,
   actionAvailable,
@@ -31,6 +31,7 @@ import {
   queuedCommandLabel,
   queuedCountdownSeconds,
   setIconPreference as sharedSetIconPreference,
+  storedClaimControl,
   storeClaimControl,
   submitCommand,
   type ActionView,
@@ -178,12 +179,24 @@ export async function fetch3dRoomScene(base: string, roomId: string): Promise<Pl
 }
 
 export async function claimCharacter(base: string, characterId: string, options: ClaimOptions = {}): Promise<ControlClaim> {
-  return claimSharedCharacter(base, characterId, CLAIM_KEY, {
+  const stored = storedClaimControl(CLAIM_KEY, characterId);
+  const sharedOptions = {
     ...options,
     clientIdKey: CLIENT_ID_KEY,
     clientIdPrefix: '3d',
     label: '3d-player',
-  });
+  };
+  try {
+    return await claimSharedCharacter(base, characterId, CLAIM_KEY, sharedOptions);
+  } catch (error) {
+    if (!stored || !(error instanceof ApiError) || error.status !== 404) throw error;
+    clearClaimControl(CLAIM_KEY, characterId);
+    return claimSharedCharacter(base, characterId, CLAIM_KEY, sharedOptions);
+  }
+}
+
+export function clearStoredClaim(characterId: string): void {
+  clearClaimControl(CLAIM_KEY, characterId);
 }
 
 export async function updateControllerFallback(base: string, characterId: string, control: ControlClaim, options: ClaimOptions): Promise<unknown> {

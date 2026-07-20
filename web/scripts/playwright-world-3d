@@ -154,6 +154,11 @@ RECENT_EVENTS = [{
 FALLBACK_SAVED = False
 CONTROLLER_RELEASED = False
 CLAIM_RELEASED = False
+CLAIM_STATE = {
+    "expired": False,
+    "projection_requests": 0,
+    "methods": [],
+}
 SCENE_STATE = {
     "crate_x": 12,
     "effect_remaining": -1,
@@ -559,6 +564,13 @@ def route_api(page):
 
     page.route("**/mock/test-scene", scene_control_route)
 
+    def claim_control_route(route):
+        if route.request.method == "POST":
+            CLAIM_STATE.update(route.request.post_data_json or {})
+        route.fulfill(status=200, json={"ok": True, **CLAIM_STATE})
+
+    page.route("**/mock/test-claim", claim_control_route)
+
     def scene_route(route):
         room_id = unquote(route.request.url.rsplit("/3d/v2/room/", 1)[1])
         route.fulfill(status=200, json=player_3d_scene(room_id))
@@ -579,6 +591,7 @@ def route_api(page):
         "characters": [{"id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
     }))
     def claim_route(route):
+        CLAIM_STATE["methods"].append(route.request.method)
         if route.request.method == "DELETE":
             claim_release_route(route)
             return
@@ -589,6 +602,11 @@ def route_api(page):
         if route.request.method == "PATCH" and payload.get("kind") == "control":
             controller_release_route(route)
             return
+        if route.request.method == "PUT" and CLAIM_STATE["expired"]:
+            route.fulfill(status=404, json={"detail": "claim does not exist"})
+            return
+        if route.request.method == "POST":
+            CLAIM_STATE["expired"] = False
         route.fulfill(status=200, headers={"X-Bunnyland-Claim-Secret": "secret-1"}, json={
             "id": "claim-1",
             "character_id": "character:ash",
@@ -631,6 +649,10 @@ def route_api(page):
             return
         if path.endswith("/commands") and route.request.method == "POST":
             player_command_route(route)
+            return
+        CLAIM_STATE["projection_requests"] += 1
+        if CLAIM_STATE["expired"]:
+            route.fulfill(status=404, json={"detail": "claim does not exist"})
             return
         projection = player_projection()
         projection.update({"next_tick_at_unix": time.time() + 8, "commands": PLAYER_QUEUE})
@@ -1221,6 +1243,47 @@ def main() -> None:
                 path=ARTIFACT_DIR / "world-3d-player.png",
                 full_page=FULL_PAGE_SCREENSHOTS,
             )
+
+            page.evaluate(
+                """async () => fetch('./mock/test-claim', {
+                  method: 'POST',
+                  headers: {'content-type': 'application/json'},
+                  body: JSON.stringify({expired: true, methods: []}),
+                })"""
+            )
+            page.evaluate("window.__world3dPlayer.refresh()")
+            expect(page.locator("#status")).to_contain_text("Claim expired")
+            expect(page.locator("#btn-claim")).to_have_text("Claim")
+            if page.locator("#character-select").input_value() != "character:ash":
+                raise AssertionError("claim expiry cleared the selected character")
+            stored_claim = page.evaluate(
+                "localStorage.getItem('bunnyland.3d.claim.character:ash')"
+            )
+            if stored_claim is not None:
+                raise AssertionError("claim expiry left stale claim credentials in storage")
+            expired_state = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
+            )
+            page.wait_for_timeout(2500)
+            settled_state = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
+            )
+            if settled_state["projection_requests"] != expired_state["projection_requests"]:
+                raise AssertionError(
+                    "claim expiry did not stop projection polling: "
+                    f"{expired_state!r} -> {settled_state!r}"
+                )
+            page.locator("#btn-claim").click()
+            page.locator("#btn-dialog-claim").click()
+            expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
+            reclaimed_state = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
+            )
+            if reclaimed_state["methods"][-1:] != ["POST"]:
+                raise AssertionError(
+                    f"expired claim was not replaced with a fresh POST: {reclaimed_state!r}"
+                )
+
             page.locator("#btn-claim").click()
             page.locator("#btn-dialog-save-fallback").click()
             if not FALLBACK_SAVED:
@@ -1235,6 +1298,32 @@ def main() -> None:
             page.locator("#btn-dialog-release").click()
             if not CLAIM_RELEASED:
                 raise AssertionError("claim dialog did not release claim")
+
+            page.evaluate(
+                """async () => {
+                  localStorage.setItem('bunnyland.3d.claim.character:ash', JSON.stringify({
+                    controllerId: 'controller:web', generation: 3,
+                    claimId: 'claim-expired', claimSecret: 'expired-secret',
+                    clientId: '3d-test', active: true,
+                  }));
+                  await fetch('./mock/test-claim', {
+                    method: 'POST',
+                    headers: {'content-type': 'application/json'},
+                    body: JSON.stringify({expired: true, methods: []}),
+                  });
+                }"""
+            )
+            page.reload(wait_until="networkidle")
+            page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
+            page.locator("#character-select").select_option("character:ash")
+            expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
+            resumed_state = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
+            )
+            if resumed_state["methods"][:2] != ["PUT", "POST"]:
+                raise AssertionError(
+                    f"stale persisted claim did not retry with a fresh POST: {resumed_state!r}"
+                )
 
             page.unroute("**/mock/play/extensions/bunnyland.3d/3d/v2/capabilities")
             page.route(

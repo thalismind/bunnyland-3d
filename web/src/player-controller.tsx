@@ -1,4 +1,4 @@
-import { assertSameOriginBase, mediaUrl as sharedMediaUrl, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
+import { ApiError, assertSameOriginBase, mediaUrl as sharedMediaUrl, serverFromUrl, setServerInUrl } from '@bunnyland/ui-web/api';
 import { EmptyState, Pill } from '@bunnyland/ui-web/preact';
 import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyland/ui-web/player-widgets';
 import { Fragment, render as renderView } from 'preact';
@@ -19,6 +19,7 @@ import {
   cancelCommand,
   characterHref,
   claimCharacter,
+  clearStoredClaim,
   createPlayerLiveUpdates,
   drainNarratedEvents,
   fetchCharacters,
@@ -227,6 +228,10 @@ async function selectCharacter(characterId: string): Promise<void> {
     startPlayerUpdates();
   } catch (err) {
     if (generation !== requestGeneration || characterId !== playerId) return;
+    if (isMissingClaim(err)) {
+      expirePlayerClaim(characterId);
+      return;
+    }
     status(`claim failed: ${(err as Error).message}`, 'err');
   }
   render();
@@ -239,10 +244,21 @@ async function refresh(): Promise<void> {
   const requestPlayerId = playerId;
   const requestControl = control;
   try {
-    const [nextProjection, nextQueue] = await Promise.all([
-      fetchProjection(requestBase, requestPlayerId, requestControl),
-      fetchQueue(requestBase, requestPlayerId, requestControl),
-    ]);
+    let nextProjection: CharacterProjection;
+    let nextQueue: QueuedProjection;
+    try {
+      [nextProjection, nextQueue] = await Promise.all([
+        fetchProjection(requestBase, requestPlayerId, requestControl),
+        fetchQueue(requestBase, requestPlayerId, requestControl),
+      ]);
+    } catch (err) {
+      if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
+      if (isMissingClaim(err)) {
+        expirePlayerClaim(requestPlayerId);
+        return;
+      }
+      throw err;
+    }
     if (generation !== requestGeneration || requestBase !== baseUrl || requestPlayerId !== playerId) return;
     if (nextProjection.controller?.generation != null) {
       requestControl.generation = Number(nextProjection.controller.generation || requestControl.generation);
@@ -330,6 +346,24 @@ function stopPlayerUpdates(): void {
   liveToken += 1;
   liveUpdates?.close();
   liveUpdates = null;
+}
+
+function isMissingClaim(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+function expirePlayerClaim(characterId: string): void {
+  requestGeneration += 1;
+  stopPlayerUpdates();
+  clearStoredClaim(characterId);
+  control = null;
+  projection = null;
+  queue = null;
+  selectedTargetId = '';
+  nearbyExit = null;
+  renderExitPrompt();
+  status('Claim expired. Claim again.', 'err');
+  render();
 }
 
 function startPlayerUpdates(): void {
@@ -699,6 +733,11 @@ async function claimOrResume(): Promise<void> {
     startPlayerUpdates();
     claimDialog.close();
   } catch (err) {
+    if (isMissingClaim(err)) {
+      expirePlayerClaim(playerId);
+      claimDialog.close();
+      return;
+    }
     status(`claim failed: ${(err as Error).message}`, 'err');
   }
 }
