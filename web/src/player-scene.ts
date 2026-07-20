@@ -1,7 +1,15 @@
 import * as THREE from 'three';
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { ServerAssetManifest, ServerModelAsset } from './play';
+
+type GltfAssets = typeof import('./gltf-assets');
+
+let gltfAssets: Promise<GltfAssets> | null = null;
+
+function loadGltfAssets(): Promise<GltfAssets> {
+  gltfAssets ||= import('./gltf-assets');
+  return gltfAssets;
+}
 
 export interface Vector3View {
   x: number;
@@ -365,7 +373,6 @@ export class PlayerScene {
   private readonly exitGroup = new THREE.Group();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
-  private readonly loader = new GLTFLoader();
   private readonly assetCache = new Map<string, Promise<LoadedAsset>>();
   private readonly textureLoader = new THREE.TextureLoader();
   private assetManifest: Promise<AssetManifest> | null = null;
@@ -1145,7 +1152,9 @@ export class PlayerScene {
         tracked.root.remove(child);
         disposeObject(child);
       }
-      const model = cloneSkeleton(gltf.scene);
+      const { cloneGltfScene } = await loadGltfAssets();
+      if (generation !== this.loadGeneration || this.entities.get(tracked.entity.id) !== tracked) return;
+      const model = cloneGltfScene(gltf.scene);
       this.applyAssetTransform(model, descriptor);
       model.traverse(child => {
         child.userData.entityId = tracked.entity.id;
@@ -1257,7 +1266,9 @@ export class PlayerScene {
     if (!anchor) return;
     const { gltf, descriptor } = await this.loadAsset(attachment.model_key);
     if (generation !== this.loadGeneration) return;
-    const root = cloneSkeleton(gltf.scene);
+    const { cloneGltfScene } = await loadGltfAssets();
+    if (generation !== this.loadGeneration) return;
+    const root = cloneGltfScene(gltf.scene);
     this.applyAssetTransform(root, descriptor);
     const transform = attachment.transform;
     root.scale.multiplyScalar(finite(transform.scale, 1));
@@ -1464,11 +1475,14 @@ export class PlayerScene {
         if (asset.url) {
           const url = new URL(asset.url, document.baseURI);
           if (!url.pathname.endsWith('.glb')) throw new Error(`invalid server asset URL for ${assetKey}`);
-          return this.loader.loadAsync(url.href).then(gltf => ({ gltf, descriptor: asset }));
+          return loadGltfAssets()
+            .then(({ loadGltf }) => loadGltf(url.href))
+            .then(gltf => ({ gltf, descriptor: asset }));
         }
         const path = asset.path || '';
         if (!/^[a-z0-9][a-z0-9._-]*\.gltf$/.test(path)) throw new Error(`unknown bundled asset key ${assetKey}`);
-        return this.loader.loadAsync(new URL(`assets/3d/${path}`, document.baseURI).href)
+        return loadGltfAssets()
+          .then(({ loadGltf }) => loadGltf(new URL(`assets/3d/${path}`, document.baseURI).href))
           .then(gltf => ({ gltf, descriptor: asset }));
       });
       this.assetCache.set(cacheKey, pending);
@@ -1519,7 +1533,9 @@ export class PlayerScene {
     try {
       const { gltf, descriptor } = await this.loadAsset(group.asset_key);
       if (!descriptor.instanced || generation !== this.loadGeneration || !root.parent) return;
-      const model = cloneSkeleton(gltf.scene);
+      const { cloneGltfScene } = await loadGltfAssets();
+      if (generation !== this.loadGeneration || !root.parent) return;
+      const model = cloneGltfScene(gltf.scene);
       this.applyAssetTransform(model, descriptor);
       model.updateMatrixWorld(true);
       const replacements: THREE.InstancedMesh[] = [];

@@ -23,6 +23,8 @@ export default defineConfig({
     },
   },
   build: {
+    // Three.js core is intentionally lazy and budgeted by scripts/check-bundle.mjs.
+    chunkSizeWarningLimit: 600,
     rolldownOptions: {
       input: {
         index: 'index.html',

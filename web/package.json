@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "assets": "node scripts/generate-3d-assets.mjs",
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "tsc -p tsconfig.json && vite build && node scripts/check-bundle.mjs",
     "test": "node --test",
     "check": "npm run build && npm test",
     "playwright": "scripts/playwright-world-3d",
