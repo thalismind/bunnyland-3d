@@ -138,6 +138,7 @@ let liveState = 'fallback';
 let liveToken = 0;
 let lobbyTimer: ReturnType<typeof setInterval> | null = null;
 let lobbyGeneration = 0;
+let lobbyRequest: { generation: number; promise: Promise<void> } | null = null;
 let requestGeneration = 0;
 let refreshPromise: Promise<void> | null = null;
 
@@ -342,16 +343,26 @@ function startLobbyPolling(): void {
   if (!baseUrl || playerId) return;
   const generation = ++lobbyGeneration;
   const requestBase = baseUrl;
-  lobbyTimer = setInterval(async () => {
-    try {
-      const nextCharacters = await fetchCharacters(requestBase);
-      if (generation !== lobbyGeneration || requestBase !== baseUrl || playerId) return;
-      characters = nextCharacters;
-      renderCharacters();
-    } catch (_err) {
-      // The lobby remains usable with its last successful character list.
-    }
-  }, 2000);
+  const poll = (): Promise<void> => {
+    if (lobbyRequest?.generation === generation) return lobbyRequest.promise;
+    const promise = (async (): Promise<void> => {
+      try {
+        const nextCharacters = await fetchCharacters(requestBase);
+        if (generation !== lobbyGeneration || requestBase !== baseUrl || playerId) return;
+        characters = nextCharacters;
+        renderCharacters();
+      } catch (_err) {
+        // The lobby remains usable with its last successful character list.
+      }
+    })();
+    lobbyRequest = { generation, promise };
+    const clear = (): void => {
+      if (lobbyRequest?.promise === promise) lobbyRequest = null;
+    };
+    void promise.then(clear, clear);
+    return promise;
+  };
+  lobbyTimer = setInterval(() => { void poll(); }, 2000);
 }
 
 function stopPlayerUpdates(): void {

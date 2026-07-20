@@ -155,8 +155,11 @@ FALLBACK_SAVED = False
 CONTROLLER_RELEASED = False
 CLAIM_RELEASED = False
 CLAIM_STATE = {
+    "character_requests": 0,
+    "event_requests": 0,
     "expired": False,
     "projection_requests": 0,
+    "room_requests": 0,
     "methods": [],
 }
 SCENE_STATE = {
@@ -572,6 +575,7 @@ def route_api(page):
     page.route("**/mock/test-claim", claim_control_route)
 
     def scene_route(route):
+        CLAIM_STATE["room_requests"] += 1
         room_id = unquote(route.request.url.rsplit("/3d/v2/room/", 1)[1])
         route.fulfill(status=200, json=player_3d_scene(room_id))
 
@@ -585,11 +589,15 @@ def route_api(page):
     }))
     page.route("**/mock/admin/world", lambda route: route.fulfill(status=200, json=OVERVIEW))
     page.route("**/mock/admin/world/snapshot", lambda route: route.fulfill(status=200, json={"entities": []}))
-    page.route("**/mock/play/characters", lambda route: route.fulfill(status=200, json={
-        "ok": True,
-        "world_epoch": 21,
-        "characters": [{"id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
-    }))
+    def characters_route(route):
+        CLAIM_STATE["character_requests"] += 1
+        route.fulfill(status=200, json={
+            "ok": True,
+            "world_epoch": 21,
+            "characters": [{"id": "character:ash", "name": "Ash", "kind": "character", "suspended": True}],
+        })
+
+    page.route("**/mock/play/characters", characters_route)
     def claim_route(route):
         CLAIM_STATE["methods"].append(route.request.method)
         if route.request.method == "DELETE":
@@ -637,6 +645,7 @@ def route_api(page):
             route.fulfill(status=200, json={"ok": True, "status": "queued"})
             return
         if path.endswith("/events"):
+            CLAIM_STATE["event_requests"] += 1
             if route.request.headers.get("x-bunnyland-claim-secret") != "secret-1":
                 route.fulfill(status=403, json={"detail": "missing claim secret"})
                 return
@@ -1200,25 +1209,34 @@ def main() -> None:
             avatar_after = page.evaluate("window.__world3dPlayer.avatarState()")
             if avatar_after == avatar_before:
                 raise AssertionError(f"WASD did not move the local avatar: {avatar_before!r}")
-            projection_requests_before_poll = page.evaluate(
-                """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
+            requests_before_poll = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
             )
             page.wait_for_function(
-                """async before => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests > before)""",
-                arg=projection_requests_before_poll,
+                """async before => (await fetch('./mock/test-claim')).json().then(state =>
+                  state.projection_requests > before.projection_requests &&
+                  state.room_requests > before.room_requests &&
+                  state.event_requests > before.event_requests)""",
+                arg=requests_before_poll,
             )
-            projection_requests_before_refresh = page.evaluate(
-                """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
+            requests_before_refresh = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
             )
             page.locator("#btn-refresh").click()
             page.evaluate("window.__world3dPlayer.refresh()")
-            projection_requests_after_refresh = page.evaluate(
-                """async () => (await fetch('./mock/test-claim')).json().then(state => state.projection_requests)"""
+            requests_after_refresh = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
             )
-            if projection_requests_after_refresh != projection_requests_before_refresh + 1:
+            for request_key in ("projection_requests", "room_requests", "event_requests"):
+                if requests_after_refresh[request_key] != requests_before_refresh[request_key] + 1:
+                    raise AssertionError(
+                        f"one player refresh duplicated {request_key}: "
+                        f"{requests_before_refresh!r} -> {requests_after_refresh!r}"
+                    )
+            if requests_after_refresh["character_requests"] != requests_before_refresh["character_requests"]:
                 raise AssertionError(
-                    "one player refresh fetched the character projection more than once: "
-                    f"{projection_requests_before_refresh} -> {projection_requests_after_refresh}"
+                    "a player refresh fetched the character lobby: "
+                    f"{requests_before_refresh!r} -> {requests_after_refresh!r}"
                 )
             avatar_refreshed = page.evaluate("window.__world3dPlayer.avatarState()")
             if avatar_refreshed != avatar_after:
