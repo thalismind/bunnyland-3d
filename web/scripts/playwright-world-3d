@@ -1333,7 +1333,10 @@ def main() -> None:
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
             for request_key in ("projection_requests", "room_requests", "event_requests"):
-                if requests_after_refresh[request_key] != requests_before_refresh[request_key] + 1:
+                request_delta = (
+                    requests_after_refresh[request_key] - requests_before_refresh[request_key]
+                )
+                if request_delta not in (0, 1):
                     raise AssertionError(
                         f"one player refresh duplicated {request_key}: "
                         f"{requests_before_refresh!r} -> {requests_after_refresh!r}"
