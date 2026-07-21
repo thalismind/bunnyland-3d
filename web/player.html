@@ -432,6 +432,17 @@
       #claim-dialog::backdrop { background: var(--bl-overlay); }
       .claim-dialog-form { display: grid; gap: 8px; }
       .claim-dialog-form h3 { margin: 0 0 4px; }
+      #content-warning-dialog {
+        width: min(560px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        border: 2px solid var(--bl-warn);
+        background: var(--bl-bg-strong);
+        color: var(--bl-text);
+      }
+      #content-warning-dialog::backdrop { background: var(--bl-overlay); }
+      .content-warning-form { display: grid; gap: 10px; }
+      .content-warning-form h2 { margin: 0; color: var(--bl-warn); }
+      .content-warning-ignore { display: flex; gap: 8px; align-items: flex-start; }
       .claim-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
       @media (max-width: 900px) {
         #side { inset: 8px 8px 8px auto; width: min(360px, calc(100% - 16px)); }

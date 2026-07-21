@@ -4,6 +4,11 @@ import { mergeGalleryItems, renderGalleryItems, type GalleryItem } from '@bunnyl
 import { Fragment, render as renderView } from 'preact';
 import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { reportPlayerCanvasProgress } from './canvas-progress';
+import {
+  fetchContentFlags,
+  ignoredContentFlags,
+  rememberIgnoredContentFlags,
+} from './content-warning';
 import { PlayerScene, type PlayerSceneExit } from './player-scene';
 import {
   actionArguments,
@@ -114,6 +119,11 @@ const dialogClaimButton = document.getElementById('btn-dialog-claim') as HTMLBut
 const dialogSaveFallbackButton = document.getElementById('btn-dialog-save-fallback') as HTMLButtonElement;
 const dialogIdleButton = document.getElementById('btn-dialog-idle') as HTMLButtonElement;
 const dialogReleaseButton = document.getElementById('btn-dialog-release') as HTMLButtonElement;
+const contentWarningDialog = document.getElementById('content-warning-dialog') as HTMLDialogElement;
+const contentWarningFlagsEl = document.getElementById('content-warning-flags') as HTMLUListElement;
+const contentWarningRememberEl = document.getElementById('content-warning-remember') as HTMLInputElement;
+const contentWarningAcceptButton = document.getElementById('btn-content-warning-accept') as HTMLButtonElement;
+const contentWarningDeclineButton = document.getElementById('btn-content-warning-decline') as HTMLButtonElement;
 
 let baseUrl = '';
 let characters: CharacterSummary[] = [];
@@ -141,6 +151,12 @@ let lobbyGeneration = 0;
 let lobbyRequest: { generation: number; promise: Promise<void> } | null = null;
 let requestGeneration = 0;
 let refreshPromise: Promise<void> | null = null;
+const acceptedContentFlags = new Map<string, string>();
+let pendingContentFlags: string[] = [];
+let pendingContentSignature = '';
+let pendingContentBase = '';
+let contentWarningRequestId = 0;
+let contentWarningResolver: { requestId: number; resolve: (accepted: boolean) => void } | null = null;
 
 const scene = new PlayerScene(
   viewer,
@@ -164,6 +180,7 @@ function status(text: string, cls = ''): void {
 async function connect(rawBase: string): Promise<void> {
   const nextBase = assertSameOriginBase(rawBase);
   if (!nextBase) return;
+  cancelContentWarning();
   const generation = ++requestGeneration;
   stopPlayerUpdates();
   stopLobbyPolling();
@@ -212,6 +229,16 @@ async function selectCharacter(characterId: string): Promise<void> {
     queue = null;
     startLobbyPolling();
     render();
+    return;
+  }
+  try {
+    if (!await requireContentWarning(baseUrl)) {
+      renderCharacters();
+      return;
+    }
+  } catch (err) {
+    renderCharacters();
+    status(`could not check content warning: ${(err as Error).message}`, 'err');
     return;
   }
   stopLobbyPolling();
@@ -752,6 +779,7 @@ function openSheet(): void {
 async function claimOrResume(): Promise<void> {
   if (!baseUrl || !playerId) return;
   try {
+    if (!await requireContentWarning(baseUrl)) return;
     control = await claimCharacter(baseUrl, playerId, claimOptionsFromForm());
     startPlayerUpdates();
     claimDialog.close();
@@ -763,6 +791,75 @@ async function claimOrResume(): Promise<void> {
     }
     status(`claim failed: ${(err as Error).message}`, 'err');
   }
+}
+
+async function requireContentWarning(base: string): Promise<boolean> {
+  const requestId = ++contentWarningRequestId;
+  contentWarningResolver?.resolve(false);
+  contentWarningResolver = null;
+  if (contentWarningDialog.open) contentWarningDialog.close();
+  let flags: string[];
+  try {
+    flags = await fetchContentFlags(base);
+  } catch (error) {
+    if (requestId !== contentWarningRequestId) return false;
+    throw error;
+  }
+  if (requestId !== contentWarningRequestId) return false;
+  const signature = flags.join('\n');
+  if (acceptedContentFlags.get(base) === signature) return true;
+  const ignored = new Set(ignoredContentFlags());
+  const visible = flags.filter(flag => !ignored.has(flag));
+  if (!visible.length) {
+    acceptedContentFlags.set(base, signature);
+    return true;
+  }
+  pendingContentFlags = visible;
+  pendingContentSignature = signature;
+  pendingContentBase = base;
+  contentWarningRememberEl.checked = false;
+  contentWarningFlagsEl.replaceChildren(...visible.map(flag => {
+    const item = document.createElement('li');
+    item.textContent = flag;
+    return item;
+  }));
+  scene.setEnabled(false);
+  contentWarningDialog.showModal();
+  return new Promise<boolean>(resolve => {
+    if (requestId !== contentWarningRequestId) {
+      resolve(false);
+      return;
+    }
+    contentWarningResolver = { requestId, resolve };
+  });
+}
+
+function settleContentWarning(accepted: boolean): void {
+  const active = contentWarningResolver;
+  if (!active || active.requestId !== contentWarningRequestId) return;
+  contentWarningResolver = null;
+  if (accepted) {
+    if (contentWarningRememberEl.checked) rememberIgnoredContentFlags(pendingContentFlags);
+    acceptedContentFlags.set(pendingContentBase, pendingContentSignature);
+  }
+  pendingContentFlags = [];
+  pendingContentSignature = '';
+  pendingContentBase = '';
+  if (contentWarningDialog.open) contentWarningDialog.close();
+  scene.setEnabled(true);
+  active.resolve(accepted);
+}
+
+function cancelContentWarning(): void {
+  contentWarningRequestId += 1;
+  const active = contentWarningResolver;
+  contentWarningResolver = null;
+  pendingContentFlags = [];
+  pendingContentSignature = '';
+  pendingContentBase = '';
+  if (contentWarningDialog.open) contentWarningDialog.close();
+  scene.setEnabled(true);
+  active?.resolve(false);
 }
 
 async function saveFallback(): Promise<void> {
@@ -1128,6 +1225,12 @@ dialogClaimButton.addEventListener('click', () => { void claimOrResume(); });
 dialogSaveFallbackButton.addEventListener('click', () => { void saveFallback(); });
 dialogIdleButton.addEventListener('click', () => { void idleController(); });
 dialogReleaseButton.addEventListener('click', () => { void releasePlayerClaim(); });
+contentWarningAcceptButton.addEventListener('click', () => settleContentWarning(true));
+contentWarningDeclineButton.addEventListener('click', () => settleContentWarning(false));
+contentWarningDialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  settleContentWarning(false);
+});
 photoGalleryEl.addEventListener('click', event => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-gallery-id]');
   if (row?.dataset.galleryId) openGalleryItem(row.dataset.galleryId);

@@ -101,6 +101,21 @@ function PlayerShell() {
         </div>
       </form>
     </dialog>
+    <dialog id="content-warning-dialog" aria-labelledby="content-warning-title">
+      <form method="dialog" class="content-warning-form">
+        <h2 id="content-warning-title">Content warning</h2>
+        <p>This world may contain the following content. You must accept this warning before joining.</p>
+        <ul id="content-warning-flags"></ul>
+        <label class="content-warning-ignore">
+          <input id="content-warning-remember" type="checkbox" />
+          Ignore these flags in this browser after I accept.
+        </label>
+        <div class="claim-actions">
+          <button id="btn-content-warning-decline" type="button">Leave</button>
+          <button id="btn-content-warning-accept" type="button">Accept and Join</button>
+        </div>
+      </form>
+    </dialog>
     <main id="main">
       <section id="viewer" aria-busy={renderer.kind === 'loading'}>
         {renderer.kind !== 'ready' && <CanvasLoading

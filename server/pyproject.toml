@@ -3,11 +3,11 @@ name = "bunnyland-3d"
 version = "0.3.0"
 description = "Out-of-tree Bunnyland 3D presentation, movement, and collision plugin."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
 dependencies = [
-    "bunnyland[server]>=0.2.0",
+    "bunnyland[server]>=1.0.0rc2,<2",
     "pydantic>=2.0",
-    "relics",
+    "relics-ecs>=0.1.1,<0.2",
     "trimesh==4.12.2",
 ]
 
@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-bunnyland = { git = "https://github.com/thalismind/bunnyland-server.git", rev = "66ef716922dceeb4f2d56874cd5d12900a403cc9" }
+bunnyland = { path = "../../bunnyland-server" }
 
 [build-system]
 requires = ["hatchling"]

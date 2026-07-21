@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server@sha256:7796d58fefdfd25405ce9d5694fd91f56e2842e5701fc234a02369476372446b
+ARG BUNNYLAND_SERVER_IMAGE=ghcr.io/thalismind/bunnyland-server:main
 FROM ${BUNNYLAND_SERVER_IMAGE} AS plugin
 
 WORKDIR /plugin/bunnyland-3d
 
-COPY server/pyproject.toml server/uv.lock server/README.md ./
+COPY server/pyproject.toml server/README.md ./
 COPY server/src ./src
 
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /app/.venv/bin/python --no-deps "trimesh==4.12.2" && \
-    uv pip install --python /app/.venv/bin/python --no-deps --editable .
+    uv build --wheel --out-dir /tmp/bunnyland-3d-dist . && \
+    uv pip install --python /app/.venv/bin/python --no-deps /tmp/bunnyland-3d-dist/*.whl
 
 FROM plugin AS test
 

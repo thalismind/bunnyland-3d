@@ -398,8 +398,12 @@ def test_admin_decoration_roof_and_texture_routes(tmp_path, monkeypatch):
             base_url="http://testserver",
             headers={"X-Bunnyland-Client-Id": "3d-test"},
         ) as client:
-            preview = await client.get(f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/decoration/preview")
-            applied = await client.post(f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/decoration/apply")
+            preview = await client.get(
+                f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/decoration/preview"
+            )
+            applied = await client.post(
+                f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/decoration/apply"
+            )
             roofed = await client.put(
                 f"/v1/admin/extensions/bunnyland.3d/3d/room/{room.id}/roof", json={"has_roof": True}
             )

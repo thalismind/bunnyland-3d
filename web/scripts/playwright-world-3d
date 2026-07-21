@@ -598,6 +598,13 @@ def route_api(page):
         })
 
     page.route("**/mock/play/characters", characters_route)
+    page.route("**/mock/public/world", lambda route: route.fulfill(status=200, json={
+        "world_id": "mock-world",
+        "world_epoch": 21,
+        "title": "Clover City",
+        "description": "Mind the foxes after dark.",
+        "content_flags": ["adult:violence"],
+    }))
     def claim_route(route):
         CLAIM_STATE["methods"].append(route.request.method)
         if route.request.method == "DELETE":
@@ -1010,8 +1017,29 @@ def main() -> None:
             )
             if empty_state["dx"] > 2 or empty_state["dy"] > 2 or empty_state["textAlign"] != "center":
                 raise AssertionError(f"player empty state was not centered: {empty_state!r}")
+            claims_before_warning = len(CLAIM_STATE["methods"])
             page.locator("#character-select").select_option("character:ash")
-            expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
+            expect(page.locator("#content-warning-dialog")).to_be_visible()
+            expect(page.locator("#content-warning-flags")).to_contain_text("adult:violence")
+            if len(CLAIM_STATE["methods"]) != claims_before_warning:
+                raise AssertionError("3D player claimed before content warning acceptance")
+            page.locator("#content-warning-remember").check()
+            page.locator("#btn-content-warning-accept").click()
+            page.wait_for_timeout(250)
+            if len(CLAIM_STATE["methods"]) == claims_before_warning:
+                raise AssertionError(
+                    f"3D player did not claim after content warning acceptance: "
+                    f"status={page.locator('#status').text_content()!r}"
+                )
+            try:
+                expect(page.locator("#room-title")).to_contain_text("Sunlit Meadow")
+            except AssertionError as error:
+                raise AssertionError(
+                    f"3D player did not load after content warning acceptance: "
+                    f"status={page.locator('#status').text_content()!r}, "
+                    f"character={page.locator('#character-select').input_value()!r}, "
+                    f"claims={CLAIM_STATE['methods']!r}"
+                ) from error
             initial_countdown = page.locator("#queue-title").text_content()
             page.wait_for_function(
                 "initial => document.querySelector('#queue-title')?.textContent !== initial",
