@@ -883,14 +883,19 @@ def main() -> None:
             expect(page.locator("#welcome-title")).to_contain_text("Play and inspect")
             expect(page.locator('a[href="player.html"]').first).to_contain_text("Open 3D Player")
             expect(page.locator('a[href="admin.html"]').first).to_contain_text("Open 3D Admin")
-            page.locator("#theme-select").select_option("anime-light")
+            page.locator("#theme-select").select_option("candy")
+            page.evaluate("""() => {
+              document.documentElement.classList.add('bl-color-scheme-light');
+              document.documentElement.dataset.colorScheme = 'light';
+            }""")
             welcome_theme = page.evaluate(
                 """() => ({
                   current: document.documentElement.dataset.theme,
-                  anime: document.documentElement.classList.contains('bl-theme-anime-light')
+                  candy: document.documentElement.classList.contains('bl-theme-candy'),
+                  light: document.documentElement.classList.contains('bl-color-scheme-light')
                 })"""
             )
-            if welcome_theme != {"current": "anime-light", "anime": True}:
+            if welcome_theme != {"current": "candy", "candy": True, "light": True}:
                 raise AssertionError(f"welcome page did not use shared theme setup: {welcome_theme!r}")
             if any("three.module-" in url or "gltf-assets-" in url for url in requested_urls):
                 raise AssertionError("welcome page eagerly loaded the 3D renderer or model tools")
@@ -904,17 +909,22 @@ def main() -> None:
             expect(page.locator("#decoration-result")).to_contain_text('"instances":92')
             page.locator("#room-has-roof").check()
             expect(page.locator("#status")).to_contain_text("roof enabled")
-            page.locator("#theme-select").select_option("anime-light")
+            page.locator("#theme-select").select_option("candy")
+            page.evaluate("""() => {
+              document.documentElement.classList.add('bl-color-scheme-light');
+              document.documentElement.dataset.colorScheme = 'light';
+            }""")
             theme = page.evaluate(
                 """() => ({
                   current: document.documentElement.dataset.theme,
-                  anime: document.documentElement.classList.contains('bl-theme-anime-light')
+                  candy: document.documentElement.classList.contains('bl-theme-candy'),
+                  light: document.documentElement.classList.contains('bl-color-scheme-light')
                 })"""
             )
-            if theme != {"current": "anime-light", "anime": True}:
+            if theme != {"current": "candy", "candy": True, "light": True}:
                 raise AssertionError(f"theme selector did not use shared theme setup: {theme!r}")
             scene_theme = page.evaluate("window.__world3d.themeState()")
-            if scene_theme["theme"] != "anime-light" or scene_theme["background"].lower() != "#efd0e2":
+            if scene_theme["theme"] != "candy" or scene_theme["background"].lower() != "#efd0e2":
                 raise AssertionError(f"3D scene did not use selected theme colors: {scene_theme!r}")
             page.locator("#viewer canvas").hover()
             radius_before = page.evaluate("window.__world3d.cameraState().radius")
