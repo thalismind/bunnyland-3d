@@ -75,10 +75,9 @@ uv pip install --python /tmp/bunnyland-3d-test/bin/python --no-deps ./server
 
 ## Web Client
 
-The web app is a Vite/Three.js project that depends on `@bunnyland/ui-web` for shared theme
-tokens, browser API helpers, player action helpers, and reusable widgets while remaining
-out-of-tree. Local workspace development can resolve the file dependency; CI supplies the
-published shared UI image as a named BuildKit context.
+The web app is a Vite/Three.js project that depends on the exact `@bunnyland/ui-web@0.2.0`
+npm release for shared theme tokens, browser API helpers, player action helpers, and reusable
+widgets while remaining out-of-tree.
 
 ```bash
 cd web
