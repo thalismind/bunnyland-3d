@@ -176,10 +176,11 @@ function beveledBox() {
 }
 
 const geometries = {
-  sphere: lowPolySphere(),
+  sphere: lowPolySphere(8, 5),
   cylinder: taperedCylinder(0.5, 0.5, 1, 10),
   cone: taperedCylinder(0.08, 0.5, 1, 9),
-  capsule: capsuleLike(),
+  capsule: capsuleLike(8, 6),
+  limb: taperedCylinder(0.3, 0.5, 1, 7),
   beveledBox: beveledBox(),
 };
 
@@ -212,6 +213,7 @@ function addMesh(name, geometry, material) {
 const avatarMeshes = {
   furSphere: addMesh('FurSphere', geometries.sphere, 0),
   furCapsule: addMesh('FurCapsule', geometries.capsule, 0),
+  furLimb: addMesh('FurLimb', geometries.limb, 0),
   belly: addMesh('BellyPatch', geometries.sphere, 1),
   innerEar: addMesh('InnerEar', geometries.capsule, 2),
   face: addMesh('FaceDetail', geometries.sphere, 3),
@@ -248,21 +250,22 @@ function quatArm(outwardAngle, swingAngle) {
 
 const armOutwardAngle = Math.PI * 0.38;
 const avatarRoot = node({ name: 'Avatar', children: [] });
-const body = node({ name: 'Body', mesh: avatarMeshes.furCapsule, translation: [0, 0.8, 0], scale: [0.68, 0.78, 0.54] });
+const body = node({ name: 'Body', mesh: avatarMeshes.furSphere, translation: [0, 0.78, 0], scale: [0.76, 0.92, 0.62] });
 const belly = node({ name: 'Belly', mesh: avatarMeshes.belly, translation: [0, 0.84, 0.25], scale: [0.46, 0.72, 0.12] });
-const head = node({ name: 'Head', mesh: avatarMeshes.furSphere, translation: [0, 1.48, 0.02], scale: [1.08, 0.98, 1] });
-const earL = node({ name: 'Ear.L', mesh: avatarMeshes.furCapsule, translation: [-0.18, 1.98, -0.01], rotation: [0, 0, 0.087, 0.996], scale: [0.25, 0.65, 0.22] });
-const earR = node({ name: 'Ear.R', mesh: avatarMeshes.furCapsule, translation: [0.18, 1.98, -0.01], rotation: [0, 0, -0.087, 0.996], scale: [0.25, 0.65, 0.22] });
-const innerL = node({ name: 'InnerEar.L', mesh: avatarMeshes.innerEar, translation: [-0.18, 1.99, 0.06], rotation: [0, 0, 0.087, 0.996], scale: [0.11, 0.53, 0.06] });
-const innerR = node({ name: 'InnerEar.R', mesh: avatarMeshes.innerEar, translation: [0.18, 1.99, 0.06], rotation: [0, 0, -0.087, 0.996], scale: [0.11, 0.53, 0.06] });
-const legL = node({ name: 'Leg.L', mesh: avatarMeshes.furCapsule, translation: [-0.22, 0.28, 0], scale: [0.34, 0.42, 0.38] });
-const legR = node({ name: 'Leg.R', mesh: avatarMeshes.furCapsule, translation: [0.22, 0.28, 0], scale: [0.34, 0.42, 0.38] });
-const armL = node({ name: 'Arm.L', mesh: avatarMeshes.furCapsule, translation: [-0.43, 0.92, 0.05], rotation: quatZ(armOutwardAngle), scale: [0.24, 0.5, 0.25] });
-const armR = node({ name: 'Arm.R', mesh: avatarMeshes.furCapsule, translation: [0.43, 0.92, 0.05], rotation: quatZ(-armOutwardAngle), scale: [0.24, 0.5, 0.25] });
+const head = node({ name: 'Head', translation: [0, 1.42, 0], children: [] });
+const headShape = node({ name: 'Head.Shape', mesh: avatarMeshes.furSphere, translation: [0, 0.06, 0.02], scale: [1.12, 1, 1.04] });
+const earL = node({ name: 'Ear.L', mesh: avatarMeshes.furCapsule, translation: [-0.18, 0.56, -0.01], rotation: [0, 0, 0.087, 0.996], scale: [0.25, 0.65, 0.22] });
+const earR = node({ name: 'Ear.R', mesh: avatarMeshes.furCapsule, translation: [0.18, 0.56, -0.01], rotation: [0, 0, -0.087, 0.996], scale: [0.25, 0.65, 0.22] });
+const innerL = node({ name: 'InnerEar.L', mesh: avatarMeshes.innerEar, translation: [-0.18, 0.57, 0.06], rotation: [0, 0, 0.087, 0.996], scale: [0.11, 0.53, 0.06] });
+const innerR = node({ name: 'InnerEar.R', mesh: avatarMeshes.innerEar, translation: [0.18, 0.57, 0.06], rotation: [0, 0, -0.087, 0.996], scale: [0.11, 0.53, 0.06] });
+const legL = node({ name: 'Leg.L', mesh: avatarMeshes.furCapsule, translation: [-0.22, 0.25, 0.15], rotation: quatX(Math.PI / 2), scale: [0.36, 0.42, 0.4] });
+const legR = node({ name: 'Leg.R', mesh: avatarMeshes.furCapsule, translation: [0.22, 0.25, 0.15], rotation: quatX(Math.PI / 2), scale: [0.36, 0.42, 0.4] });
+const armL = node({ name: 'Arm.L', mesh: avatarMeshes.furLimb, translation: [-0.43, 0.94, 0.05], rotation: quatArm(armOutwardAngle, 0.34), scale: [0.24, 0.55, 0.25] });
+const armR = node({ name: 'Arm.R', mesh: avatarMeshes.furLimb, translation: [0.43, 0.94, 0.05], rotation: quatArm(-armOutwardAngle, 0.34), scale: [0.24, 0.55, 0.25] });
 const tail = node({ name: 'Tail', mesh: avatarMeshes.furSphere, translation: [0, 0.72, -0.37], scale: [0.5, 0.5, 0.5] });
-const eyeL = node({ name: 'Eye.L', mesh: avatarMeshes.face, translation: [-0.13, 1.56, 0.48], scale: [0.13, 0.17, 0.08] });
-const eyeR = node({ name: 'Eye.R', mesh: avatarMeshes.face, translation: [0.13, 1.56, 0.48], scale: [0.13, 0.17, 0.08] });
-const nose = node({ name: 'Nose', mesh: avatarMeshes.face, translation: [0, 1.43, 0.52], scale: [0.1, 0.08, 0.07] });
+const eyeL = node({ name: 'Eye.L', mesh: avatarMeshes.face, translation: [-0.13, 0.14, 0.5], scale: [0.13, 0.17, 0.08] });
+const eyeR = node({ name: 'Eye.R', mesh: avatarMeshes.face, translation: [0.13, 0.14, 0.5], scale: [0.13, 0.17, 0.08] });
+const nose = node({ name: 'Nose', mesh: avatarMeshes.face, translation: [0, 0.01, 0.54], scale: [0.1, 0.08, 0.07] });
 const scout = node({ name: 'Variant.scout', children: [] });
 const scarf = node({ name: 'Scout.Neckerchief', mesh: avatarMeshes.scoutCloth, translation: [0, 1.2, 0.12], rotation: [0.707, 0, 0, 0.707], scale: [0.42, 0.42, 0.2] });
 const satchel = node({ name: 'Scout.Satchel', mesh: avatarMeshes.scoutBag, translation: [0.42, 0.68, -0.02], rotation: [0, 0, -0.174, 0.985], scale: [0.42, 0.48, 0.2] });
@@ -270,23 +273,26 @@ const gardener = node({ name: 'Variant.gardener', children: [] });
 const apron = node({ name: 'Gardener.Apron', mesh: avatarMeshes.gardenCloth, translation: [0, 0.78, 0.3], scale: [0.72, 0.82, 0.12] });
 const brim = node({ name: 'Gardener.Hat.Brim', mesh: avatarMeshes.gardenHat, translation: [0, 1.82, 0], scale: [1.45, 0.08, 1.45] });
 const crown = node({ name: 'Gardener.Hat.Crown', mesh: avatarMeshes.gardenHat, translation: [0, 1.99, 0], scale: [0.66, 0.34, 0.66] });
-nodes[avatarRoot].children = [body, belly, head, earL, earR, innerL, innerR, legL, legR, armL, armR, tail, eyeL, eyeR, nose, scout, gardener];
+nodes[avatarRoot].children = [body, belly, head, legL, legR, armL, armR, tail, scout, gardener];
+nodes[head].children = [headShape, earL, earR, innerL, innerR, eyeL, eyeR, nose];
 nodes[scout].children = [scarf, satchel];
 nodes[gardener].children = [apron, brim, crown];
 
 const idleTimes = accessor([0, 1, 2], 5126, 'SCALAR', 1, { min: [0], max: [2] });
-const idleBodyScale = accessor([0.68,0.78,0.54, 0.69,0.81,0.55, 0.68,0.78,0.54], 5126, 'VEC3', 3);
+const idleBodyScale = accessor([0.76,0.92,0.62, 0.77,0.95,0.63, 0.76,0.92,0.62], 5126, 'VEC3', 3);
 const idleHeadRotation = accessor([0, 0.035, 0].flatMap(quatZ), 5126, 'VEC4', 4);
 const idleEarL = accessor([0.174, 0.11, 0.174].flatMap(quatZ), 5126, 'VEC4', 4);
 const idleEarR = accessor([-0.174, -0.11, -0.174].flatMap(quatZ), 5126, 'VEC4', 4);
 const walkTimes = accessor([0, 0.25, 0.5, 0.75, 1], 5126, 'SCALAR', 1, { min: [0], max: [1] });
 const walkBounce = accessor([0,0.8,0, 0,0.86,0, 0,0.8,0, 0,0.86,0, 0,0.8,0], 5126, 'VEC3', 3);
-const swingAnglesA = [0.52, -0.52, 0.52, -0.52, 0.52];
-const swingAnglesB = [-0.52, 0.52, -0.52, 0.52, -0.52];
-const legSwingA = accessor(swingAnglesA.flatMap(quatX), 5126, 'VEC4', 4);
-const legSwingB = accessor(swingAnglesB.flatMap(quatX), 5126, 'VEC4', 4);
-const armSwingL = accessor(swingAnglesB.flatMap(angle => quatArm(armOutwardAngle, angle)), 5126, 'VEC4', 4);
-const armSwingR = accessor(swingAnglesA.flatMap(angle => quatArm(-armOutwardAngle, angle)), 5126, 'VEC4', 4);
+const legAnglesA = [1.86, 1.28, 1.86, 1.28, 1.86];
+const legAnglesB = [1.28, 1.86, 1.28, 1.86, 1.28];
+const armAnglesA = [0.62, 0.06, 0.62, 0.06, 0.62];
+const armAnglesB = [0.06, 0.62, 0.06, 0.62, 0.06];
+const legSwingA = accessor(legAnglesA.flatMap(quatX), 5126, 'VEC4', 4);
+const legSwingB = accessor(legAnglesB.flatMap(quatX), 5126, 'VEC4', 4);
+const armSwingL = accessor(armAnglesB.flatMap(angle => quatArm(armOutwardAngle, angle)), 5126, 'VEC4', 4);
+const armSwingR = accessor(armAnglesA.flatMap(angle => quatArm(-armOutwardAngle, angle)), 5126, 'VEC4', 4);
 const walkHead = accessor([0.06,-0.04,0.06,-0.04,0.06].flatMap(quatX), 5126, 'VEC4', 4);
 
 const binary = Buffer.concat(chunks);

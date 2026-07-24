@@ -1134,6 +1134,23 @@ def main() -> None:
             variant_state = page.evaluate("window.__world3dPlayer.entityVariantState('character:ash')")
             if variant_state != {"Variant.scout": True, "Variant.gardener": False}:
                 raise AssertionError(f"avatar variant roots were not resolved exclusively: {variant_state!r}")
+            page.wait_for_function(
+                "window.__world3dPlayer.interactionPoseState().targetId === 'item:clover'"
+            )
+            nearby_pose = page.evaluate("window.__world3dPlayer.interactionPoseState()")
+            if nearby_pose["reaching"] != ["Arm.L", "Arm.R"]:
+                raise AssertionError(f"avatar did not reach toward a nearby item: {nearby_pose!r}")
+            page.evaluate("window.__world3dPlayer.selectTarget('item:crate')")
+            page.wait_for_function(
+                """() => {
+                  const pose = window.__world3dPlayer.interactionPoseState();
+                  return pose.targetId === 'item:crate' && Math.abs(pose.headYaw) > 0.05;
+                }"""
+            )
+            focused_pose = page.evaluate("window.__world3dPlayer.interactionPoseState()")
+            if focused_pose["reaching"]:
+                raise AssertionError(f"avatar reached toward a distant item: {focused_pose!r}")
+            page.evaluate("window.__world3dPlayer.selectTarget('')")
             environment_state = page.evaluate("window.__world3dPlayer.environmentState()")
             if not environment_state["apron"] or environment_state["floorWidth"] != 16 or environment_state["floorDepth"] != 16:
                 raise AssertionError(f"outdoor apron changed authoritative floor bounds: {environment_state!r}")

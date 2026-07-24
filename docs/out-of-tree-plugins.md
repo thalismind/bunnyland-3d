@@ -122,6 +122,12 @@ root selected by the resolved visual variant or `Render3DComponent.variant_key`.
 unknown, or undeclared variants leave the base model visible without accessories. Keep the
 variant root above all nodes that belong exclusively to that variant.
 
+Character models may opt into the stock attention pose through semantic roles. Map
+`look-focus` to the head pivot and `reach-left` / `reach-right` to arm pivots. The bundled
+leporid falls back to its stable `Head`, `Arm.L`, and `Arm.R` names. The client turns only
+these pivots toward nearby or selected targets, so provider-owned meshes, materials, and
+animations remain replaceable without requiring browser-side plugin code.
+
 ## Registering Skyboxes and Particle Systems
 
 Visual plugins can also register bounded, declarative environment effects. Register them

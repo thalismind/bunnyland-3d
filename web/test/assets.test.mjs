@@ -15,7 +15,8 @@ function accessorValues(gltf, accessorIndex) {
   const view = gltf.bufferViews[accessor.bufferView];
   const bytes = Buffer.from(gltf.buffers[0].uri.split(',')[1], 'base64');
   const offset = (view.byteOffset || 0) + (accessor.byteOffset || 0);
-  const length = accessor.count * (accessor.type === 'VEC3' ? 3 : 1);
+  const components = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+  const length = accessor.count * components[accessor.type];
   if (accessor.componentType === 5123) {
     return new Uint16Array(bytes.buffer, bytes.byteOffset + offset, length);
   }
@@ -81,6 +82,17 @@ test('bundled avatar manifest resolves an animated repo-owned glTF', async () =>
   );
   const arm = gltf.nodes.find(node => node.name === 'Arm.L');
   assert.ok(Math.abs(arm.rotation[2]) > 0.5, 'resting arms point outward instead of upright');
+  assert.ok(Math.abs(arm.rotation[0]) > 0.1, 'resting arms also reach slightly forward');
+  const head = gltf.nodes.find(node => node.name === 'Head');
+  const headChildren = new Set(head.children.map(index => gltf.nodes[index].name));
+  for (const name of ['Head.Shape', 'Ear.L', 'Ear.R', 'Eye.L', 'Eye.R', 'Nose']) {
+    assert.ok(headChildren.has(name), `head focus pivot owns ${name}`);
+  }
+  const body = gltf.nodes.find(node => node.name === 'Body');
+  assert.equal(gltf.meshes[body.mesh].name, 'FurSphere', 'body uses a chunky faceted silhouette');
+  const furSphere = gltf.meshes.find(mesh => mesh.name === 'FurSphere');
+  const furPositions = accessorValues(gltf, furSphere.primitives[0].attributes.POSITION);
+  assert.ok(furPositions.length / 3 <= 48, 'avatar sphere remains deliberately low-poly');
   const walk = gltf.animations.find(animation => animation.name === 'Walk');
   const armChannel = walk.channels.find(channel => gltf.nodes[channel.target.node].name === 'Arm.L');
   const armRotations = accessorValues(gltf, walk.samplers[armChannel.sampler].output);

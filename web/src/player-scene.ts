@@ -341,6 +341,8 @@ const MAX_PROP_INSTANCES = 2000;
 const MAX_PARTICLES = 1500;
 const MAX_LOCAL_LIGHTS = 8;
 const MAX_SHADOW_LIGHTS = 2;
+const FOCUS_RANGE = 5;
+const REACH_RANGE = 2.25;
 
 const BIOME_PALETTES: Record<string, { ground: number; fog: number; accent: number }> = {
   cave: { ground: 0x4c4037, fog: 0x171514, accent: 0xc69568 },
@@ -446,6 +448,12 @@ export class PlayerScene {
   private readonly movement = new THREE.Vector3();
   private readonly forward = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
+  private readonly poseTargetWorld = new THREE.Vector3();
+  private readonly poseTargetLocal = new THREE.Vector3();
+  private readonly poseDirection = new THREE.Vector3();
+  private readonly poseQuaternion = new THREE.Quaternion();
+  private readonly poseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  private readonly poseUp = new THREE.Vector3(0, 1, 0);
   private readonly animatedParticles: THREE.Points[] = [];
   private readonly animatedLightning: THREE.Line[] = [];
   private portalTexture: THREE.CanvasTexture | null = null;
@@ -463,6 +471,7 @@ export class PlayerScene {
   private selectedEntityId = '';
   private lastPick: { x: number; y: number; ids: string[]; index: number; at: number } | null = null;
   private nearbyExitId = '';
+  private interactionTargetId = '';
   private lastFrame = performance.now();
   private environmentSignature = '';
   private environmentRevision = 0;
@@ -568,6 +577,28 @@ export class PlayerScene {
       moving: this.movement.lengthSq() > 0,
       actualRadius: this.camera.position.distanceTo(this.cameraTarget),
       avatar: { x: this.avatarPosition.x, y: this.avatarPosition.y, z: this.avatarPosition.z },
+    };
+  }
+
+  interactionPoseState(): {
+    targetId: string;
+    headYaw: number;
+    reaching: string[];
+  } {
+    const avatar = this.entities.get(this.playerId);
+    if (!avatar) return { targetId: '', headYaw: 0, reaching: [] };
+    const head = this.interactionNode(avatar, 'look-focus', 'Head');
+    const reaching = [
+      { name: 'Arm.L', node: this.interactionNode(avatar, 'reach-left', 'Arm.L') },
+      { name: 'Arm.R', node: this.interactionNode(avatar, 'reach-right', 'Arm.R') },
+    ]
+      .filter(item => item.node?.userData.reaching)
+      .map(item => item.name)
+      .sort();
+    return {
+      targetId: this.interactionTargetId,
+      headYaw: finite(head?.userData.focusYaw, 0),
+      reaching,
     };
   }
 
@@ -2598,15 +2629,114 @@ export class PlayerScene {
   private updateAnimation(delta: number): void {
     for (const [id, tracked] of this.entities) {
       tracked.mixer?.update(delta);
-      if (id !== this.playerId || !tracked.idle || !tracked.walk) continue;
-      const walking = this.movement.lengthSq() > 0;
-      if (walking && !tracked.walk.isRunning()) {
-        tracked.idle.fadeOut(0.16);
-        tracked.walk.reset().fadeIn(0.16).play();
-      } else if (!walking && !tracked.idle.isRunning()) {
-        tracked.walk.fadeOut(0.18);
-        tracked.idle.reset().fadeIn(0.18).play();
+      if (id !== this.playerId) continue;
+      if (tracked.idle && tracked.walk) {
+        const walking = this.movement.lengthSq() > 0;
+        if (walking && !tracked.walk.isRunning()) {
+          tracked.idle.fadeOut(0.16);
+          tracked.walk.reset().fadeIn(0.16).play();
+        } else if (!walking && !tracked.idle.isRunning()) {
+          tracked.walk.fadeOut(0.18);
+          tracked.idle.reset().fadeIn(0.18).play();
+        }
       }
+      this.updateInteractionPose(tracked);
+    }
+  }
+
+  private interactionNode(
+    tracked: TrackedEntity,
+    role: string,
+    fallback: string,
+  ): THREE.Object3D | undefined {
+    for (const name of tracked.entity.visual3d?.semantic_roles?.[role] || []) {
+      const node = tracked.model.getObjectByName(name)
+        || tracked.model.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(name));
+      if (node) return node;
+    }
+    return tracked.model.getObjectByName(fallback)
+      || tracked.model.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(fallback));
+  }
+
+  private resolveInteractionTarget(): { id: string; reach: boolean } | null {
+    const player = this.entities.get(this.playerId);
+    if (!player) return null;
+    const setEntityTarget = (tracked: TrackedEntity): number => {
+      this.poseTargetWorld.copy(tracked.root.position);
+      this.poseTargetWorld.y = this.bounds.ground + (tracked.entity.is_character ? 1.25 : 0.58);
+      return tracked.root.position.distanceToSquared(player.root.position);
+    };
+    const selected = this.entities.get(this.selectedEntityId);
+    if (selected && selected !== player) {
+      const distanceSquared = setEntityTarget(selected);
+      if (distanceSquared <= FOCUS_RANGE * FOCUS_RANGE) {
+        return {
+          id: selected.entity.id,
+          reach: !selected.entity.is_character && distanceSquared <= REACH_RANGE * REACH_RANGE,
+        };
+      }
+    }
+    let nearest: TrackedEntity | null = null;
+    let nearestDistanceSquared = FOCUS_RANGE * FOCUS_RANGE;
+    for (const tracked of this.entities.values()) {
+      if (tracked === player) continue;
+      const distanceSquared = tracked.root.position.distanceToSquared(player.root.position);
+      if (distanceSquared >= nearestDistanceSquared) continue;
+      nearest = tracked;
+      nearestDistanceSquared = distanceSquared;
+    }
+    if (nearest) {
+      setEntityTarget(nearest);
+      return {
+        id: nearest.entity.id,
+        reach: !nearest.entity.is_character && nearestDistanceSquared <= REACH_RANGE * REACH_RANGE,
+      };
+    }
+    const exit = this.exits.get(this.nearbyExitId);
+    if (!exit) return null;
+    this.poseTargetWorld.copy(exit.position);
+    this.poseTargetWorld.y = this.bounds.ground + 1.2;
+    return { id: exit.exit.id, reach: true };
+  }
+
+  private updateInteractionPose(tracked: TrackedEntity): void {
+    const head = this.interactionNode(tracked, 'look-focus', 'Head');
+    const leftArm = this.interactionNode(tracked, 'reach-left', 'Arm.L');
+    const rightArm = this.interactionNode(tracked, 'reach-right', 'Arm.R');
+    if (head) head.userData.focusYaw = 0;
+    if (leftArm) leftArm.userData.reaching = false;
+    if (rightArm) rightArm.userData.reaching = false;
+    const target = this.resolveInteractionTarget();
+    this.interactionTargetId = target?.id || '';
+    if (!target) return;
+
+    tracked.root.updateWorldMatrix(true, false);
+    this.poseTargetLocal.copy(this.poseTargetWorld);
+    tracked.root.worldToLocal(this.poseTargetLocal);
+    if (head) {
+      const dx = this.poseTargetLocal.x - head.position.x;
+      const dy = this.poseTargetLocal.y - head.position.y;
+      const dz = this.poseTargetLocal.z - head.position.z;
+      const yaw = THREE.MathUtils.clamp(Math.atan2(dx, dz), -0.58, 0.58);
+      const pitch = THREE.MathUtils.clamp(-Math.atan2(dy, Math.hypot(dx, dz)), -0.24, 0.28);
+      this.poseEuler.set(pitch, yaw, 0);
+      this.poseQuaternion.setFromEuler(this.poseEuler);
+      head.quaternion.premultiply(this.poseQuaternion);
+      head.userData.focusYaw = yaw;
+    }
+    if (!target.reach) return;
+    const horizontalDistance = Math.hypot(
+      this.poseTargetLocal.x,
+      this.poseTargetLocal.z,
+    );
+    if (horizontalDistance < 0.45) this.poseTargetLocal.z += 0.62;
+    this.poseTargetLocal.y = Math.max(this.poseTargetLocal.y, 0.64);
+    for (const arm of [leftArm, rightArm]) {
+      if (!arm) continue;
+      this.poseDirection.copy(this.poseTargetLocal).sub(arm.position).normalize();
+      this.poseQuaternion.setFromUnitVectors(this.poseUp, this.poseDirection);
+      arm.quaternion.slerp(this.poseQuaternion, 0.72);
+      arm.userData.reaching = true;
     }
   }
 

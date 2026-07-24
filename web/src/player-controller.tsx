@@ -1332,6 +1332,7 @@ declare global {
       entityMaterialState: (entityId: string) => ReturnType<PlayerScene['entityMaterialState']>;
       exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
+      interactionPoseState: () => ReturnType<PlayerScene['interactionPoseState']>;
       visualState: () => ReturnType<PlayerScene['visualState']>;
       environmentState: () => ReturnType<PlayerScene['environmentState']>;
       renderEfficiencyState: () => ReturnType<PlayerScene['renderEfficiencyState']>;
@@ -1356,6 +1357,7 @@ window.__world3dPlayer = {
   entityMaterialState: entityId => scene.entityMaterialState(entityId),
   exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
+  interactionPoseState: () => scene.interactionPoseState(),
   visualState: () => scene.visualState(),
   environmentState: () => scene.environmentState(),
   renderEfficiencyState: () => scene.renderEfficiencyState(),

@@ -72,9 +72,11 @@ Actions use the same verbs as every other Bunnyland client:
 
 The third-person camera follows your locally controlled avatar. It shortens its follow
 distance when room geometry would block the avatar, then eases back out when the view is
-clear. The bundled leporid avatar has a rounded silhouette, breathing and walking animation,
-and optional visual variants. For example, `scout` adds a neckerchief and satchel, while
-`gardener` adds an apron and broad hat. Unknown variants safely use the base avatar.
+clear. The bundled leporid avatar has a faceted low-poly silhouette, breathing and walking
+animation, and optional visual variants. Its head follows selected or nearby characters,
+items, and exits, while its arms reach toward nearby items and portals. For example, `scout`
+adds a neckerchief and satchel, while `gardener` adds an apron and broad hat. Unknown variants
+safely use the base avatar.
 
 Use the view controls to:
 
