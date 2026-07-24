@@ -885,11 +885,14 @@ def assert_responsive_toolbar(page, name: str, *, character: bool = False) -> No
               return {
                 dx: Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2),
                 dy: Math.abs(bounds.top + bounds.height / 2 - innerHeight / 2),
+                shadow: getComputedStyle(element).boxShadow,
               };
             }"""
         )
         if dialog_position["dx"] > 2 or dialog_position["dy"] > 2:
             raise AssertionError(f"{name} connection dialog was not centered: {dialog_position!r}")
+        if dialog_position["shadow"] == "none":
+            raise AssertionError(f"{name} connection dialog lacked themed depth: {dialog_position!r}")
         dialog.get_by_role("button", name="Close").click()
     elif not any(row["api"] and row["index"] == 1 for row in rows):
         raise AssertionError(f"{name} server controls are not on the second row: {layout!r}")
@@ -1078,11 +1081,14 @@ def main() -> None:
                   return {
                     dx: Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2),
                     dy: Math.abs(bounds.top + bounds.height / 2 - innerHeight / 2),
+                    shadow: getComputedStyle(element).boxShadow,
                   };
                 }"""
             )
             if warning_position["dx"] > 2 or warning_position["dy"] > 2:
                 raise AssertionError(f"content warning dialog was not centered: {warning_position!r}")
+            if warning_position["shadow"] == "none":
+                raise AssertionError(f"content warning dialog lacked themed depth: {warning_position!r}")
             if len(CLAIM_STATE["methods"]) != claims_before_warning:
                 raise AssertionError("3D player claimed before content warning acceptance")
             page.locator("#content-warning-remember").check()
@@ -1191,6 +1197,8 @@ def main() -> None:
             efficiency = page.evaluate("window.__world3dPlayer.renderEfficiencyState()")
             if efficiency["decorationDrawCalls"] != 6 or efficiency["decorationInstances"] != 42:
                 raise AssertionError(f"model parts were not instanced into fixed draw-call batches: {efficiency!r}")
+            if efficiency["foliageShadowDrawCalls"] != 0 or efficiency["foliageShadowInstances"] != 0:
+                raise AssertionError(f"non-ground-cover models received painted shadows: {efficiency!r}")
             patch_player_scene(page, {"decoration_instance_count": 12})
             page.wait_for_function(
                 "window.__world3dPlayer.renderEfficiencyState().decorationInstances === 78"
@@ -1218,6 +1226,16 @@ def main() -> None:
                     f"ground-cover clearance did not omit three nearby recipe instances: "
                     f"{clearance_efficiency!r}"
                 )
+            if (
+                clearance_efficiency["decorationMaterials"] != 7
+                or clearance_efficiency["decorationGeometries"] != 9
+                or clearance_efficiency["foliageShadowDrawCalls"] != 1
+                or clearance_efficiency["foliageShadowInstances"] != 3
+            ):
+                raise AssertionError(
+                    f"flora did not reuse materials and geometry or batch painted shadows: "
+                    f"{clearance_efficiency!r}"
+                )
             page.screenshot(
                 path=ARTIFACT_DIR / "world-3d-player-curated.png",
                 full_page=FULL_PAGE_SCREENSHOTS,
@@ -1226,6 +1244,10 @@ def main() -> None:
             page.wait_for_function(
                 "window.__world3dPlayer.renderEfficiencyState().decorationInstances === 42"
             )
+            if page.evaluate(
+                "window.__world3dPlayer.renderEfficiencyState().foliageShadowInstances"
+            ) != 0:
+                raise AssertionError("painted foliage shadows remained after their flora was removed")
             patch_player_scene(page, {"avatar_variant": "gardener"})
             gardener_state = page.evaluate("window.__world3dPlayer.entityVariantState('character:ash')")
             if gardener_state != {"Variant.scout": False, "Variant.gardener": True}:
@@ -1379,6 +1401,8 @@ def main() -> None:
                     actionsClientHeight: actions.clientHeight,
                     queueTop: queuePanel.getBoundingClientRect().top,
                     actionsTop: actionsPanel.getBoundingClientRect().top,
+                    actionDepth: getComputedStyle(document.querySelector('.action-row')).boxShadow,
+                    selectedTabDepth: getComputedStyle(document.querySelector('[role="tab"][aria-selected="true"]')).boxShadow,
                   };
                 }"""
             )
@@ -1390,6 +1414,8 @@ def main() -> None:
                 raise AssertionError(f"player actions did not have an internal scrollbar: {layout!r}")
             if layout["queueTop"] >= layout["actionsTop"]:
                 raise AssertionError(f"pending actions were not placed before the action list: {layout!r}")
+            if layout["actionDepth"] == "none" or layout["selectedTabDepth"] == "none":
+                raise AssertionError(f"player controls lacked consistent themed depth: {layout!r}")
             exits = page.evaluate("window.__world3dPlayer.exitStates()")
             east_exit = next(exit_state for exit_state in exits if exit_state["side"] == "east")
             north_exit = next(exit_state for exit_state in exits if exit_state["side"] == "north")

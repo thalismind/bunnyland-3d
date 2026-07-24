@@ -260,6 +260,7 @@ interface ProceduralPropPart {
   scale: THREE.Vector3;
   colorScale?: number;
   color?: number;
+  materialKind?: 'matte' | 'wood' | 'stone' | 'metal';
 }
 
 interface Obstacle2D {
@@ -408,9 +409,10 @@ function disposeObject(root: THREE.Object3D): void {
   root.traverse(child => {
     if (child instanceof THREE.Light) child.dispose();
     const mesh = child as THREE.Mesh;
-    mesh.geometry?.dispose();
+    if (mesh.geometry && !mesh.geometry.userData.sharedResource) mesh.geometry.dispose();
     const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
     for (const material of materials) {
+      if (material.userData.sharedResource) continue;
       for (const value of Object.values(material)) {
         if (value instanceof THREE.Texture && value.userData.instanceOwned) textures.add(value);
       }
@@ -432,6 +434,8 @@ export class PlayerScene {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly assetCache = new Map<string, Promise<LoadedAsset>>();
+  private readonly propRecipeCache = new Map<string, ProceduralPropPart[]>();
+  private readonly propMaterialCache = new Map<string, THREE.MeshStandardMaterial>();
   private readonly textureLoader = new THREE.TextureLoader();
   private assetManifest: Promise<AssetManifest> | null = null;
   private serverAssets: ServerAssetManifest | null = null;
@@ -454,8 +458,10 @@ export class PlayerScene {
   private readonly poseQuaternion = new THREE.Quaternion();
   private readonly poseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly poseUp = new THREE.Vector3(0, 1, 0);
+  private readonly instanceMatrix = new THREE.Matrix4();
   private readonly animatedParticles: THREE.Points[] = [];
   private readonly animatedLightning: THREE.Line[] = [];
+  private foliageShadow: THREE.InstancedMesh | null = null;
   private portalTexture: THREE.CanvasTexture | null = null;
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private roomId = '';
@@ -892,6 +898,8 @@ export class PlayerScene {
     decorationInstances: number;
     decorationMaterials: number;
     decorationGeometries: number;
+    foliageShadowDrawCalls: number;
+    foliageShadowInstances: number;
   } {
     let decorationDrawCalls = 0;
     let decorationInstances = 0;
@@ -910,6 +918,8 @@ export class PlayerScene {
       decorationInstances,
       decorationMaterials: materials.size,
       decorationGeometries: geometries.size,
+      foliageShadowDrawCalls: this.foliageShadow?.visible ? 1 : 0,
+      foliageShadowInstances: this.foliageShadow?.count || 0,
     };
   }
 
@@ -1380,6 +1390,7 @@ export class PlayerScene {
       this.decorationGroup.add(tracked.root);
       this.buildDecoration(tracked, propCount, particleCount, includeLight, includeShadow, data);
     }
+    this.rebuildFoliageShadows(decorations, data);
   }
 
   private buildDecoration(
@@ -1396,11 +1407,9 @@ export class PlayerScene {
       const source = this.visibleDecorationInstances(group, group.instances.slice(0, propCount), data);
       const baseColor = color(group.color, 0x7ca85c);
       const parts = this.propRecipe(group.asset_key);
+      const groundCover = this.groundCover(group.asset_key);
       parts.forEach((part, partIndex) => {
-        const material = new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          roughness: 0.88,
-        });
+        const material = this.sharedPropMaterial(part.materialKind || 'matte');
         const mesh = new THREE.InstancedMesh(part.geometry, material, source.length);
         mesh.name = `${group.asset_key}:${part.name}`;
         const instanceRoot = new THREE.Object3D();
@@ -1410,13 +1419,24 @@ export class PlayerScene {
         partRoot.scale.copy(part.scale);
         partRoot.updateMatrix();
         source.forEach((instance, index) => {
+          const random = randomFrom(hash(`${tracked.decoration.id}:${instance.id}`));
+          const heroScale = groundCover && hash(`${tracked.decoration.id}:${instance.id}:hero`) % 9 === 0
+            ? 1.24
+            : 1;
+          const widthScale = groundCover ? 0.94 + random() * 0.12 : 1;
+          const heightScale = groundCover ? 0.88 + random() * 0.3 : 1;
           instanceRoot.position.set(instance.position.x, this.bounds.ground, instance.position.z);
           instanceRoot.rotation.set(0, instance.rotation_y, 0);
-          instanceRoot.scale.setScalar(instance.scale);
+          instanceRoot.scale.set(
+            instance.scale * widthScale * heroScale,
+            instance.scale * heightScale * heroScale,
+            instance.scale * widthScale * heroScale,
+          );
           instanceRoot.updateMatrix();
-          mesh.setMatrixAt(index, instanceRoot.matrix.clone().multiply(partRoot.matrix));
-          const random = randomFrom(hash(`${tracked.decoration.id}:${instance.id}`));
+          this.instanceMatrix.multiplyMatrices(instanceRoot.matrix, partRoot.matrix);
+          mesh.setMatrixAt(index, this.instanceMatrix);
           const varied = new THREE.Color(part.color ?? baseColor)
+            .offsetHSL((random() - 0.5) * 0.035, (random() - 0.5) * 0.06, 0)
             .multiplyScalar((part.colorScale ?? 1) * (0.92 + random() * 0.16));
           mesh.setColorAt(index, varied);
         });
@@ -1460,6 +1480,83 @@ export class PlayerScene {
   private groundCover(assetKey: string): boolean {
     return assetKey.startsWith('procedural.') && ['grass', 'flower', 'reed', 'fern', 'scrub']
       .some(key => assetKey.endsWith(key));
+  }
+
+  private sharedPropMaterial(
+    kind: NonNullable<ProceduralPropPart['materialKind']>,
+  ): THREE.MeshStandardMaterial {
+    let material = this.propMaterialCache.get(kind);
+    if (material) return material;
+    const properties = kind === 'metal'
+      ? { roughness: 0.62, metalness: 0.34 }
+      : kind === 'stone'
+        ? { roughness: 0.98, metalness: 0 }
+        : kind === 'wood'
+          ? { roughness: 0.94, metalness: 0 }
+          : { roughness: 0.88, metalness: 0 };
+    material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      ...properties,
+    });
+    material.name = `Procedural.${kind}`;
+    material.userData.sharedResource = true;
+    this.propMaterialCache.set(kind, material);
+    return material;
+  }
+
+  private rebuildFoliageShadows(
+    decorations: PlayerSceneDecoration[],
+    data: PlayerRoomScene,
+  ): void {
+    if (!this.foliageShadow) {
+      const geometry = new THREE.CircleGeometry(0.42, 12);
+      geometry.userData.sharedResource = true;
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.2,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+      });
+      material.name = 'Procedural.foliage-shadow';
+      material.userData.sharedResource = true;
+      this.foliageShadow = new THREE.InstancedMesh(geometry, material, MAX_PROP_INSTANCES);
+      this.foliageShadow.name = 'foliage-shadows';
+      this.foliageShadow.userData.foliageShadow = true;
+      this.foliageShadow.renderOrder = 1;
+      this.decorationGroup.add(this.foliageShadow);
+    }
+    const palette = BIOME_PALETTES[data.room.biome] || BIOME_PALETTES.unknown;
+    const shadowColor = new THREE.Color(palette.ground).multiplyScalar(0.32);
+    const transform = new THREE.Object3D();
+    let sourceCount = 0;
+    let shadowCount = 0;
+    for (const decoration of decorations) {
+      const group = decoration.prop_group3d;
+      if (!group) continue;
+      const count = Math.min(group.instances.length, MAX_PROP_INSTANCES - sourceCount);
+      sourceCount += count;
+      if (!this.groundCover(group.asset_key)) continue;
+      const visible = this.visibleDecorationInstances(group, group.instances.slice(0, count), data);
+      for (const instance of visible) {
+        if (shadowCount >= MAX_PROP_INSTANCES) break;
+        const random = randomFrom(hash(`${decoration.id}:${instance.id}:shadow`));
+        const scale = instance.scale * (0.72 + random() * 0.18);
+        transform.position.set(instance.position.x, this.bounds.ground + 0.008, instance.position.z);
+        transform.rotation.set(-Math.PI / 2, 0, random() * Math.PI);
+        transform.scale.set(scale, scale * (0.72 + random() * 0.18), 1);
+        transform.updateMatrix();
+        this.foliageShadow.setMatrixAt(shadowCount, transform.matrix);
+        this.foliageShadow.setColorAt(shadowCount, shadowColor);
+        shadowCount += 1;
+      }
+    }
+    this.foliageShadow.count = shadowCount;
+    this.foliageShadow.visible = shadowCount > 0;
+    this.foliageShadow.instanceMatrix.needsUpdate = true;
+    if (this.foliageShadow.instanceColor) this.foliageShadow.instanceColor.needsUpdate = true;
+    this.foliageShadow.computeBoundingSphere();
   }
 
   private decorationClearanceSignature(
@@ -1513,13 +1610,15 @@ export class PlayerScene {
   }
 
   private propRecipe(assetKey: string): ProceduralPropPart[] {
+    const cached = this.propRecipeCache.get(assetKey);
+    if (cached) return cached;
     const part = (
       name: string,
       geometry: THREE.BufferGeometry,
       position: [number, number, number],
       scale: [number, number, number] = [1, 1, 1],
       rotation: [number, number, number] = [0, 0, 0],
-      options: Pick<ProceduralPropPart, 'color' | 'colorScale'> = {},
+      options: Pick<ProceduralPropPart, 'color' | 'colorScale' | 'materialKind'> = {},
     ): ProceduralPropPart => ({
       name,
       geometry,
@@ -1528,17 +1627,24 @@ export class PlayerScene {
       scale: new THREE.Vector3(...scale),
       ...options,
     });
+    const recipe = (parts: ProceduralPropPart[]): ProceduralPropPart[] => {
+      for (const item of parts) item.geometry.userData.sharedResource = true;
+      this.propRecipeCache.set(assetKey, parts);
+      return parts;
+    };
+    let bladeGeometry: THREE.ConeGeometry | null = null;
     const blade = (name: string, x: number, z: number, tilt: number) => part(
       name,
-      new THREE.ConeGeometry(0.09, 0.68, 5),
+      bladeGeometry ||= new THREE.ConeGeometry(0.09, 0.68, 5),
       [x, 0.34, z],
       [0.72, 1, 0.45],
       [tilt, 0, -tilt],
     );
     if (assetKey.endsWith('grass')) {
-      return [blade('blade-a', -0.1, 0, -0.16), blade('blade-b', 0.08, 0.03, 0.12), blade('blade-c', 0, -0.08, 0.03)];
+      return recipe([blade('blade-a', -0.1, 0, -0.16), blade('blade-b', 0.08, 0.03, 0.12), blade('blade-c', 0, -0.08, 0.03)]);
     }
     if (assetKey.endsWith('flower')) {
+      const petalGeometry = new THREE.SphereGeometry(0.13, 7, 5);
       const result = [
         part('stem', new THREE.CylinderGeometry(0.025, 0.04, 0.7, 5), [0, 0.35, 0], [1, 1, 1], [0, 0, 0], { color: 0x568c4a }),
         part('center', new THREE.SphereGeometry(0.1, 7, 5), [0, 0.75, 0], [1, 0.7, 1], [0, 0, 0], { color: 0xf2b84b }),
@@ -1547,40 +1653,41 @@ export class PlayerScene {
         const angle = Math.PI * 2 * index / 5;
         result.push(part(
           `petal-${index}`,
-          new THREE.SphereGeometry(0.13, 7, 5),
+          petalGeometry,
           [Math.cos(angle) * 0.16, 0.75, Math.sin(angle) * 0.16],
           [1.2, 0.42, 0.72],
           [0, -angle, 0],
           { colorScale: 1.08 },
         ));
       }
-      return result;
+      return recipe(result);
     }
     if (assetKey.endsWith('tree')) {
-      return [
-        part('trunk', new THREE.CylinderGeometry(0.16, 0.24, 1.45, 7), [0, 0.72, 0], [1, 1, 1], [0, 0, 0], { color: 0x68472d }),
+      return recipe([
+        part('trunk', new THREE.CylinderGeometry(0.16, 0.24, 1.45, 7), [0, 0.72, 0], [1, 1, 1], [0, 0, 0], { color: 0x68472d, materialKind: 'wood' }),
         part('crown-low', new THREE.DodecahedronGeometry(0.72, 0), [-0.18, 1.55, 0], [1, 0.8, 1]),
         part('crown-high', new THREE.DodecahedronGeometry(0.64, 0), [0.2, 1.9, 0.02], [1, 0.84, 1], [0, 0.4, 0], { colorScale: 1.05 }),
         part('crown-side', new THREE.DodecahedronGeometry(0.52, 0), [0.42, 1.5, -0.18], [1, 0.76, 1], [0, -0.3, 0], { colorScale: 0.95 }),
-      ];
+      ]);
     }
     if (assetKey.endsWith('fern')) {
-      return Array.from({ length: 5 }, (_value, index) => {
+      const frondGeometry = new THREE.ConeGeometry(0.2, 0.82, 6);
+      return recipe(Array.from({ length: 5 }, (_value, index) => {
         const angle = Math.PI * 2 * index / 5;
         return part(
           `frond-${index}`,
-          new THREE.ConeGeometry(0.2, 0.82, 6),
+          frondGeometry,
           [Math.cos(angle) * 0.22, 0.28, Math.sin(angle) * 0.22],
           [0.55, 1, 0.3],
           [Math.sin(angle) * 0.72, angle, -Math.cos(angle) * 0.72],
         );
-      });
+      }));
     }
     if (assetKey.endsWith('hedge')) {
-      return [
+      return recipe([
         part('hedge-a', new THREE.DodecahedronGeometry(0.58, 1), [-0.22, 0.36, 0], [1.55, 0.62, 0.95], [0, 0.12, 0]),
         part('hedge-b', new THREE.DodecahedronGeometry(0.56, 1), [0.28, 0.4, 0.06], [1.55, 0.6, 1], [0, -0.16, 0], { colorScale: 0.94 }),
-      ];
+      ]);
     }
     if (assetKey.endsWith('reed')) {
       const result: ProceduralPropPart[] = [];
@@ -1589,20 +1696,20 @@ export class PlayerScene {
         result.push(part(`stem-${index}`, new THREE.CylinderGeometry(0.025, 0.038, height, 5), [x, height / 2, index === 1 ? -0.04 : 0], [1, 1, 1], [0, 0, (index - 1) * 0.06]));
         result.push(part(`seed-${index}`, new THREE.CapsuleGeometry(0.055, 0.12, 2, 5), [x + (index - 1) * -0.05, height + 0.08, index === 1 ? -0.04 : 0], [1, 1, 1], [0, 0, (index - 1) * 0.08], { color: 0x755a38 }));
       });
-      return result;
+      return recipe(result);
     }
     if (assetKey.endsWith('rock')) {
-      return [
-        part('stone-a', new THREE.DodecahedronGeometry(0.4, 0), [-0.16, 0.28, 0], [1.15, 0.72, 0.9], [0.1, 0.4, 0]),
-        part('stone-b', new THREE.DodecahedronGeometry(0.3, 0), [0.3, 0.2, 0.08], [1, 0.75, 0.9], [-0.1, -0.3, 0], { colorScale: 1.06 }),
-      ];
+      return recipe([
+        part('stone-a', new THREE.DodecahedronGeometry(0.4, 0), [-0.16, 0.28, 0], [1.15, 0.72, 0.9], [0.1, 0.4, 0], { materialKind: 'stone' }),
+        part('stone-b', new THREE.DodecahedronGeometry(0.3, 0), [0.3, 0.2, 0.08], [1, 0.75, 0.9], [-0.1, -0.3, 0], { colorScale: 1.06, materialKind: 'stone' }),
+      ]);
     }
     if (assetKey.endsWith('cactus')) {
-      return [
+      return recipe([
         part('trunk', new THREE.CapsuleGeometry(0.17, 0.85, 3, 7), [0, 0.62, 0]),
         part('arm-l', new THREE.CapsuleGeometry(0.1, 0.38, 3, 6), [-0.27, 0.64, 0], [1, 1, 1], [0, 0, -0.82]),
         part('arm-r', new THREE.CapsuleGeometry(0.09, 0.32, 3, 6), [0.26, 0.82, 0], [1, 1, 1], [0, 0, 0.88], { colorScale: 1.04 }),
-      ];
+      ]);
     }
     if (assetKey.endsWith('scrub')) {
       const stems = [-0.5, 0, 0.5].map((tilt, index) => part(
@@ -1613,19 +1720,19 @@ export class PlayerScene {
         [0, index * 1.8, tilt],
         { color: 0x6d5a3e },
       ));
-      return stems.concat([
+      return recipe(stems.concat([
         part('leaves-a', new THREE.TetrahedronGeometry(0.22, 0), [-0.28, 0.58, 0.04], [1, 0.72, 1]),
         part('leaves-b', new THREE.TetrahedronGeometry(0.25, 0), [0.2, 0.68, -0.04], [1, 0.75, 1], [0, 0.5, 0], { colorScale: 1.06 }),
-      ]);
+      ]));
     }
     if (assetKey.endsWith('scrap')) {
-      return [
-        part('plate-a', new THREE.BoxGeometry(0.72, 0.07, 0.46), [-0.12, 0.18, 0], [1, 1, 1], [0.16, 0.3, 0.08]),
-        part('plate-b', new THREE.BoxGeometry(0.58, 0.06, 0.42), [0.2, 0.3, -0.06], [1, 1, 1], [-0.12, -0.4, 0.3], { colorScale: 0.9 }),
-        part('pipe', new THREE.CylinderGeometry(0.06, 0.06, 0.54, 7), [0.02, 0.28, 0.18], [1, 1, 1], [0, 0, Math.PI / 2], { colorScale: 1.1 }),
-      ];
+      return recipe([
+        part('plate-a', new THREE.BoxGeometry(0.72, 0.07, 0.46), [-0.12, 0.18, 0], [1, 1, 1], [0.16, 0.3, 0.08], { materialKind: 'metal' }),
+        part('plate-b', new THREE.BoxGeometry(0.58, 0.06, 0.42), [0.2, 0.3, -0.06], [1, 1, 1], [-0.12, -0.4, 0.3], { colorScale: 0.9, materialKind: 'metal' }),
+        part('pipe', new THREE.CylinderGeometry(0.06, 0.06, 0.54, 7), [0.02, 0.28, 0.18], [1, 1, 1], [0, 0, Math.PI / 2], { colorScale: 1.1, materialKind: 'metal' }),
+      ]);
     }
-    return [part('fallback', new THREE.ConeGeometry(0.16, 0.72, 5), [0, 0.36, 0])];
+    return recipe([part('fallback', new THREE.ConeGeometry(0.16, 0.72, 5), [0, 0.36, 0])]);
   }
 
   private addParticleEmitter(
@@ -2547,7 +2654,8 @@ export class PlayerScene {
           instance.rotation.set(0, view.rotation_y, 0);
           instance.scale.setScalar(view.scale);
           instance.updateMatrix();
-          mesh.setMatrixAt(index, instance.matrix.clone().multiply(primitive.matrixWorld));
+          this.instanceMatrix.multiplyMatrices(instance.matrix, primitive.matrixWorld);
+          mesh.setMatrixAt(index, this.instanceMatrix);
         });
         mesh.instanceMatrix.needsUpdate = true;
         mesh.userData.decorationProps = true;

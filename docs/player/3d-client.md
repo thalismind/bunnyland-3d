@@ -38,6 +38,10 @@ noninteractive and noncolliding, including scenery that is visually clustered. I
 near exits, the player, and interactive objects only to keep those objects readable.
 Selectable or collidable props remain ordinary ECS entities.
 
+Terrain color variation and the painted shadow color beneath ground-cover foliage are
+deterministic room decoration, not lighting that follows the character. Flora parts reuse
+geometry and materials, and their painted shadows are submitted as one instanced batch.
+
 The server remains authoritative. If a target is hidden, blocked by fog, in another room, or
 otherwise unavailable, the client either hides the action or shows the server's rejection
 after you try it.
