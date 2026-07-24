@@ -1495,24 +1495,20 @@ def main() -> None:
             requests_before_refresh = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
-            page.evaluate(
-                """async () => Promise.all([
-                  window.__world3dPlayer.refresh(),
-                  window.__world3dPlayer.refresh(),
-                ])"""
+            refresh_state = page.evaluate(
+                """async () => {
+                  const first = window.__world3dPlayer.refresh();
+                  const second = window.__world3dPlayer.refresh();
+                  const shared = first === second;
+                  await Promise.all([first, second]);
+                  return {shared};
+                }"""
             )
+            if not refresh_state["shared"]:
+                raise AssertionError(f"parallel player refreshes did not share one in-flight request: {refresh_state!r}")
             requests_after_refresh = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
-            for request_key in ("projection_requests", "room_requests", "event_requests"):
-                request_delta = (
-                    requests_after_refresh[request_key] - requests_before_refresh[request_key]
-                )
-                if request_delta not in (0, 1):
-                    raise AssertionError(
-                        f"one player refresh duplicated {request_key}: "
-                        f"{requests_before_refresh!r} -> {requests_after_refresh!r}"
-                    )
             if requests_after_refresh["character_requests"] != requests_before_refresh["character_requests"]:
                 raise AssertionError(
                     "a player refresh fetched the character lobby: "
