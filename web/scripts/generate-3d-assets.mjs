@@ -83,7 +83,7 @@ function lowPolySphere(segments = 10, rings = 6) {
       const b = ring * segments + next;
       const c = (ring + 1) * segments + next;
       const d = (ring + 1) * segments + segment;
-      indices.push(a, d, c, a, c, b);
+      indices.push(a, c, d, a, b, c);
     }
   }
   return geometryAccessors({ positions, normals, indices });
@@ -115,8 +115,8 @@ function taperedCylinder(topRadius = 0.35, bottomRadius = 0.5, height = 1, segme
   for (let segment = 0; segment < segments; segment += 1) {
     const next = (segment + 1) % segments;
     indices.push(segment, segments + segment, segments + next, segment, segments + next, next);
-    indices.push(bottomCenter, next, segment);
-    indices.push(topCenter, segments + segment, segments + next);
+    indices.push(bottomCenter, segment, next);
+    indices.push(topCenter, segments + next, segments + segment);
   }
   return geometryAccessors({ positions, normals, indices });
 }
@@ -144,7 +144,7 @@ function capsuleLike(segments = 10, rings = 8) {
       const b = ring * segments + next;
       const c = (ring + 1) * segments + next;
       const d = (ring + 1) * segments + segment;
-      indices.push(a, d, c, a, c, b);
+      indices.push(a, c, d, a, b, c);
     }
   }
   return geometryAccessors({ positions, normals, indices });
@@ -230,18 +230,35 @@ function node(value) {
   return nodes.length - 1;
 }
 
+function quatX(angle) {
+  return [Math.sin(angle / 2), 0, 0, Math.cos(angle / 2)];
+}
+
+function quatZ(angle) {
+  return [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)];
+}
+
+function quatArm(outwardAngle, swingAngle) {
+  const sx = Math.sin(swingAngle / 2);
+  const cx = Math.cos(swingAngle / 2);
+  const sz = Math.sin(outwardAngle / 2);
+  const cz = Math.cos(outwardAngle / 2);
+  return [sx * cz, -sx * sz, cx * sz, cx * cz];
+}
+
+const armOutwardAngle = Math.PI * 0.38;
 const avatarRoot = node({ name: 'Avatar', children: [] });
 const body = node({ name: 'Body', mesh: avatarMeshes.furCapsule, translation: [0, 0.8, 0], scale: [0.68, 0.78, 0.54] });
 const belly = node({ name: 'Belly', mesh: avatarMeshes.belly, translation: [0, 0.84, 0.25], scale: [0.46, 0.72, 0.12] });
 const head = node({ name: 'Head', mesh: avatarMeshes.furSphere, translation: [0, 1.48, 0.02], scale: [1.08, 0.98, 1] });
 const earL = node({ name: 'Ear.L', mesh: avatarMeshes.furCapsule, translation: [-0.18, 1.98, -0.01], rotation: [0, 0, 0.087, 0.996], scale: [0.25, 0.65, 0.22] });
 const earR = node({ name: 'Ear.R', mesh: avatarMeshes.furCapsule, translation: [0.18, 1.98, -0.01], rotation: [0, 0, -0.087, 0.996], scale: [0.25, 0.65, 0.22] });
-const innerL = node({ name: 'InnerEar.L', mesh: avatarMeshes.innerEar, translation: [-0.18, 1.99, 0.11], rotation: [0, 0, 0.087, 0.996], scale: [0.11, 0.53, 0.06] });
-const innerR = node({ name: 'InnerEar.R', mesh: avatarMeshes.innerEar, translation: [0.18, 1.99, 0.11], rotation: [0, 0, -0.087, 0.996], scale: [0.11, 0.53, 0.06] });
+const innerL = node({ name: 'InnerEar.L', mesh: avatarMeshes.innerEar, translation: [-0.18, 1.99, 0.06], rotation: [0, 0, 0.087, 0.996], scale: [0.11, 0.53, 0.06] });
+const innerR = node({ name: 'InnerEar.R', mesh: avatarMeshes.innerEar, translation: [0.18, 1.99, 0.06], rotation: [0, 0, -0.087, 0.996], scale: [0.11, 0.53, 0.06] });
 const legL = node({ name: 'Leg.L', mesh: avatarMeshes.furCapsule, translation: [-0.22, 0.28, 0], scale: [0.34, 0.42, 0.38] });
 const legR = node({ name: 'Leg.R', mesh: avatarMeshes.furCapsule, translation: [0.22, 0.28, 0], scale: [0.34, 0.42, 0.38] });
-const armL = node({ name: 'Arm.L', mesh: avatarMeshes.furCapsule, translation: [-0.43, 0.92, 0.05], rotation: [0, 0, 0.174, 0.985], scale: [0.24, 0.5, 0.25] });
-const armR = node({ name: 'Arm.R', mesh: avatarMeshes.furCapsule, translation: [0.43, 0.92, 0.05], rotation: [0, 0, -0.174, 0.985], scale: [0.24, 0.5, 0.25] });
+const armL = node({ name: 'Arm.L', mesh: avatarMeshes.furCapsule, translation: [-0.43, 0.92, 0.05], rotation: quatZ(armOutwardAngle), scale: [0.24, 0.5, 0.25] });
+const armR = node({ name: 'Arm.R', mesh: avatarMeshes.furCapsule, translation: [0.43, 0.92, 0.05], rotation: quatZ(-armOutwardAngle), scale: [0.24, 0.5, 0.25] });
 const tail = node({ name: 'Tail', mesh: avatarMeshes.furSphere, translation: [0, 0.72, -0.37], scale: [0.5, 0.5, 0.5] });
 const eyeL = node({ name: 'Eye.L', mesh: avatarMeshes.face, translation: [-0.13, 1.56, 0.48], scale: [0.13, 0.17, 0.08] });
 const eyeR = node({ name: 'Eye.R', mesh: avatarMeshes.face, translation: [0.13, 1.56, 0.48], scale: [0.13, 0.17, 0.08] });
@@ -257,13 +274,6 @@ nodes[avatarRoot].children = [body, belly, head, earL, earR, innerL, innerR, leg
 nodes[scout].children = [scarf, satchel];
 nodes[gardener].children = [apron, brim, crown];
 
-function quatX(angle) {
-  return [Math.sin(angle / 2), 0, 0, Math.cos(angle / 2)];
-}
-function quatZ(angle) {
-  return [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)];
-}
-
 const idleTimes = accessor([0, 1, 2], 5126, 'SCALAR', 1, { min: [0], max: [2] });
 const idleBodyScale = accessor([0.68,0.78,0.54, 0.69,0.81,0.55, 0.68,0.78,0.54], 5126, 'VEC3', 3);
 const idleHeadRotation = accessor([0, 0.035, 0].flatMap(quatZ), 5126, 'VEC4', 4);
@@ -271,8 +281,12 @@ const idleEarL = accessor([0.174, 0.11, 0.174].flatMap(quatZ), 5126, 'VEC4', 4);
 const idleEarR = accessor([-0.174, -0.11, -0.174].flatMap(quatZ), 5126, 'VEC4', 4);
 const walkTimes = accessor([0, 0.25, 0.5, 0.75, 1], 5126, 'SCALAR', 1, { min: [0], max: [1] });
 const walkBounce = accessor([0,0.8,0, 0,0.86,0, 0,0.8,0, 0,0.86,0, 0,0.8,0], 5126, 'VEC3', 3);
-const swingA = accessor([0.52,-0.52,0.52,-0.52,0.52].flatMap(quatX), 5126, 'VEC4', 4);
-const swingB = accessor([-0.52,0.52,-0.52,0.52,-0.52].flatMap(quatX), 5126, 'VEC4', 4);
+const swingAnglesA = [0.52, -0.52, 0.52, -0.52, 0.52];
+const swingAnglesB = [-0.52, 0.52, -0.52, 0.52, -0.52];
+const legSwingA = accessor(swingAnglesA.flatMap(quatX), 5126, 'VEC4', 4);
+const legSwingB = accessor(swingAnglesB.flatMap(quatX), 5126, 'VEC4', 4);
+const armSwingL = accessor(swingAnglesB.flatMap(angle => quatArm(armOutwardAngle, angle)), 5126, 'VEC4', 4);
+const armSwingR = accessor(swingAnglesA.flatMap(angle => quatArm(-armOutwardAngle, angle)), 5126, 'VEC4', 4);
 const walkHead = accessor([0.06,-0.04,0.06,-0.04,0.06].flatMap(quatX), 5126, 'VEC4', 4);
 
 const binary = Buffer.concat(chunks);
@@ -310,17 +324,19 @@ const avatar = {
       name: 'Walk',
       samplers: [
         { input: walkTimes, output: walkBounce, interpolation: 'LINEAR' },
-        { input: walkTimes, output: swingA, interpolation: 'LINEAR' },
-        { input: walkTimes, output: swingB, interpolation: 'LINEAR' },
+        { input: walkTimes, output: legSwingA, interpolation: 'LINEAR' },
+        { input: walkTimes, output: legSwingB, interpolation: 'LINEAR' },
+        { input: walkTimes, output: armSwingL, interpolation: 'LINEAR' },
+        { input: walkTimes, output: armSwingR, interpolation: 'LINEAR' },
         { input: walkTimes, output: walkHead, interpolation: 'LINEAR' },
       ],
       channels: [
         { sampler: 0, target: { node: body, path: 'translation' } },
         { sampler: 1, target: { node: legL, path: 'rotation' } },
         { sampler: 2, target: { node: legR, path: 'rotation' } },
-        { sampler: 2, target: { node: armL, path: 'rotation' } },
-        { sampler: 1, target: { node: armR, path: 'rotation' } },
-        { sampler: 3, target: { node: head, path: 'rotation' } },
+        { sampler: 3, target: { node: armL, path: 'rotation' } },
+        { sampler: 4, target: { node: armR, path: 'rotation' } },
+        { sampler: 5, target: { node: head, path: 'rotation' } },
       ],
     },
   ],
