@@ -124,6 +124,10 @@ export interface Skybox3DView {
   star_color: string;
   star_opacity: number;
   star_count: number;
+  portal_color?: string;
+  locked_portal_color?: string;
+  portal_opacity?: number;
+  portal_effect?: 'none' | 'ripple';
 }
 
 export interface ParticleSystem3DView {
@@ -444,6 +448,7 @@ export class PlayerScene {
   private readonly right = new THREE.Vector3();
   private readonly animatedParticles: THREE.Points[] = [];
   private readonly animatedLightning: THREE.Line[] = [];
+  private portalTexture: THREE.CanvasTexture | null = null;
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private roomId = '';
   private playerId = '';
@@ -519,7 +524,7 @@ export class PlayerScene {
     this.bounds = this.readBounds(data);
     this.lastPick = sameRoomLastPick;
     this.reconcileEnvironment(data);
-    this.reconcileExits(data.exits, data.room.indoor);
+    this.reconcileExits(data.exits, data.room.indoor, data.room.environment3d?.skybox);
     this.reconcileEntities(data.entities, sameRoom);
 
     if (!sameRoom || !this.positionValid(this.avatarPosition, playerId)) {
@@ -733,12 +738,15 @@ export class PlayerScene {
     x: number;
     z: number;
     frameHeight: number;
+    apertureWidth: number;
+    apertureHeight: number;
+    portalEffect: string;
     parts: string[];
     portalOpacity: number;
     emissiveIntensity: number;
   }> {
     return [...this.exits.values()].map(tracked => {
-      const portal = tracked.root.getObjectByName('Exit.Portal') as THREE.Mesh | undefined;
+      const portal = tracked.root.getObjectByName('Exit.Aperture') as THREE.Mesh<THREE.PlaneGeometry> | undefined;
       const lintel = tracked.root.getObjectByName('Exit.Lintel');
       const portalMaterial = portal?.material as THREE.MeshBasicMaterial | undefined;
       return {
@@ -748,6 +756,9 @@ export class PlayerScene {
         x: tracked.root.position.x,
         z: tracked.root.position.z,
         frameHeight: lintel?.position.y || 0,
+        apertureWidth: portal?.geometry.parameters.width || 0,
+        apertureHeight: portal?.geometry.parameters.height || 0,
+        portalEffect: String(tracked.root.userData.portalEffect || 'none'),
         parts: tracked.root.children.map(child => child.name).sort(),
         portalOpacity: portalMaterial?.opacity || 0,
         emissiveIntensity: Math.max(0, ...tracked.root.children.map(child => {
@@ -762,15 +773,32 @@ export class PlayerScene {
     apron: boolean;
     floorWidth: number;
     floorDepth: number;
+    floorVertices: number;
+    floorColorRange: number;
+    skyboxCloudCount: number;
     shadow: { left: number; right: number; top: number; bottom: number; bias: number; normalBias: number; radius: number } | null;
   } {
     const floor = this.environment.getObjectByName('playable-floor') as THREE.Mesh<THREE.PlaneGeometry> | undefined;
     const sun = this.environment.getObjectByName('room-sun') as THREE.DirectionalLight | undefined;
+    const sky = this.environment.children.find(child => child.userData.skybox);
     const parameters = floor?.geometry.parameters;
+    const floorColors = floor?.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+    let minimumLightness = Number.POSITIVE_INFINITY;
+    let maximumLightness = Number.NEGATIVE_INFINITY;
+    if (floorColors) {
+      for (let index = 0; index < floorColors.count; index += 1) {
+        const lightness = floorColors.getX(index) + floorColors.getY(index) + floorColors.getZ(index);
+        minimumLightness = Math.min(minimumLightness, lightness);
+        maximumLightness = Math.max(maximumLightness, lightness);
+      }
+    }
     return {
       apron: Boolean(this.environment.getObjectByName('terrain-apron')),
       floorWidth: parameters?.width || 0,
       floorDepth: parameters?.height || 0,
+      floorVertices: floor?.geometry.getAttribute('position').count || 0,
+      floorColorRange: floorColors ? maximumLightness - minimumLightness : 0,
+      skyboxCloudCount: finite(sky?.userData.skyboxCloudCount, 0),
       shadow: sun ? {
         left: sun.shadow.camera.left,
         right: sun.shadow.camera.right,
@@ -959,14 +987,34 @@ export class PlayerScene {
       apron.receiveShadow = true;
       this.environment.add(apron);
     }
+    const floorGeometry = new THREE.PlaneGeometry(width, depth, 16, 16);
+    const floorPositions = floorGeometry.getAttribute('position') as THREE.BufferAttribute;
+    const floorColors = new Float32Array(floorPositions.count * 3);
+    const floorRandom = randomFrom(hash(`floor:${data.room.id}:${environment?.surface_recipe || data.room.biome}`));
+    const floorBase = new THREE.Color(roomColor);
+    const phaseX = floorRandom() * Math.PI * 2;
+    const phaseZ = floorRandom() * Math.PI * 2;
+    for (let index = 0; index < floorPositions.count; index += 1) {
+      const normalizedX = floorPositions.getX(index) / Math.max(width, 1);
+      const normalizedZ = floorPositions.getY(index) / Math.max(depth, 1);
+      const broadVariation = Math.sin(normalizedX * Math.PI * 3 + phaseX)
+        * Math.cos(normalizedZ * Math.PI * 2 + phaseZ);
+      const lightness = 0.96 + broadVariation * 0.025 + (floorRandom() - 0.5) * 0.025;
+      const tint = floorBase.clone().multiplyScalar(lightness);
+      floorColors[index * 3] = tint.r;
+      floorColors[index * 3 + 1] = tint.g;
+      floorColors[index * 3 + 2] = tint.b;
+    }
+    floorGeometry.setAttribute('color', new THREE.BufferAttribute(floorColors, 3));
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: roomColor,
+      color: 0xffffff,
       roughness: 0.93,
       metalness: data.room.biome === 'station' ? 0.22 : 0,
+      vertexColors: true,
       map: this.proceduralSurface(environment?.surface_recipe || data.room.biome, roomColor, finite(environment?.texture_scale, 4)),
     });
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(width, depth, 1, 1),
+      floorGeometry,
       floorMaterial,
     );
     floor.name = 'playable-floor';
@@ -979,7 +1027,6 @@ export class PlayerScene {
       if (revision === this.environmentRevision && floor.parent) {
         floorMaterial.map?.dispose();
         floorMaterial.map = texture;
-        floorMaterial.color.set(0xffffff);
         floorMaterial.needsUpdate = true;
       } else texture.dispose();
     }, finite(environment?.texture_scale, 4));
@@ -1092,6 +1139,7 @@ export class PlayerScene {
     const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 18), material);
     sky.userData.skybox = true;
     sky.userData.skyboxPreset = environment?.skybox?.key || environment?.skybox_preset || '';
+    sky.userData.skyboxCloudCount = finite(environment?.skybox?.cloud_count, 18);
     sky.position.set(
       (this.bounds.minX + this.bounds.maxX) / 2,
       this.bounds.ground,
@@ -1131,6 +1179,23 @@ export class PlayerScene {
     gradient.addColorStop(1, `#${horizon.getHexString()}`);
     context.fillStyle = gradient;
     context.fillRect(0, 0, 512, 256);
+    const horizonSeed = definition?.key && definition.key !== 'bunnyland.3d/default'
+      ? definition.key
+      : skyColor;
+    const random = randomFrom(hash(`sky:${horizonSeed}`));
+    const distant = horizon.clone().multiplyScalar(0.82);
+    context.fillStyle = `#${distant.getHexString()}`;
+    context.globalAlpha = 0.16;
+    context.beginPath();
+    context.moveTo(0, 256);
+    context.lineTo(0, 229);
+    for (let x = 0; x <= 512; x += 24) {
+      context.lineTo(x, 225 - random() * 11);
+    }
+    context.lineTo(512, 256);
+    context.closePath();
+    context.fill();
+    context.globalAlpha = 1;
     context.fillStyle = definition?.sun_color || 'rgba(255, 245, 218, 0.76)';
     context.globalAlpha = definition ? finite(definition.sun_opacity, 0.76) : 1;
     context.beginPath();
@@ -1143,15 +1208,26 @@ export class PlayerScene {
     );
     context.fill();
     context.globalAlpha = 1;
-    const skySeed = definition?.key && definition.key !== 'bunnyland.3d/default' ? definition.key : skyColor;
-    const random = randomFrom(hash(`sky:${skySeed}`));
     const cloudColor = new THREE.Color(definition?.cloud_color || 0xffffff);
-    context.fillStyle = `rgba(${cloudColor.r * 255}, ${cloudColor.g * 255}, ${cloudColor.b * 255}, ${finite(definition?.cloud_opacity, 0.12)})`;
+    context.fillStyle = `#${cloudColor.getHexString()}`;
     for (let index = 0; index < finite(definition?.cloud_count, 18); index += 1) {
+      const x = random() * 512;
+      const y = 104 + random() * 82;
+      const width = 22 + random() * 42;
+      const height = 5 + random() * 9;
+      context.globalAlpha = finite(definition?.cloud_opacity, 0.12) * (0.58 + random() * 0.42);
       context.beginPath();
-      context.ellipse(random() * 512, 115 + random() * 70, 18 + random() * 38, 3 + random() * 7, 0, 0, Math.PI * 2);
+      context.moveTo(x - width, y + height * 0.3);
+      context.lineTo(x - width * 0.46, y - height * 0.58);
+      context.lineTo(x - width * 0.08, y - height);
+      context.lineTo(x + width * 0.4, y - height * 0.48);
+      context.lineTo(x + width, y + height * 0.22);
+      context.lineTo(x + width * 0.38, y + height);
+      context.lineTo(x - width * 0.55, y + height * 0.76);
+      context.closePath();
       context.fill();
     }
+    context.globalAlpha = 1;
     const starColor = new THREE.Color(definition?.star_color || 0xffffff);
     context.fillStyle = `rgba(${starColor.r * 255}, ${starColor.g * 255}, ${starColor.b * 255}, ${finite(definition?.star_opacity, 0)})`;
     for (let index = 0; index < finite(definition?.star_count, 0); index += 1) {
@@ -1549,7 +1625,11 @@ export class PlayerScene {
     parent.add(points);
   }
 
-  private reconcileExits(exits: PlayerSceneExit[], indoor: boolean): void {
+  private reconcileExits(
+    exits: PlayerSceneExit[],
+    indoor: boolean,
+    skybox: Skybox3DView | undefined,
+  ): void {
     const visible = new Set(exits.map(exit => exit.id));
     for (const [id, tracked] of this.exits) {
       if (visible.has(id)) continue;
@@ -1565,7 +1645,13 @@ export class PlayerScene {
       const index = indexes.get(side) || 0;
       indexes.set(side, index + 1);
       const position = this.exitPosition(side, index, counts.get(side) || 1, indoor);
-      const nextSignature = signature({ exit, indoor, position: position.toArray() });
+      const portalStyle = {
+        color: skybox?.portal_color || '#75e0cf',
+        lockedColor: skybox?.locked_portal_color || '#b85858',
+        opacity: finite(skybox?.portal_opacity, 0.135),
+        effect: skybox?.portal_effect || 'ripple',
+      };
+      const nextSignature = signature({ exit, indoor, position: position.toArray(), portalStyle });
       const current = this.exits.get(exit.id);
       if (current?.signature === nextSignature) {
         current.exit = exit;
@@ -1579,60 +1665,88 @@ export class PlayerScene {
       root.position.copy(position);
       if (side === 'east' || side === 'west') root.rotation.y = Math.PI / 2;
       root.userData.exitId = exit.id;
+      root.userData.portalEffect = portalStyle.effect;
       const frameMaterial = new THREE.MeshStandardMaterial({
         color: exit.locked ? 0x9c5d5d : 0x79d2c0,
         emissive: exit.locked ? 0x3b1212 : 0x174c43,
         emissiveIntensity: 0.48,
+        roughness: 0.68,
       });
       const wallHeight = Math.min(this.bounds.height, 3.6);
       const frameHeight = indoor ? Math.min(3.3, wallHeight - 0.25) : 3.1;
-      const postGeometry = new THREE.BoxGeometry(0.16, frameHeight, 0.16);
+      const apertureWidth = 1.72;
+      const apertureHeight = frameHeight - 0.2;
+      const postGeometry = new THREE.BoxGeometry(0.22, frameHeight, 0.22);
       const left = new THREE.Mesh(postGeometry, frameMaterial);
-      const right = new THREE.Mesh(postGeometry, frameMaterial.clone());
+      const right = new THREE.Mesh(postGeometry, frameMaterial);
       left.name = 'Exit.Post.L';
       right.name = 'Exit.Post.R';
-      left.position.set(-0.72, frameHeight / 2, 0);
-      right.position.set(0.72, frameHeight / 2, 0);
+      left.position.set(-0.98, frameHeight / 2, 0);
+      right.position.set(0.98, frameHeight / 2, 0);
       const lintel = new THREE.Mesh(
-        new THREE.BoxGeometry(1.6, 0.16, 0.18),
-        frameMaterial.clone(),
+        new THREE.BoxGeometry(2.18, 0.22, 0.24),
+        frameMaterial,
       );
       lintel.name = 'Exit.Lintel';
       lintel.position.set(0, frameHeight, 0);
       const threshold = new THREE.Mesh(
-        new THREE.BoxGeometry(1.46, 0.08, 0.42),
-        frameMaterial.clone(),
+        new THREE.BoxGeometry(1.92, 0.08, 0.48),
+        frameMaterial,
       );
       threshold.name = 'Exit.Threshold';
       threshold.position.set(0, 0.04, 0.08);
-      const portal = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.28, 1.4),
-        new THREE.MeshBasicMaterial({
-          color: exit.locked ? 0xb85858 : 0x75e0cf,
-          transparent: true,
-          opacity: exit.locked ? 0.08 : 0.16,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
+      const portalMaterial = new THREE.MeshBasicMaterial({
+        color: exit.locked ? portalStyle.lockedColor : portalStyle.color,
+        transparent: true,
+        opacity: THREE.MathUtils.clamp(
+          portalStyle.opacity * (exit.locked ? 0.56 : 1),
+          0,
+          0.5,
+        ),
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        map: portalStyle.effect === 'ripple' ? this.sharedPortalTexture() : null,
+      });
+      const aperture = new THREE.Mesh(
+        new THREE.PlaneGeometry(apertureWidth, apertureHeight),
+        portalMaterial,
       );
-      portal.name = 'Exit.Portal';
-      portal.rotation.x = -Math.PI / 2;
-      portal.position.set(0, 0.045, 0.72);
-      root.add(left, right, lintel, threshold, portal);
+      aperture.name = 'Exit.Aperture';
+      aperture.position.set(0, apertureHeight / 2 + 0.05, 0.035);
+      aperture.userData.exitPortal = true;
+      aperture.userData.baseOpacity = portalMaterial.opacity;
+      const path = new THREE.Mesh(
+        new THREE.PlaneGeometry(apertureWidth, 1.65),
+        portalMaterial,
+      );
+      path.name = 'Exit.Path';
+      path.rotation.x = -Math.PI / 2;
+      path.position.set(0, 0.045, 0.86);
+      path.userData.exitPortal = true;
+      path.userData.baseOpacity = portalMaterial.opacity;
+      root.add(left, right, lintel, threshold, aperture, path);
       if (exit.locked) {
+        const lockMaterial = new THREE.MeshStandardMaterial({
+          color: 0xd85a50,
+          emissive: 0x6f1915,
+          emissiveIntensity: 0.68,
+          roughness: 0.64,
+        });
         const crossbar = new THREE.Mesh(
-          new THREE.BoxGeometry(1.48, 0.14, 0.17),
-          new THREE.MeshStandardMaterial({
-            color: 0xc84646,
-            emissive: 0x5f1414,
-            emissiveIntensity: 0.68,
-            roughness: 0.7,
-          }),
+          new THREE.BoxGeometry(1.82, 0.16, 0.18),
+          lockMaterial,
         );
         crossbar.name = 'Exit.LockedCrossbar';
         crossbar.position.set(0, frameHeight * 0.58, 0.05);
         crossbar.rotation.z = -0.12;
-        root.add(crossbar);
+        const lockBadge = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.24, 0),
+          lockMaterial,
+        );
+        lockBadge.name = 'Exit.LockBadge';
+        lockBadge.position.set(0, frameHeight * 0.58, 0.18);
+        lockBadge.scale.set(1, 1.18, 0.42);
+        root.add(crossbar, lockBadge);
       }
       root.traverse(child => {
         const mesh = child as THREE.Mesh;
@@ -1655,6 +1769,36 @@ export class PlayerScene {
       this.nearbyExitId = '';
       this.onNearbyExit(null);
     }
+  }
+
+  private sharedPortalTexture(): THREE.CanvasTexture {
+    if (this.portalTexture) return this.portalTexture;
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext('2d')!;
+    context.translate(64, 64);
+    context.strokeStyle = '#ffffff';
+    context.lineCap = 'round';
+    for (let ring = 0; ring < 9; ring += 1) {
+      const radius = 8 + ring * 6.2;
+      context.globalAlpha = 0.2 + (ring % 3) * 0.08;
+      context.lineWidth = 1.2 + (ring % 2) * 0.8;
+      context.beginPath();
+      context.arc(0, 0, radius, ring * 0.62, ring * 0.62 + Math.PI * 1.42);
+      context.stroke();
+    }
+    context.globalAlpha = 0.2;
+    context.beginPath();
+    context.arc(0, 0, 55, 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 1;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.center.set(0.5, 0.5);
+    texture.userData.sharedResource = true;
+    this.portalTexture = texture;
+    return texture;
   }
 
   private cardinal(direction: string): string {
@@ -2510,6 +2654,11 @@ export class PlayerScene {
     }
   }
 
+  private updatePortals(delta: number): void {
+    if (!this.portalTexture || this.reducedMotion) return;
+    this.portalTexture.rotation = (this.portalTexture.rotation + delta * 0.075) % (Math.PI * 2);
+  }
+
   private refreshAnimatedEffects(): void {
     this.animatedParticles.length = 0;
     this.animatedLightning.length = 0;
@@ -2539,8 +2688,17 @@ export class PlayerScene {
     for (const [id, tracked] of this.exits) {
       tracked.root.traverse(child => {
         const mesh = child as THREE.Mesh;
-        if (!mesh.userData.exitFrame || !(mesh.material instanceof THREE.MeshStandardMaterial)) return;
-        mesh.material.emissiveIntensity = id === next ? 0.78 : child.name === 'Exit.LockedCrossbar' ? 0.68 : 0.48;
+        if (mesh.userData.exitFrame && mesh.material instanceof THREE.MeshStandardMaterial) {
+          mesh.material.emissiveIntensity = id === next
+            ? 0.78
+            : child.name === 'Exit.LockedCrossbar' || child.name === 'Exit.LockBadge'
+              ? 0.68
+              : 0.48;
+        }
+        if (mesh.userData.exitPortal && mesh.material instanceof THREE.MeshBasicMaterial) {
+          const baseOpacity = finite(mesh.userData.baseOpacity, 0.1);
+          mesh.material.opacity = id === next ? Math.min(0.24, baseOpacity + 0.055) : baseOpacity;
+        }
       });
     }
     if (next === this.nearbyExitId) return;
@@ -2602,6 +2760,7 @@ export class PlayerScene {
     this.moveAvatar(delta);
     this.updateAnimation(delta);
     this.updateParticles(delta);
+    this.updatePortals(delta);
     this.updateNearbyExit();
     this.updateCamera(delta);
     this.renderer.render(this.scene, this.camera);

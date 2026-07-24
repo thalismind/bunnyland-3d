@@ -148,6 +148,10 @@ def install_weather_effects(actor):
             cloud_count=0,
             star_opacity=0.85,
             star_count=180,
+            portal_color="#78a7ff",
+            locked_portal_color="#d65a66",
+            portal_opacity=0.12,
+            portal_effect="ripple",
         ),
     ])
     register_particle_systems(actor, "vendor.weather", [
@@ -184,6 +188,10 @@ the provider plugin id. The client receives only validated colors, counts, mater
 and motion parameters; registries do not transmit or execute plugin code in browsers.
 Room rules are evaluated during projection, so clock- or weather-dependent effects update
 without mutating room components. An explicit non-default `skybox_preset` takes precedence.
+Skybox definitions also own the default exit-aperture palette and may select the subtle
+`ripple` texture or `none`. This keeps the horizon, atmosphere, and portal treatment in one
+replaceable visual provider; uploaded equirectangular skies still replace the procedural
+sky texture itself.
 The highest-priority matching particle rule replaces only the core ambient particle field;
 manually authored and plugin-owned emitters remain composable.
 

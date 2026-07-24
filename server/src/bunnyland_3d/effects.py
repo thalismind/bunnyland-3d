@@ -36,6 +36,10 @@ class Skybox3D:
     star_color: str = "#ffffff"
     star_opacity: float = 0.0
     star_count: int = 0
+    portal_color: str = "#75e0cf"
+    locked_portal_color: str = "#b85858"
+    portal_opacity: float = 0.135
+    portal_effect: Literal["none", "ripple"] = "ripple"
 
 
 @dataclass(frozen=True)
@@ -121,7 +125,14 @@ class EnvironmentEffectRegistry:
                 raise EnvironmentEffectError(f"skybox is already registered: {skybox.key}")
             _validate_color("zenith_color", skybox.zenith_color, optional=True)
             _validate_color("sky_color", skybox.sky_color, optional=True)
-            for name in ("horizon_color", "sun_color", "cloud_color", "star_color"):
+            for name in (
+                "horizon_color",
+                "sun_color",
+                "cloud_color",
+                "star_color",
+                "portal_color",
+                "locked_portal_color",
+            ):
                 _validate_color(name, getattr(skybox, name))
             if not 0.0 <= skybox.horizon_mix <= 1.0:
                 raise EnvironmentEffectError("skybox horizon_mix must be between 0 and 1")
@@ -139,6 +150,10 @@ class EnvironmentEffectRegistry:
                 raise EnvironmentEffectError("skybox star_opacity must be between 0 and 1")
             if not 0 <= skybox.star_count <= 512:
                 raise EnvironmentEffectError("skybox star_count must be between 0 and 512")
+            if not 0.0 <= skybox.portal_opacity <= 0.5:
+                raise EnvironmentEffectError("skybox portal_opacity must be between 0 and 0.5")
+            if skybox.portal_effect not in {"none", "ripple"}:
+                raise EnvironmentEffectError("skybox portal_effect must be 'none' or 'ripple'")
             self._skyboxes[skybox.key] = skybox
 
     def register_particle_systems(

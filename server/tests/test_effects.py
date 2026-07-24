@@ -45,6 +45,8 @@ def _vendor_plugin() -> Plugin:
                     cloud_count=0,
                     star_opacity=0.85,
                     star_count=180,
+                    portal_color="#78a7ff",
+                    portal_effect="none",
                 ),
                 Skybox3D("vendor.weather/day"),
             ),
@@ -113,6 +115,8 @@ def test_plugin_effects_register_after_3d_and_project_declarative_views():
 
     assert environment["skybox"]["key"] == "vendor.weather/night"
     assert environment["skybox"]["star_count"] == 180
+    assert environment["skybox"]["portal_color"] == "#78a7ff"
+    assert environment["skybox"]["portal_effect"] == "none"
     assert particles["system"] == {
         "key": "vendor.weather/snow",
         "blending": "normal",
@@ -135,6 +139,18 @@ def test_registration_enforces_ownership_uniqueness_and_bounds():
             actor,
             "vendor.weather",
             [Skybox3D("vendor.weather/night", star_count=513)],
+        )
+    with pytest.raises(EnvironmentEffectError, match="portal_opacity"):
+        register_skyboxes(
+            actor,
+            "vendor.weather",
+            [Skybox3D("vendor.weather/opaque", portal_opacity=0.75)],
+        )
+    with pytest.raises(EnvironmentEffectError, match="portal_effect"):
+        register_skyboxes(
+            actor,
+            "vendor.weather",
+            [Skybox3D("vendor.weather/portal", portal_effect="spark")],
         )
     with pytest.raises(EnvironmentEffectError, match="pulse_amount"):
         register_particle_systems(

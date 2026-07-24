@@ -379,7 +379,7 @@ def player_3d_scene(room_id: str):
                 "sun_intensity": 2.0,
                 "has_roof": False,
                 "skybox_preset": "vendor.weather/day",
-                "skybox": {"key": "vendor.weather/day", "zenith_color": "", "horizon_color": "#ffe2b8", "horizon_mix": 0.32, "sun_color": "#fff5da", "sun_x": 0.765, "sun_y": 0.28, "sun_size": 0.035, "sun_opacity": 0.76, "cloud_color": "#ffffff", "cloud_opacity": 0.12, "cloud_count": 18, "star_color": "#ffffff", "star_opacity": 0.15, "star_count": 12},
+                "skybox": {"key": "vendor.weather/day", "zenith_color": "", "horizon_color": "#ffe2b8", "horizon_mix": 0.32, "sun_color": "#fff5da", "sun_x": 0.765, "sun_y": 0.28, "sun_size": 0.035, "sun_opacity": 0.76, "cloud_color": "#ffffff", "cloud_opacity": 0.12, "cloud_count": 18, "star_color": "#ffffff", "star_opacity": 0.15, "star_count": 12, "portal_color": "#63e6d1", "locked_portal_color": "#c85656", "portal_opacity": 0.14, "portal_effect": "ripple"},
                 "surface_recipe": biome,
                 "albedo_url": "",
                 "normal_url": "",
@@ -1137,6 +1137,10 @@ def main() -> None:
             environment_state = page.evaluate("window.__world3dPlayer.environmentState()")
             if not environment_state["apron"] or environment_state["floorWidth"] != 16 or environment_state["floorDepth"] != 16:
                 raise AssertionError(f"outdoor apron changed authoritative floor bounds: {environment_state!r}")
+            if environment_state["floorVertices"] != 289 or environment_state["floorColorRange"] <= 0.01:
+                raise AssertionError(f"playable terrain did not retain deterministic vertex variation: {environment_state!r}")
+            if environment_state["skyboxCloudCount"] != 18:
+                raise AssertionError(f"registered skybox did not own its cloud layer: {environment_state!r}")
             expected_shadow = {
                 "left": -10,
                 "right": 10,
@@ -1378,16 +1382,25 @@ def main() -> None:
                 raise AssertionError(f"north door did not align with its wall: {north_exit!r}")
             if abs(east_exit["frameHeight"] - 3.1) > 0.01 or abs(north_exit["frameHeight"] - 3.1) > 0.01:
                 raise AssertionError(f"outdoor exits were not taller than the bunny: {exits!r}")
+            if east_exit["apertureWidth"] < 1.7 or east_exit["apertureHeight"] < 2.8:
+                raise AssertionError(f"open exit aperture was not readable at character scale: {east_exit!r}")
+            if east_exit["portalEffect"] != "ripple":
+                raise AssertionError(f"registered skybox did not own the portal effect: {east_exit!r}")
             required_exit_parts = {
+                "Exit.Aperture",
                 "Exit.Lintel",
-                "Exit.Portal",
+                "Exit.Path",
                 "Exit.Post.L",
                 "Exit.Post.R",
                 "Exit.Threshold",
             }
             if not required_exit_parts.issubset(east_exit["parts"]) or "Exit.LockedCrossbar" in east_exit["parts"]:
                 raise AssertionError(f"open exit structure was incomplete: {east_exit!r}")
-            if not required_exit_parts.issubset(north_exit["parts"]) or "Exit.LockedCrossbar" not in north_exit["parts"]:
+            if (
+                not required_exit_parts.issubset(north_exit["parts"])
+                or "Exit.LockedCrossbar" not in north_exit["parts"]
+                or "Exit.LockBadge" not in north_exit["parts"]
+            ):
                 raise AssertionError(f"locked exit structure was incomplete: {north_exit!r}")
             if not north_exit["portalOpacity"] < east_exit["portalOpacity"]:
                 raise AssertionError(f"locked exit portal did not reduce opacity: {exits!r}")
