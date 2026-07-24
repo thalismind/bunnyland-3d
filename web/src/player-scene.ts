@@ -732,12 +732,14 @@ export class PlayerScene {
     rotationY: number;
     x: number;
     z: number;
+    frameHeight: number;
     parts: string[];
     portalOpacity: number;
     emissiveIntensity: number;
   }> {
     return [...this.exits.values()].map(tracked => {
       const portal = tracked.root.getObjectByName('Exit.Portal') as THREE.Mesh | undefined;
+      const lintel = tracked.root.getObjectByName('Exit.Lintel');
       const portalMaterial = portal?.material as THREE.MeshBasicMaterial | undefined;
       return {
         id: tracked.exit.id,
@@ -745,6 +747,7 @@ export class PlayerScene {
         rotationY: tracked.root.rotation.y,
         x: tracked.root.position.x,
         z: tracked.root.position.z,
+        frameHeight: lintel?.position.y || 0,
         parts: tracked.root.children.map(child => child.name).sort(),
         portalOpacity: portalMaterial?.opacity || 0,
         emissiveIntensity: Math.max(0, ...tracked.root.children.map(child => {
@@ -1581,7 +1584,8 @@ export class PlayerScene {
         emissive: exit.locked ? 0x3b1212 : 0x174c43,
         emissiveIntensity: 0.48,
       });
-      const frameHeight = indoor ? 1.8 : 1.55;
+      const wallHeight = Math.min(this.bounds.height, 3.6);
+      const frameHeight = indoor ? Math.min(3.3, wallHeight - 0.25) : 3.1;
       const postGeometry = new THREE.BoxGeometry(0.16, frameHeight, 0.16);
       const left = new THREE.Mesh(postGeometry, frameMaterial);
       const right = new THREE.Mesh(postGeometry, frameMaterial.clone());

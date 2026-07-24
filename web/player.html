@@ -460,6 +460,11 @@
         background: var(--bl-bg-strong);
         color: var(--bl-text);
       }
+      #claim-dialog, #connection-dialog, #content-warning-dialog {
+        position: fixed;
+        inset: 0;
+        margin: auto;
+      }
       #claim-dialog::backdrop, #connection-dialog::backdrop { background: var(--bl-overlay); }
       .claim-dialog-form, .connection-dialog-form { display: grid; gap: 8px; }
       .claim-dialog-form h3, .connection-dialog-form h2 { margin: 0 0 4px; }

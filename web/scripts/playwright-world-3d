@@ -879,6 +879,17 @@ def assert_responsive_toolbar(page, name: str, *, character: bool = False) -> No
         expect(dialog).to_be_visible()
         expect(dialog.locator("#api-url")).to_have_count(1)
         expect(dialog.locator("#character-select")).to_have_count(1)
+        dialog_position = dialog.evaluate(
+            """element => {
+              const bounds = element.getBoundingClientRect();
+              return {
+                dx: Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2),
+                dy: Math.abs(bounds.top + bounds.height / 2 - innerHeight / 2),
+              };
+            }"""
+        )
+        if dialog_position["dx"] > 2 or dialog_position["dy"] > 2:
+            raise AssertionError(f"{name} connection dialog was not centered: {dialog_position!r}")
         dialog.get_by_role("button", name="Close").click()
     elif not any(row["api"] and row["index"] == 1 for row in rows):
         raise AssertionError(f"{name} server controls are not on the second row: {layout!r}")
@@ -1061,6 +1072,17 @@ def main() -> None:
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#content-warning-dialog")).to_be_visible()
             expect(page.locator("#content-warning-flags")).to_contain_text("adult:violence")
+            warning_position = page.locator("#content-warning-dialog").evaluate(
+                """element => {
+                  const bounds = element.getBoundingClientRect();
+                  return {
+                    dx: Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2),
+                    dy: Math.abs(bounds.top + bounds.height / 2 - innerHeight / 2),
+                  };
+                }"""
+            )
+            if warning_position["dx"] > 2 or warning_position["dy"] > 2:
+                raise AssertionError(f"content warning dialog was not centered: {warning_position!r}")
             if len(CLAIM_STATE["methods"]) != claims_before_warning:
                 raise AssertionError("3D player claimed before content warning acceptance")
             page.locator("#content-warning-remember").check()
@@ -1354,6 +1376,8 @@ def main() -> None:
                 raise AssertionError(f"east door did not align with its wall: {east_exit!r}")
             if abs(north_exit["rotationY"]) > 0.01 or abs(north_exit["z"] - 0.25) > 0.01:
                 raise AssertionError(f"north door did not align with its wall: {north_exit!r}")
+            if abs(east_exit["frameHeight"] - 3.1) > 0.01 or abs(north_exit["frameHeight"] - 3.1) > 0.01:
+                raise AssertionError(f"outdoor exits were not taller than the bunny: {exits!r}")
             required_exit_parts = {
                 "Exit.Lintel",
                 "Exit.Portal",
