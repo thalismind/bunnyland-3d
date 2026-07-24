@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 
 from .components import (
@@ -65,11 +66,31 @@ def _prop_instances(group: PropGroup3DComponent, bounds: RoomBounds3DComponent) 
         "fern",
         "scrub",
     }
+    cluster_centers: list[tuple[float, float]] = []
+    if ground_cover and group.count:
+        cluster_count = min(6, max(2, round(group.count**0.5 / 2)))
+        cluster_centers = [
+            (
+                bounds.origin.x + group.margin + randomizer.random() * width,
+                bounds.origin.z + group.margin + randomizer.random() * depth,
+            )
+            for _index in range(cluster_count)
+        ]
+    cluster_radius = min(bounds.size.x, bounds.size.z) * 0.12
     for index in range(group.count):
         instance_id = f"i{index}"
         if ground_cover:
-            x = bounds.origin.x + group.margin + randomizer.random() * width
-            z = bounds.origin.z + group.margin + randomizer.random() * depth
+            center_x, center_z = cluster_centers[index % len(cluster_centers)]
+            radius = cluster_radius * randomizer.random() ** 0.5
+            angle = randomizer.random() * 6.283185307179586
+            x = min(
+                bounds.origin.x + bounds.size.x - group.margin,
+                max(bounds.origin.x + group.margin, center_x + radius * math.cos(angle)),
+            )
+            z = min(
+                bounds.origin.z + bounds.size.z - group.margin,
+                max(bounds.origin.z + group.margin, center_z + radius * math.sin(angle)),
+            )
         elif randomizer.random() < 0.5:
             x = bounds.origin.x + group.margin + randomizer.random() * width
             z = bounds.origin.z + (

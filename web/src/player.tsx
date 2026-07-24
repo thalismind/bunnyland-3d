@@ -55,30 +55,35 @@ function PlayerShell() {
   }, []);
   return <>
     <Toolbar id="toolbar">
-      <ToolbarRow class="toolbar-heading" id="toolbar-row1">
+      <ToolbarRow class="toolbar-heading player-toolbar" id="toolbar-row1">
         <ToolbarBrand>Bunnyland 3D Player</ToolbarBrand>
         <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
-      </ToolbarRow>
-      <ToolbarRow id="toolbar-row2">
-      <label for="api-url">Server</label>
-      <input id="api-url" defaultValue="/api/v1/" spellcheck={false} />
-      <button id="btn-connect" type="button">Connect</button>
-      <span id="status">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
-      </ToolbarRow>
-      <ToolbarRow id="toolbar-row3">
-      <label for="character-select">Character</label>
-      <select id="character-select"><option value="">Choose...</option></select>
+        <span id="hud-character" class="toolbar-character">No character</span>
+        <span id="hud-points" class="toolbar-points"></span>
+      <button id="btn-connection" type="button" aria-haspopup="dialog">Connection</button>
       <button id="btn-claim" type="button" disabled>Claim</button>
-      </ToolbarRow>
-      <ToolbarRow id="toolbar-row4">
-      <button id="btn-request-image" type="button">📷 image</button>
-      <button id="btn-refresh" type="button">Refresh</button>
+      <button id="btn-request-image" type="button">Image</button>
       <button id="btn-capture" type="button">📷 Capture</button>
       <button id="btn-hud" type="button" aria-controls="side" aria-expanded="true">Panels</button>
       <label for="theme-select">Theme</label>
       <span id="theme-select-root"><ThemeSelect id="theme-select" aria-label="Theme" /></span>
       </ToolbarRow>
     </Toolbar>
+    <dialog id="connection-dialog" aria-labelledby="connection-dialog-title">
+      <form method="dialog" class="connection-dialog-form">
+        <h2 id="connection-dialog-title">Connection</h2>
+        <label for="api-url">Server URL</label>
+        <input id="api-url" defaultValue="/api/v1/" spellcheck={false} />
+        <div class="connection-actions">
+          <button id="btn-connect" type="button">Connect</button>
+          <button id="btn-refresh" type="button">Refresh</button>
+          <span id="status" aria-live="polite">{renderer.kind === 'loading' ? 'Loading renderer…' : renderer.kind === 'error' ? 'Load failed' : 'Ready'}</span>
+        </div>
+        <label for="character-select">Character</label>
+        <select id="character-select"><option value="">Choose...</option></select>
+        <div class="connection-actions"><button type="submit">Close</button></div>
+      </form>
+    </dialog>
     <dialog id="claim-dialog">
       <form method="dialog" class="claim-dialog-form">
         <h3>Claim</h3>
@@ -130,9 +135,7 @@ function PlayerShell() {
         <div id="empty-state-detail">Enter a Bunnyland API URL above, then choose a character.</div>
       </div>
       <div id="scene-summary" class="hidden" aria-live="polite">
-        <div id="hud-character">No character selected</div>
         <div id="hud-room">Connect to a v2 server to begin.</div>
-        <div id="hud-points"></div>
       </div>
       <div id="control-hint">WASD move · right-drag orbit · wheel zoom · click target</div>
       <div id="exit-prompt" class="hidden" aria-live="polite">
@@ -140,6 +143,13 @@ function PlayerShell() {
         <button id="btn-exit-prompt" type="button">E · Travel</button>
       </div>
       <aside id="side">
+        <div class="panel-tabs" role="tablist" aria-label="Player panels">
+          <button id="tab-character" role="tab" type="button" aria-controls="panel-character" aria-selected="true" data-panel-tab="character">Character</button>
+          <button id="tab-room" role="tab" type="button" aria-controls="panel-room" aria-selected="false" data-panel-tab="room" tabindex={-1}>Room</button>
+          <button id="tab-actions" role="tab" type="button" aria-controls="panel-actions" aria-selected="false" data-panel-tab="actions" tabindex={-1}>Actions</button>
+          <button id="tab-journal" role="tab" type="button" aria-controls="panel-journal" aria-selected="false" data-panel-tab="journal" tabindex={-1}>Journal</button>
+        </div>
+        <div id="panel-character" role="tabpanel" aria-labelledby="tab-character" data-panel-name="character">
         <section class="panel">
           <div class="portrait-panel">
             <div id="portrait-frame" class="portrait-frame"></div>
@@ -154,6 +164,8 @@ function PlayerShell() {
             </div>
           </div>
         </section>
+        </div>
+        <div id="panel-room" role="tabpanel" aria-labelledby="tab-room" data-panel-name="room" hidden>
         <section class="panel">
           <h2 id="room-title">No room</h2>
           <div id="room-meta" class="muted">Connect and choose a character.</div>
@@ -167,6 +179,8 @@ function PlayerShell() {
           <div class="section-title">Inventory</div>
           <div id="inventory" class="option-list muted">No inventory loaded.</div>
         </section>
+        </div>
+        <div id="panel-actions" role="tabpanel" aria-labelledby="tab-actions" data-panel-name="actions" hidden>
         <section class="panel queue-panel"><h2>Pending actions</h2><div id="queue" class="muted">No queued actions.</div></section>
         <section class="panel actions-panel">
           <h2>Actions</h2>
@@ -175,8 +189,11 @@ function PlayerShell() {
           <div id="action-filter-row"><input id="action-filter" type="text" placeholder="Search actions" spellcheck={false} /><button id="action-filter-clear" type="button">Clear</button></div>
           <div id="actions" class="muted">No actions loaded.</div>
         </section>
+        </div>
+        <div id="panel-journal" role="tabpanel" aria-labelledby="tab-journal" data-panel-name="journal" hidden>
         <section class="panel"><h2>Photos</h2><div id="photo-gallery" class="gallery-grid muted">No photos yet.</div></section>
         <section class="panel"><h2>Activity</h2><div id="activity" class="option-list muted">No recent activity.</div></section>
+        </div>
       </aside>
     </main>
     <div id="photo-lightbox" class="hidden" role="dialog" aria-modal="true" aria-labelledby="photo-lightbox-title">

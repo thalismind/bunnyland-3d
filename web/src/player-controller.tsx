@@ -65,6 +65,8 @@ const ACTIVITY_LIMIT = 24;
 const viewer = document.getElementById('viewer') as HTMLElement;
 const apiInput = document.getElementById('api-url') as HTMLInputElement;
 const connectButton = document.getElementById('btn-connect') as HTMLButtonElement;
+const connectionButton = document.getElementById('btn-connection') as HTMLButtonElement;
+const connectionDialog = document.getElementById('connection-dialog') as HTMLDialogElement;
 const refreshButton = document.getElementById('btn-refresh') as HTMLButtonElement;
 const characterSelect = document.getElementById('character-select') as HTMLSelectElement;
 const claimButton = document.getElementById('btn-claim') as HTMLButtonElement;
@@ -124,6 +126,10 @@ const contentWarningFlagsEl = document.getElementById('content-warning-flags') a
 const contentWarningRememberEl = document.getElementById('content-warning-remember') as HTMLInputElement;
 const contentWarningAcceptButton = document.getElementById('btn-content-warning-accept') as HTMLButtonElement;
 const contentWarningDeclineButton = document.getElementById('btn-content-warning-decline') as HTMLButtonElement;
+const panelTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-panel-tab]')];
+const panelViews = [...document.querySelectorAll<HTMLElement>('[data-panel-name]')];
+
+type PanelName = 'character' | 'room' | 'actions' | 'journal';
 
 let baseUrl = '';
 let characters: CharacterSummary[] = [];
@@ -157,6 +163,8 @@ let pendingContentSignature = '';
 let pendingContentBase = '';
 let contentWarningRequestId = 0;
 let contentWarningResolver: { requestId: number; resolve: (accepted: boolean) => void } | null = null;
+let selectedPanel: PanelName = 'character';
+let joinedOnce = false;
 
 const scene = new PlayerScene(
   viewer,
@@ -175,6 +183,24 @@ const scene = new PlayerScene(
 function status(text: string, cls = ''): void {
   statusEl.textContent = text;
   statusEl.className = cls;
+}
+
+function openConnectionDialog(): void {
+  if (!connectionDialog.open) {
+    scene.setEnabled(false);
+    connectionDialog.showModal();
+  }
+}
+
+function selectPanel(panel: PanelName, focus = false): void {
+  selectedPanel = panel;
+  for (const tab of panelTabs) {
+    const selected = tab.dataset.panelTab === panel;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  for (const view of panelViews) view.hidden = view.dataset.panelName !== panel;
 }
 
 async function connect(rawBase: string): Promise<void> {
@@ -476,6 +502,11 @@ function render(): void {
     renderActivity();
     return;
   }
+  if (!joinedOnce) {
+    joinedOnce = true;
+    selectPanel('actions');
+  }
+  if (connectionDialog.open) connectionDialog.close();
   const points = projection.points || {};
   emptyStateEl.classList.add('hidden');
   sceneSummaryEl.classList.remove('hidden');
@@ -1177,8 +1208,13 @@ function RowIcon({ icon }: { icon: string }) {
 }
 
 connectButton.addEventListener('click', () => { void connect(apiInput.value); });
+connectionButton.addEventListener('click', openConnectionDialog);
+connectionDialog.addEventListener('close', () => scene.setEnabled(true));
 refreshButton.addEventListener('click', () => { void refresh(); });
-characterSelect.addEventListener('change', () => { void selectCharacter(characterSelect.value); });
+characterSelect.addEventListener('change', () => {
+  if (characterSelect.value && connectionDialog.open) connectionDialog.close();
+  void selectCharacter(characterSelect.value);
+});
 claimButton.addEventListener('click', () => {
   if (!playerId) return;
   dialogClaimButton.textContent = control?.active === false ? 'Resume' : 'Claim';
@@ -1246,6 +1282,20 @@ hudButton.addEventListener('click', () => {
   hudButton.setAttribute('aria-expanded', String(!closed));
   if (!closed) sideEl.focus();
 });
+for (const tab of panelTabs) {
+  tab.addEventListener('click', () => selectPanel(tab.dataset.panelTab as PanelName));
+  tab.addEventListener('keydown', event => {
+    const index = panelTabs.indexOf(tab);
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % panelTabs.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + panelTabs.length) % panelTabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = panelTabs.length - 1;
+    else return;
+    event.preventDefault();
+    selectPanel(panelTabs[next].dataset.panelTab as PanelName, true);
+  });
+}
 exitPromptButton.addEventListener('click', () => { void confirmNearbyExit(); });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !photoLightbox.classList.contains('hidden')) closeLightbox();
@@ -1263,7 +1313,9 @@ window.addEventListener('beforeunload', () => {
 
 const server = serverFromUrl();
 if (server) void connect(server);
+selectPanel(selectedPanel);
 render();
+queueMicrotask(openConnectionDialog);
 
 declare global {
   interface Window {
@@ -1276,9 +1328,13 @@ declare global {
       exitScreenPoint: (exitId: string, sourceRoomId?: string) => ReturnType<PlayerScene['exitScreenPoint']>;
       entityScreenPoint: (entityId: string) => ReturnType<PlayerScene['entityScreenPoint']>;
       entityVisualState: (entityId: string) => ReturnType<PlayerScene['entityVisualState']>;
+      entityVariantState: (entityId: string) => ReturnType<PlayerScene['entityVariantState']>;
+      entityMaterialState: (entityId: string) => ReturnType<PlayerScene['entityMaterialState']>;
       exitStates: () => ReturnType<PlayerScene['exitStates']>;
       cameraState: () => ReturnType<PlayerScene['cameraState']>;
       visualState: () => ReturnType<PlayerScene['visualState']>;
+      environmentState: () => ReturnType<PlayerScene['environmentState']>;
+      renderEfficiencyState: () => ReturnType<PlayerScene['renderEfficiencyState']>;
       reconciliationState: () => ReturnType<PlayerScene['reconciliationState']>;
       renderState: () => ReturnType<PlayerScene['renderState']>;
       avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
@@ -1296,9 +1352,13 @@ window.__world3dPlayer = {
   exitScreenPoint: exitId => scene.exitScreenPoint(exitId),
   entityScreenPoint: entityId => scene.entityScreenPoint(entityId),
   entityVisualState: entityId => scene.entityVisualState(entityId),
+  entityVariantState: entityId => scene.entityVariantState(entityId),
+  entityMaterialState: entityId => scene.entityMaterialState(entityId),
   exitStates: () => scene.exitStates(),
   cameraState: () => scene.cameraState(),
   visualState: () => scene.visualState(),
+  environmentState: () => scene.environmentState(),
+  renderEfficiencyState: () => scene.renderEfficiencyState(),
   reconciliationState: () => scene.reconciliationState(),
   renderState: () => scene.renderState(),
   avatarState: () => scene.cameraState().avatar,

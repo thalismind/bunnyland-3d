@@ -23,7 +23,7 @@ from .components import (
     Vector3,
 )
 
-RECIPE_VERSION = 1
+RECIPE_VERSION = 2
 CORE_ROLE_PREFIX = "bunnyland.3d/"
 
 

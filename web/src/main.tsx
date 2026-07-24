@@ -41,6 +41,7 @@ function AdminShell() {
       </ToolbarRow>
       <ToolbarRow id="toolbar-row3">
       <button id="btn-refresh" type="button">Refresh</button>
+      <button id="btn-overview" type="button">Overview</button>
       <button id="btn-mode" type="button">2D</button>
       <button id="btn-camera" type="button">Auto Camera</button>
       <button id="btn-capture" type="button">📷 Download</button>

@@ -77,7 +77,7 @@ def main() -> int:
             "admin_2d": args.out_dir / "14-3d-admin-map.png",
         }
         sources = {
-            "player": capture_dir / "world-3d-player.png",
+            "player": capture_dir / "world-3d-player-curated.png",
             "admin_3d": capture_dir / "world-3d-3d.png",
             "admin_2d": capture_dir / "world-3d-2d.png",
         }

@@ -248,6 +248,16 @@ interface Bounds2D {
   height: number;
 }
 
+interface ProceduralPropPart {
+  name: string;
+  geometry: THREE.BufferGeometry;
+  position: THREE.Vector3;
+  rotation: THREE.Euler;
+  scale: THREE.Vector3;
+  colorScale?: number;
+  color?: number;
+}
+
 interface Obstacle2D {
   id: string;
   minX: number;
@@ -509,7 +519,6 @@ export class PlayerScene {
     this.bounds = this.readBounds(data);
     this.lastPick = sameRoomLastPick;
     this.reconcileEnvironment(data);
-    this.reconcileDecorations(data.decorations || []);
     this.reconcileExits(data.exits, data.room.indoor);
     this.reconcileEntities(data.entities, sameRoom);
 
@@ -524,6 +533,7 @@ export class PlayerScene {
     }
     const avatar = this.entities.get(playerId);
     if (avatar) avatar.root.position.copy(this.avatarPosition);
+    this.reconcileDecorations(data.decorations || [], data);
     this.cameraTarget.set(this.avatarPosition.x, this.avatarPosition.y + 1.15, this.avatarPosition.z);
     this.applySelection();
     this.refreshAnimatedEffects();
@@ -690,14 +700,84 @@ export class PlayerScene {
     };
   }
 
-  exitStates(): Array<{ id: string; side: string; rotationY: number; x: number; z: number }> {
-    return [...this.exits.values()].map(tracked => ({
-      id: tracked.exit.id,
-      side: this.cardinal(tracked.exit.direction),
-      rotationY: tracked.root.rotation.y,
-      x: tracked.root.position.x,
-      z: tracked.root.position.z,
-    }));
+  entityVariantState(entityId: string): Record<string, boolean> | null {
+    const tracked = this.entities.get(entityId);
+    if (!tracked) return null;
+    const result: Record<string, boolean> = {};
+    tracked.model.traverse(child => {
+      if (child.name.startsWith('Variant.')) result[child.name] = child.visible;
+    });
+    return result;
+  }
+
+  entityMaterialState(entityId: string): Record<string, string> | null {
+    const tracked = this.entities.get(entityId);
+    if (!tracked) return null;
+    const result: Record<string, string> = {};
+    tracked.model.traverse(child => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const sources = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const source of sources) {
+        const standard = source as THREE.MeshStandardMaterial;
+        if (source.name && standard.color) result[source.name] = standard.color.getHexString();
+      }
+    });
+    return result;
+  }
+
+  exitStates(): Array<{
+    id: string;
+    side: string;
+    rotationY: number;
+    x: number;
+    z: number;
+    parts: string[];
+    portalOpacity: number;
+    emissiveIntensity: number;
+  }> {
+    return [...this.exits.values()].map(tracked => {
+      const portal = tracked.root.getObjectByName('Exit.Portal') as THREE.Mesh | undefined;
+      const portalMaterial = portal?.material as THREE.MeshBasicMaterial | undefined;
+      return {
+        id: tracked.exit.id,
+        side: this.cardinal(tracked.exit.direction),
+        rotationY: tracked.root.rotation.y,
+        x: tracked.root.position.x,
+        z: tracked.root.position.z,
+        parts: tracked.root.children.map(child => child.name).sort(),
+        portalOpacity: portalMaterial?.opacity || 0,
+        emissiveIntensity: Math.max(0, ...tracked.root.children.map(child => {
+        const material = (child as THREE.Mesh).material;
+        return material instanceof THREE.MeshStandardMaterial ? material.emissiveIntensity : 0;
+        })),
+      };
+    });
+  }
+
+  environmentState(): {
+    apron: boolean;
+    floorWidth: number;
+    floorDepth: number;
+    shadow: { left: number; right: number; top: number; bottom: number; bias: number; normalBias: number; radius: number } | null;
+  } {
+    const floor = this.environment.getObjectByName('playable-floor') as THREE.Mesh<THREE.PlaneGeometry> | undefined;
+    const sun = this.environment.getObjectByName('room-sun') as THREE.DirectionalLight | undefined;
+    const parameters = floor?.geometry.parameters;
+    return {
+      apron: Boolean(this.environment.getObjectByName('terrain-apron')),
+      floorWidth: parameters?.width || 0,
+      floorDepth: parameters?.height || 0,
+      shadow: sun ? {
+        left: sun.shadow.camera.left,
+        right: sun.shadow.camera.right,
+        top: sun.shadow.camera.top,
+        bottom: sun.shadow.camera.bottom,
+        bias: sun.shadow.bias,
+        normalBias: sun.shadow.normalBias,
+        radius: sun.shadow.radius,
+      } : null,
+    };
   }
 
   capturePng(): string {
@@ -743,6 +823,32 @@ export class PlayerScene {
     });
     particleSystems.delete('');
     return { propInstances, modelPropInstances, particles, localLights, skybox, skyboxPreset, particleSystems: [...particleSystems].sort() };
+  }
+
+  renderEfficiencyState(): {
+    decorationDrawCalls: number;
+    decorationInstances: number;
+    decorationMaterials: number;
+    decorationGeometries: number;
+  } {
+    let decorationDrawCalls = 0;
+    let decorationInstances = 0;
+    const materials = new Set<string>();
+    const geometries = new Set<string>();
+    this.decorationGroup.traverse(object => {
+      if (!(object instanceof THREE.InstancedMesh) || !object.userData.decorationProps) return;
+      decorationDrawCalls += 1;
+      decorationInstances += object.count;
+      geometries.add(object.geometry.uuid);
+      const sources = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of sources) materials.add(material.uuid);
+    });
+    return {
+      decorationDrawCalls,
+      decorationInstances,
+      decorationMaterials: materials.size,
+      decorationGeometries: geometries.size,
+    };
   }
 
   private readBounds(data: PlayerRoomScene): Bounds2D {
@@ -809,6 +915,47 @@ export class PlayerScene {
     const depth = this.bounds.maxZ - this.bounds.minZ;
     const centerX = (this.bounds.minX + this.bounds.maxX) / 2;
     const centerZ = (this.bounds.minZ + this.bounds.maxZ) / 2;
+    if (!hasRoof) {
+      const apronGeometry = new THREE.PlaneGeometry(width + 16, depth + 16, 32, 32);
+      const positions = apronGeometry.getAttribute('position') as THREE.BufferAttribute;
+      const colors = new Float32Array(positions.count * 3);
+      const random = randomFrom(hash(`apron:${data.room.id}:${environment?.surface_recipe || data.room.biome}`));
+      const base = new THREE.Color(roomColor);
+      for (let index = 0; index < positions.count; index += 1) {
+        const worldX = centerX + positions.getX(index);
+        const worldZ = centerZ - positions.getY(index);
+        const outsideX = Math.max(this.bounds.minX - worldX, 0, worldX - this.bounds.maxX);
+        const outsideZ = Math.max(this.bounds.minZ - worldZ, 0, worldZ - this.bounds.maxZ);
+        const outside = Math.max(outsideX, outsideZ);
+        const edge = THREE.MathUtils.clamp(outside / 8, 0, 1);
+        positions.setZ(index, outside > 0 ? -0.03 - random() * 0.08 - Math.pow(edge, 3) * 1.25 : -0.025);
+        const tint = base.clone().multiplyScalar(1 - edge * 0.36);
+        colors[index * 3] = tint.r;
+        colors[index * 3 + 1] = tint.g;
+        colors[index * 3 + 2] = tint.b;
+      }
+      positions.needsUpdate = true;
+      apronGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      apronGeometry.computeVertexNormals();
+      const apron = new THREE.Mesh(
+        apronGeometry,
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.96,
+          vertexColors: true,
+          map: this.proceduralSurface(
+            environment?.surface_recipe || data.room.biome,
+            roomColor,
+            finite(environment?.texture_scale, 4) + 2,
+          ),
+        }),
+      );
+      apron.name = 'terrain-apron';
+      apron.rotation.x = -Math.PI / 2;
+      apron.position.set(centerX, this.bounds.ground - 0.02, centerZ);
+      apron.receiveShadow = true;
+      this.environment.add(apron);
+    }
     const floorMaterial = new THREE.MeshStandardMaterial({
       color: roomColor,
       roughness: 0.93,
@@ -819,6 +966,7 @@ export class PlayerScene {
       new THREE.PlaneGeometry(width, depth, 1, 1),
       floorMaterial,
     );
+    floor.name = 'playable-floor';
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(centerX, this.bounds.ground, centerZ);
     floor.receiveShadow = true;
@@ -844,9 +992,11 @@ export class PlayerScene {
 
     if (!hasRoof) this.addSkybox(environment, color(environment?.sky_color, fogColor), revision);
 
+    const ambientColor = color(environment?.ambient_color, 0xcfe8ff);
+    const hemisphereGround = new THREE.Color(roomColor).lerp(new THREE.Color(ambientColor), 0.35);
     const hemisphere = new THREE.HemisphereLight(
-      color(environment?.ambient_color, 0xcfe8ff),
-      data.room.indoor ? 0x342c26 : 0x31512f,
+      ambientColor,
+      hemisphereGround,
       finite(environment?.ambient_intensity, data.room.indoor ? 1.35 : 1.65),
     );
     this.environment.add(hemisphere);
@@ -854,14 +1004,21 @@ export class PlayerScene {
       color(environment?.sun_color, data.room.indoor ? 0xffe4c2 : 0xfff1d2),
       finite(environment?.sun_intensity, data.room.indoor ? 1.55 : 2.2),
     );
+    sun.name = 'room-sun';
     sun.position.set(centerX - 5, this.bounds.ground + 10, centerZ + 4);
+    sun.target.position.set(centerX, this.bounds.ground, centerZ);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -12;
-    sun.shadow.camera.right = 12;
-    sun.shadow.camera.top = 12;
-    sun.shadow.camera.bottom = -12;
-    this.environment.add(sun);
+    const shadowHalf = Math.max(width, depth) / 2 + 2;
+    sun.shadow.camera.left = -shadowHalf;
+    sun.shadow.camera.right = shadowHalf;
+    sun.shadow.camera.top = shadowHalf;
+    sun.shadow.camera.bottom = -shadowHalf;
+    sun.shadow.bias = -0.0002;
+    sun.shadow.normalBias = 0.025;
+    sun.shadow.radius = 4;
+    sun.shadow.camera.updateProjectionMatrix();
+    this.environment.add(sun, sun.target);
 
     if (hasRoof) this.addIndoorWalls(data.exits, roomColor);
   }
@@ -1055,7 +1212,7 @@ export class PlayerScene {
     vertical('east', this.bounds.maxX);
   }
 
-  private reconcileDecorations(decorations: PlayerSceneDecoration[]): void {
+  private reconcileDecorations(decorations: PlayerSceneDecoration[], data: PlayerRoomScene): void {
     const visible = new Set(decorations.map(decoration => decoration.id));
     for (const [id, tracked] of this.decorations) {
       if (visible.has(id)) continue;
@@ -1090,6 +1247,7 @@ export class PlayerScene {
         includeLight,
         includeShadow,
         ground: this.bounds.ground,
+        clearances: this.decorationClearanceSignature(decoration, data),
       });
       const current = this.decorations.get(decoration.id);
       if (current?.signature === nextSignature) {
@@ -1110,7 +1268,7 @@ export class PlayerScene {
       tracked.root.userData.decorationId = decoration.id;
       this.decorations.set(decoration.id, tracked);
       this.decorationGroup.add(tracked.root);
-      this.buildDecoration(tracked, propCount, particleCount, includeLight, includeShadow);
+      this.buildDecoration(tracked, propCount, particleCount, includeLight, includeShadow, data);
     }
   }
 
@@ -1120,30 +1278,47 @@ export class PlayerScene {
     particleCount: number,
     includeLight: boolean,
     includeShadow: boolean,
+    data: PlayerRoomScene,
   ): void {
     const decoration = tracked.decoration;
     if (decoration.prop_group3d && propCount > 0) {
       const group = decoration.prop_group3d;
-      const source = group.instances.slice(0, propCount);
-      const geometry = this.propGeometry(group.asset_key);
-      const material = new THREE.MeshStandardMaterial({
-        color: color(group.color, 0x7ca85c), roughness: 0.88, vertexColors: false,
+      const source = this.visibleDecorationInstances(group, group.instances.slice(0, propCount), data);
+      const baseColor = color(group.color, 0x7ca85c);
+      const parts = this.propRecipe(group.asset_key);
+      parts.forEach((part, partIndex) => {
+        const material = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.88,
+        });
+        const mesh = new THREE.InstancedMesh(part.geometry, material, source.length);
+        mesh.name = `${group.asset_key}:${part.name}`;
+        const instanceRoot = new THREE.Object3D();
+        const partRoot = new THREE.Object3D();
+        partRoot.position.copy(part.position);
+        partRoot.rotation.copy(part.rotation);
+        partRoot.scale.copy(part.scale);
+        partRoot.updateMatrix();
+        source.forEach((instance, index) => {
+          instanceRoot.position.set(instance.position.x, this.bounds.ground, instance.position.z);
+          instanceRoot.rotation.set(0, instance.rotation_y, 0);
+          instanceRoot.scale.setScalar(instance.scale);
+          instanceRoot.updateMatrix();
+          mesh.setMatrixAt(index, instanceRoot.matrix.clone().multiply(partRoot.matrix));
+          const random = randomFrom(hash(`${tracked.decoration.id}:${instance.id}`));
+          const varied = new THREE.Color(part.color ?? baseColor)
+            .multiplyScalar((part.colorScale ?? 1) * (0.92 + random() * 0.16));
+          mesh.setColorAt(index, varied);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.userData.decorationProps = true;
+        mesh.userData.modelDecoration = true;
+        mesh.userData.recipePart = partIndex;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        tracked.root.add(mesh);
       });
-      const mesh = new THREE.InstancedMesh(geometry, material, source.length);
-      const dummy = new THREE.Object3D();
-      source.forEach((instance, index) => {
-        dummy.position.set(instance.position.x, this.bounds.ground + this.propHeight(group.asset_key, instance.scale), instance.position.z);
-        dummy.rotation.set(0, instance.rotation_y, 0);
-        dummy.scale.setScalar(instance.scale);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(index, dummy.matrix);
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.userData.decorationProps = true;
-      mesh.userData.modelDecoration = true;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      tracked.root.add(mesh);
       this.trackAsset(this.replaceDecorationWithAsset(tracked, group, source, tracked.revision));
     }
     if (decoration.light3d && includeLight) {
@@ -1172,24 +1347,175 @@ export class PlayerScene {
     }
   }
 
-  private propGeometry(assetKey: string): THREE.BufferGeometry {
-    if (assetKey.endsWith('rock')) return new THREE.DodecahedronGeometry(0.46, 0);
-    if (assetKey.endsWith('flower')) return new THREE.SphereGeometry(0.2, 7, 5);
-    if (assetKey.endsWith('hedge') || assetKey.endsWith('scrap')) return new THREE.BoxGeometry(0.8, 0.8, 0.55);
-    if (assetKey.endsWith('reed')) return new THREE.CylinderGeometry(0.055, 0.08, 1.5, 5);
-    if (assetKey.endsWith('cactus')) return new THREE.CapsuleGeometry(0.18, 0.9, 3, 6);
-    if (assetKey.endsWith('tree')) return new THREE.ConeGeometry(0.72, 2.6, 7);
-    if (assetKey.endsWith('fern')) return new THREE.ConeGeometry(0.48, 0.65, 6);
-    if (assetKey.endsWith('scrub')) return new THREE.TetrahedronGeometry(0.48, 1);
-    return new THREE.ConeGeometry(0.16, 0.72, 5);
+  private groundCover(assetKey: string): boolean {
+    return assetKey.startsWith('procedural.') && ['grass', 'flower', 'reed', 'fern', 'scrub']
+      .some(key => assetKey.endsWith(key));
   }
 
-  private propHeight(assetKey: string, scale: number): number {
-    if (assetKey.endsWith('tree')) return 1.3 * scale;
-    if (assetKey.endsWith('reed')) return 0.75 * scale;
-    if (assetKey.endsWith('cactus')) return 0.63 * scale;
-    if (assetKey.endsWith('grass')) return 0.36 * scale;
-    return 0.32 * scale;
+  private decorationClearanceSignature(
+    decoration: PlayerSceneDecoration,
+    data: PlayerRoomScene,
+  ): object | null {
+    if (!decoration.prop_group3d || !this.groundCover(decoration.prop_group3d.asset_key)) return null;
+    return {
+      player: this.avatarPosition.toArray(),
+      exits: data.exits.map(exit => [exit.id, exit.direction]),
+      entities: data.entities
+        .filter(entity => entity.id !== this.playerId && entity.render3d?.visible !== false)
+        .map(entity => [entity.id, entity.transform3d?.position]),
+    };
+  }
+
+  private visibleDecorationInstances(
+    group: NonNullable<PlayerSceneDecoration['prop_group3d']>,
+    instances: NonNullable<PlayerSceneDecoration['prop_group3d']>['instances'],
+    data: PlayerRoomScene,
+  ): NonNullable<PlayerSceneDecoration['prop_group3d']>['instances'] {
+    if (!this.groundCover(group.asset_key)) return instances;
+    const exitCounts = new Map<string, number>();
+    for (const exit of data.exits) {
+      const side = this.cardinal(exit.direction);
+      exitCounts.set(side, (exitCounts.get(side) || 0) + 1);
+    }
+    const exitIndexes = new Map<string, number>();
+    const clearances: Array<{ x: number; z: number; radius: number }> = [];
+    for (const exit of data.exits) {
+      const side = this.cardinal(exit.direction);
+      const index = exitIndexes.get(side) || 0;
+      exitIndexes.set(side, index + 1);
+      const position = this.exitPosition(side, index, exitCounts.get(side) || 1, data.room.indoor);
+      clearances.push({ x: position.x, z: position.z, radius: 1.25 });
+    }
+    clearances.push({ x: this.avatarPosition.x, z: this.avatarPosition.z, radius: 1.1 });
+    for (const entity of data.entities) {
+      if (entity.id === this.playerId || entity.render3d?.visible === false) continue;
+      clearances.push({
+        x: finite(entity.transform3d?.position?.x, 0),
+        z: finite(entity.transform3d?.position?.z, 0),
+        radius: 0.8,
+      });
+    }
+    return instances.filter(instance => clearances.every(clearance => {
+      const dx = instance.position.x - clearance.x;
+      const dz = instance.position.z - clearance.z;
+      return dx * dx + dz * dz >= clearance.radius * clearance.radius;
+    }));
+  }
+
+  private propRecipe(assetKey: string): ProceduralPropPart[] {
+    const part = (
+      name: string,
+      geometry: THREE.BufferGeometry,
+      position: [number, number, number],
+      scale: [number, number, number] = [1, 1, 1],
+      rotation: [number, number, number] = [0, 0, 0],
+      options: Pick<ProceduralPropPart, 'color' | 'colorScale'> = {},
+    ): ProceduralPropPart => ({
+      name,
+      geometry,
+      position: new THREE.Vector3(...position),
+      rotation: new THREE.Euler(...rotation),
+      scale: new THREE.Vector3(...scale),
+      ...options,
+    });
+    const blade = (name: string, x: number, z: number, tilt: number) => part(
+      name,
+      new THREE.ConeGeometry(0.09, 0.68, 5),
+      [x, 0.34, z],
+      [0.72, 1, 0.45],
+      [tilt, 0, -tilt],
+    );
+    if (assetKey.endsWith('grass')) {
+      return [blade('blade-a', -0.1, 0, -0.16), blade('blade-b', 0.08, 0.03, 0.12), blade('blade-c', 0, -0.08, 0.03)];
+    }
+    if (assetKey.endsWith('flower')) {
+      const result = [
+        part('stem', new THREE.CylinderGeometry(0.025, 0.04, 0.7, 5), [0, 0.35, 0], [1, 1, 1], [0, 0, 0], { color: 0x568c4a }),
+        part('center', new THREE.SphereGeometry(0.1, 7, 5), [0, 0.75, 0], [1, 0.7, 1], [0, 0, 0], { color: 0xf2b84b }),
+      ];
+      for (let index = 0; index < 5; index += 1) {
+        const angle = Math.PI * 2 * index / 5;
+        result.push(part(
+          `petal-${index}`,
+          new THREE.SphereGeometry(0.13, 7, 5),
+          [Math.cos(angle) * 0.16, 0.75, Math.sin(angle) * 0.16],
+          [1.2, 0.42, 0.72],
+          [0, -angle, 0],
+          { colorScale: 1.08 },
+        ));
+      }
+      return result;
+    }
+    if (assetKey.endsWith('tree')) {
+      return [
+        part('trunk', new THREE.CylinderGeometry(0.16, 0.24, 1.45, 7), [0, 0.72, 0], [1, 1, 1], [0, 0, 0], { color: 0x68472d }),
+        part('crown-low', new THREE.DodecahedronGeometry(0.72, 0), [-0.18, 1.55, 0], [1, 0.8, 1]),
+        part('crown-high', new THREE.DodecahedronGeometry(0.64, 0), [0.2, 1.9, 0.02], [1, 0.84, 1], [0, 0.4, 0], { colorScale: 1.05 }),
+        part('crown-side', new THREE.DodecahedronGeometry(0.52, 0), [0.42, 1.5, -0.18], [1, 0.76, 1], [0, -0.3, 0], { colorScale: 0.95 }),
+      ];
+    }
+    if (assetKey.endsWith('fern')) {
+      return Array.from({ length: 5 }, (_value, index) => {
+        const angle = Math.PI * 2 * index / 5;
+        return part(
+          `frond-${index}`,
+          new THREE.ConeGeometry(0.2, 0.82, 6),
+          [Math.cos(angle) * 0.22, 0.28, Math.sin(angle) * 0.22],
+          [0.55, 1, 0.3],
+          [Math.sin(angle) * 0.72, angle, -Math.cos(angle) * 0.72],
+        );
+      });
+    }
+    if (assetKey.endsWith('hedge')) {
+      return [
+        part('hedge-a', new THREE.DodecahedronGeometry(0.58, 1), [-0.22, 0.36, 0], [1.55, 0.62, 0.95], [0, 0.12, 0]),
+        part('hedge-b', new THREE.DodecahedronGeometry(0.56, 1), [0.28, 0.4, 0.06], [1.55, 0.6, 1], [0, -0.16, 0], { colorScale: 0.94 }),
+      ];
+    }
+    if (assetKey.endsWith('reed')) {
+      const result: ProceduralPropPart[] = [];
+      [-0.13, 0, 0.14].forEach((x, index) => {
+        const height = 0.9 + index * 0.14;
+        result.push(part(`stem-${index}`, new THREE.CylinderGeometry(0.025, 0.038, height, 5), [x, height / 2, index === 1 ? -0.04 : 0], [1, 1, 1], [0, 0, (index - 1) * 0.06]));
+        result.push(part(`seed-${index}`, new THREE.CapsuleGeometry(0.055, 0.12, 2, 5), [x + (index - 1) * -0.05, height + 0.08, index === 1 ? -0.04 : 0], [1, 1, 1], [0, 0, (index - 1) * 0.08], { color: 0x755a38 }));
+      });
+      return result;
+    }
+    if (assetKey.endsWith('rock')) {
+      return [
+        part('stone-a', new THREE.DodecahedronGeometry(0.4, 0), [-0.16, 0.28, 0], [1.15, 0.72, 0.9], [0.1, 0.4, 0]),
+        part('stone-b', new THREE.DodecahedronGeometry(0.3, 0), [0.3, 0.2, 0.08], [1, 0.75, 0.9], [-0.1, -0.3, 0], { colorScale: 1.06 }),
+      ];
+    }
+    if (assetKey.endsWith('cactus')) {
+      return [
+        part('trunk', new THREE.CapsuleGeometry(0.17, 0.85, 3, 7), [0, 0.62, 0]),
+        part('arm-l', new THREE.CapsuleGeometry(0.1, 0.38, 3, 6), [-0.27, 0.64, 0], [1, 1, 1], [0, 0, -0.82]),
+        part('arm-r', new THREE.CapsuleGeometry(0.09, 0.32, 3, 6), [0.26, 0.82, 0], [1, 1, 1], [0, 0, 0.88], { colorScale: 1.04 }),
+      ];
+    }
+    if (assetKey.endsWith('scrub')) {
+      const stems = [-0.5, 0, 0.5].map((tilt, index) => part(
+        `branch-${index}`,
+        new THREE.CylinderGeometry(0.025, 0.045, 0.72, 5),
+        [(index - 1) * 0.14, 0.34, 0],
+        [1, 1, 1],
+        [0, index * 1.8, tilt],
+        { color: 0x6d5a3e },
+      ));
+      return stems.concat([
+        part('leaves-a', new THREE.TetrahedronGeometry(0.22, 0), [-0.28, 0.58, 0.04], [1, 0.72, 1]),
+        part('leaves-b', new THREE.TetrahedronGeometry(0.25, 0), [0.2, 0.68, -0.04], [1, 0.75, 1], [0, 0.5, 0], { colorScale: 1.06 }),
+      ]);
+    }
+    if (assetKey.endsWith('scrap')) {
+      return [
+        part('plate-a', new THREE.BoxGeometry(0.72, 0.07, 0.46), [-0.12, 0.18, 0], [1, 1, 1], [0.16, 0.3, 0.08]),
+        part('plate-b', new THREE.BoxGeometry(0.58, 0.06, 0.42), [0.2, 0.3, -0.06], [1, 1, 1], [-0.12, -0.4, 0.3], { colorScale: 0.9 }),
+        part('pipe', new THREE.CylinderGeometry(0.06, 0.06, 0.54, 7), [0.02, 0.28, 0.18], [1, 1, 1], [0, 0, Math.PI / 2], { colorScale: 1.1 }),
+      ];
+    }
+    return [part('fallback', new THREE.ConeGeometry(0.16, 0.72, 5), [0, 0.36, 0])];
   }
 
   private addParticleEmitter(
@@ -1253,14 +1579,65 @@ export class PlayerScene {
       const frameMaterial = new THREE.MeshStandardMaterial({
         color: exit.locked ? 0x9c5d5d : 0x79d2c0,
         emissive: exit.locked ? 0x3b1212 : 0x174c43,
-        emissiveIntensity: 0.55,
+        emissiveIntensity: 0.48,
       });
-      const postGeometry = new THREE.BoxGeometry(0.14, indoor ? 1.8 : 1.25, 0.14);
+      const frameHeight = indoor ? 1.8 : 1.55;
+      const postGeometry = new THREE.BoxGeometry(0.16, frameHeight, 0.16);
       const left = new THREE.Mesh(postGeometry, frameMaterial);
       const right = new THREE.Mesh(postGeometry, frameMaterial.clone());
-      left.position.set(-0.72, indoor ? 0.9 : 0.625, 0);
-      right.position.set(0.72, indoor ? 0.9 : 0.625, 0);
-      root.add(left, right);
+      left.name = 'Exit.Post.L';
+      right.name = 'Exit.Post.R';
+      left.position.set(-0.72, frameHeight / 2, 0);
+      right.position.set(0.72, frameHeight / 2, 0);
+      const lintel = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 0.16, 0.18),
+        frameMaterial.clone(),
+      );
+      lintel.name = 'Exit.Lintel';
+      lintel.position.set(0, frameHeight, 0);
+      const threshold = new THREE.Mesh(
+        new THREE.BoxGeometry(1.46, 0.08, 0.42),
+        frameMaterial.clone(),
+      );
+      threshold.name = 'Exit.Threshold';
+      threshold.position.set(0, 0.04, 0.08);
+      const portal = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.28, 1.4),
+        new THREE.MeshBasicMaterial({
+          color: exit.locked ? 0xb85858 : 0x75e0cf,
+          transparent: true,
+          opacity: exit.locked ? 0.08 : 0.16,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      portal.name = 'Exit.Portal';
+      portal.rotation.x = -Math.PI / 2;
+      portal.position.set(0, 0.045, 0.72);
+      root.add(left, right, lintel, threshold, portal);
+      if (exit.locked) {
+        const crossbar = new THREE.Mesh(
+          new THREE.BoxGeometry(1.48, 0.14, 0.17),
+          new THREE.MeshStandardMaterial({
+            color: 0xc84646,
+            emissive: 0x5f1414,
+            emissiveIntensity: 0.68,
+            roughness: 0.7,
+          }),
+        );
+        crossbar.name = 'Exit.LockedCrossbar';
+        crossbar.position.set(0, frameHeight * 0.58, 0.05);
+        crossbar.rotation.z = -0.12;
+        root.add(crossbar);
+      }
+      root.traverse(child => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+          mesh.userData.exitFrame = true;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
+      });
       root.traverse(child => { child.userData.exitId = exit.id; });
       this.exitGroup.add(root);
       this.exits.set(exit.id, {
@@ -1490,6 +1867,7 @@ export class PlayerScene {
       const { cloneGltfScene } = await loadGltfAssets();
       if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) return;
       const model = cloneGltfScene(gltf.scene);
+      this.restoreAssetNodeNames(model, descriptor);
       this.applyAssetTransform(model, descriptor);
       model.traverse(child => {
         child.userData.entityId = tracked.entity.id;
@@ -1510,6 +1888,7 @@ export class PlayerScene {
               !tracked.entity.visual3d
               && standard.color
               && tracked.entity.render3d?.color
+              && (assetKey !== 'avatar.leporid' || standard.name === 'Fur')
             ) {
               standard.color.set(tracked.entity.render3d.color);
             }
@@ -1517,6 +1896,7 @@ export class PlayerScene {
         }
       });
       this.applyNodePatches(model, tracked.entity.visual3d?.node_patches || []);
+      this.applyVariantVisibility(model, tracked.entity, descriptor);
       await this.addAttachments(model, tracked, revision);
       if (revision !== tracked.revision || this.entities.get(tracked.entity.id) !== tracked) {
         disposeObject(model);
@@ -1597,6 +1977,32 @@ export class PlayerScene {
           standard.needsUpdate = true;
         }
       });
+    }
+  }
+
+  private applyVariantVisibility(
+    model: THREE.Object3D,
+    entity: PlayerSceneEntity,
+    descriptor: AssetDescriptor,
+  ): void {
+    const variant = entity.visual3d?.node_patches.find(patch => Boolean(patch.variant))?.variant
+      || entity.render3d?.variant_key
+      || '';
+    model.traverse(child => {
+      if (child.name.startsWith('Variant.')) child.visible = false;
+    });
+    if (!variant || variant === 'default' || !descriptor.variants?.includes(variant)) return;
+    const selected = model.getObjectByName(`Variant.${variant}`);
+    if (selected) selected.visible = true;
+  }
+
+  private restoreAssetNodeNames(model: THREE.Object3D, descriptor: AssetDescriptor): void {
+    for (const variant of descriptor.variants || []) {
+      if (variant === 'default') continue;
+      const exact = `Variant.${variant}`;
+      const sanitized = THREE.PropertyBinding.sanitizeNodeName(exact);
+      const root = model.getObjectByName(exact) || model.getObjectByName(sanitized);
+      if (root) root.name = exact;
     }
   }
 
@@ -2126,6 +2532,13 @@ export class PlayerScene {
       }
     }
     const next = nearest?.exit.id || '';
+    for (const [id, tracked] of this.exits) {
+      tracked.root.traverse(child => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.userData.exitFrame || !(mesh.material instanceof THREE.MeshStandardMaterial)) return;
+        mesh.material.emissiveIntensity = id === next ? 0.78 : child.name === 'Exit.LockedCrossbar' ? 0.68 : 0.48;
+      });
+    }
     if (next === this.nearbyExitId) return;
     this.nearbyExitId = next;
     this.onNearbyExit(nearest?.exit || null);

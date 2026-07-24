@@ -51,7 +51,7 @@ protects both; serving the static client does not grant API access.
 
 The player checks 3D capability metadata and loads the current room from the play 3D
 surface. The room response follows the same visible-entity boundary as the player room
-projection and adds only presentation metadata. Scene schema v3 includes outdoor
+projection and adds only presentation metadata. Scene schema v4 includes outdoor
 environments and decoration groups. Deploy matching server and web
 images together. Consult OpenAPI for concrete operations and payload schemas.
 
@@ -68,6 +68,17 @@ a skybox; a roofed room uses the enclosed-room path. Ground albedo, normal maps,
 equirectangular skyboxes accept PNG, JPEG, or WebP files through the existing media store.
 Uploads can target the selected room or become the default for its biome. Take a world
 snapshot before a whole-world apply, because these controls create persistent ECS entities.
+
+## Inspector framing
+
+The inspector opens in **Overview**, framing the entire calculated room graph. Selecting a
+room switches to focused framing and animates the target and zoom together; unselected rooms
+and labels remain visible at reduced opacity so the selected room retains context. Focused 3D
+uses radius 11, while focused 2D uses an orthographic half-height of 5.5.
+
+Use **Overview** to restore graph framing and normal opacity in either mode. Wheel, pan, or
+orbit input cancels an in-progress camera animation without changing whether the inspector is
+in Overview or focused mode.
 
 ## Build the images
 
@@ -122,7 +133,8 @@ After deployment:
 1. Open `/3d/` and confirm the welcome page loads.
 2. Open `/3d/admin.html`, set the server to `/api`, and load the world overview.
 3. Select a room and confirm room contents appear.
-4. Toggle 2D/3D mode and automatic/manual camera.
+4. Select a room, confirm focused framing, use **Overview**, and toggle 2D/3D and
+   automatic/manual camera.
 5. Open `/3d/player.html`, claim a test character, walk with WASD, confirm an exit prompt,
    submit a cheap action, and cancel a queued action.
 6. Capture a canvas PNG and confirm it is not blank.

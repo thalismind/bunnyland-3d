@@ -66,6 +66,10 @@ interface TrackedExit {
 interface CameraTransition {
   from: THREE.Vector3;
   to: THREE.Vector3;
+  fromRadius: number;
+  toRadius: number;
+  fromOrthoHalf: number;
+  toOrthoHalf: number;
   startMs: number;
   durationMs: number;
 }
@@ -73,6 +77,8 @@ interface CameraTransition {
 export interface CameraState {
   target: { x: number; y: number; z: number };
   radius: number;
+  orthoHalf: number;
+  view: 'overview' | 'focused';
   moving: boolean;
 }
 
@@ -110,6 +116,9 @@ export class BunnylandScene {
   private cameraPhi = 0.85;
   private cameraRadius = 24;
   private orthoHalf = 8;
+  private overviewRadius = 24;
+  private overviewOrthoHalf = 8;
+  private view: 'overview' | 'focused' = 'overview';
   private pointerDown: { x: number; y: number; button: number; moved: boolean } | null = null;
   private lastFrameTime = performance.now();
   private frameRequest: number | null = null;
@@ -189,10 +198,14 @@ export class BunnylandScene {
       this.cameraTarget.copy(this.center);
       this.cameraTransition = null;
       this.cameraRadius = Math.max(16, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.78);
+      this.orthoHalf = Math.max(8, Math.max(layout.width, layout.height) * ROOM_SIZE * 0.55);
+      this.overviewRadius = this.cameraRadius;
+      this.overviewOrthoHalf = this.orthoHalf;
+      this.view = 'overview';
     }
     this.addLinks(layout);
     for (const room of layout.rooms) this.addRoom(room);
-    if (!this.selectedRoomId && layout.rooms[0]) this.selectRoom(layout.rooms[0].id, false, false);
+    if (!this.selectedRoomId && layout.rooms[0]) this.selectedRoomId = layout.rooms[0].id;
     this.updateSelection();
     this.resize();
     this.requestRender();
@@ -221,10 +234,18 @@ export class BunnylandScene {
   selectRoom(roomId: string, notify = true, animate = true): void {
     if (!this.rooms.has(roomId)) return;
     this.selectedRoomId = roomId;
+    this.view = 'focused';
     this.focusRoom(roomId, animate);
     this.updateSelection();
     this.requestRender();
     if (notify) this.onSelectRoom(roomId);
+  }
+
+  showOverview(animate = true): void {
+    this.view = 'overview';
+    this.transitionCamera(this.center, this.overviewRadius, this.overviewOrthoHalf, animate);
+    this.updateSelection();
+    this.requestRender();
   }
 
   selectEntity(entityId: string, notify = true): boolean {
@@ -245,6 +266,8 @@ export class BunnylandScene {
         z: this.cameraTarget.z,
       },
       radius: this.cameraRadius,
+      orthoHalf: this.orthoHalf,
+      view: this.view,
       moving: this.cameraTransition !== null,
     };
   }
@@ -376,10 +399,19 @@ export class BunnylandScene {
   private updateSelection(): void {
     for (const [roomId, tracked] of this.rooms) {
       const selected = roomId === this.selectedRoomId;
-      tracked.mesh.scale.y = selected ? 1.85 : 1;
+      const focused = this.view === 'focused';
+      tracked.mesh.scale.y = focused && selected ? 1.85 : 1;
       const material = tracked.mesh.material as THREE.MeshStandardMaterial;
-      material.emissiveIntensity = selected ? 0.22 : tracked.room.fogged ? 0.01 : 0.04;
-      (tracked.label.material as THREE.SpriteMaterial).opacity = selected ? 1 : tracked.room.fogged ? 0.52 : 0.76;
+      material.emissiveIntensity = focused && selected ? 0.22 : tracked.room.fogged ? 0.01 : 0.04;
+      material.opacity = focused && !selected ? 0.35 : tracked.room.fogged ? 0.34 : 1;
+      material.transparent = material.opacity < 1;
+      (tracked.label.material as THREE.SpriteMaterial).opacity = focused
+        ? selected ? 1 : 0.35
+        : tracked.room.fogged ? 0.52 : 0.76;
+    }
+    for (const child of this.linkGroup.children) {
+      const material = (child as THREE.LineSegments).material as THREE.LineBasicMaterial | undefined;
+      if (material) material.opacity = this.view === 'focused' ? 0.18 : 0.58;
     }
     this.updateExitSelection();
     this.updateEntitySelection();
@@ -389,8 +421,9 @@ export class BunnylandScene {
     for (const tracked of this.exits) {
       const selectedSource = tracked.sourceRoomId === this.selectedRoomId;
       const material = tracked.marker.material as THREE.SpriteMaterial;
-      material.opacity = selectedSource ? 0.94 : 0.28;
-      tracked.marker.scale.set(selectedSource ? 2.35 : 1.85, selectedSource ? 0.88 : 0.7, 1);
+      const focused = this.view === 'focused';
+      material.opacity = focused ? selectedSource ? 0.94 : 0.35 : 0.76;
+      tracked.marker.scale.set(focused && selectedSource ? 2.35 : 1.85, focused && selectedSource ? 0.88 : 0.7, 1);
     }
   }
 
@@ -413,14 +446,29 @@ export class BunnylandScene {
     const tracked = this.rooms.get(roomId);
     if (!tracked) return;
     const target = new THREE.Vector3(tracked.room.worldX, tracked.room.worldY, tracked.room.worldZ);
-    if (!animate || this.cameraTarget.distanceToSquared(target) < 0.0001) {
+    this.transitionCamera(target, 11, 5.5, animate);
+  }
+
+  private transitionCamera(
+    target: THREE.Vector3,
+    radius: number,
+    orthoHalf: number,
+    animate: boolean,
+  ): void {
+    if (!animate) {
       this.cameraTransition = null;
       this.cameraTarget.copy(target);
+      this.cameraRadius = radius;
+      this.orthoHalf = orthoHalf;
       return;
     }
     this.cameraTransition = {
       from: this.cameraTarget.clone(),
       to: target,
+      fromRadius: this.cameraRadius,
+      toRadius: radius,
+      fromOrthoHalf: this.orthoHalf,
+      toOrthoHalf: orthoHalf,
       startMs: performance.now(),
       durationMs: ROOM_FOCUS_MS,
     };
@@ -566,7 +614,7 @@ export class BunnylandScene {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    if (this.manualCamera) this.cameraTransition = null;
+    this.cameraTransition = null;
     if (this.mode === '2d') {
       this.orthoHalf = THREE.MathUtils.clamp(this.orthoHalf + Math.sign(event.deltaY) * 1.2, 3, 80);
       this.resize();
@@ -687,8 +735,21 @@ export class BunnylandScene {
     );
     const eased = 1 - Math.pow(1 - progress, 3);
     this.cameraTarget.lerpVectors(this.cameraTransition.from, this.cameraTransition.to, eased);
+    this.cameraRadius = THREE.MathUtils.lerp(
+      this.cameraTransition.fromRadius,
+      this.cameraTransition.toRadius,
+      eased,
+    );
+    this.orthoHalf = THREE.MathUtils.lerp(
+      this.cameraTransition.fromOrthoHalf,
+      this.cameraTransition.toOrthoHalf,
+      eased,
+    );
+    this.resize();
     if (progress >= 1) {
       this.cameraTarget.copy(this.cameraTransition.to);
+      this.cameraRadius = this.cameraTransition.toRadius;
+      this.orthoHalf = this.cameraTransition.toOrthoHalf;
       this.cameraTransition = null;
     }
   }

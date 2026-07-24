@@ -169,7 +169,10 @@ SCENE_STATE = {
     "hidden_entities": [],
     "model_opacity": 0.42,
     "model_asset": "bunnyland.test/prop",
+    "avatar_variant": "scout",
     "decoration_color": "#82b85f",
+    "decoration_instance_count": 6,
+    "include_clearance_flora": False,
     "sky_color": "#96c9ee",
 }
 
@@ -352,7 +355,7 @@ def player_3d_scene(room_id: str):
         "kind": "character",
         "is_character": True,
         "transform3d": {"position": {"x": 14.5 if room_id == "room:meadow" else 1.5, "y": 0.9, "z": 8}},
-        "render3d": {"shape": "capsule", "color": "#89b4fa", "asset_key": "avatar.leporid", "variant_key": "scout"},
+        "render3d": {"shape": "capsule", "color": "#89b4fa", "asset_key": "avatar.leporid", "variant_key": SCENE_STATE["avatar_variant"]},
         "collider3d": {"shape": "capsule", "size": {"x": 0.7, "y": 1.8, "z": 0.7}, "radius": 0.35, "solid": True},
     })
     return {
@@ -394,14 +397,30 @@ def player_3d_scene(room_id: str):
                     "asset_key": "bunnyland.wildsim/deciduous-tree",
                     "color": SCENE_STATE["decoration_color"],
                     "instances": [
-                        {"id": "camera-blocker", "position": {"x": 14.5, "y": 0, "z": 5.5}, "rotation_y": 0, "scale": 1.5},
+                        {"id": "camera-blocker", "position": {"x": 11, "y": 0, "z": 5.5}, "rotation_y": 0, "scale": 0.75},
                         *[
                             {"id": f"i{index}", "position": {"x": 1.5 + index * 2.2, "y": 0, "z": 2 + (index % 2) * 10}, "rotation_y": index * 0.7, "scale": 0.7 + index * 0.08}
-                            for index in range(6)
+                            for index in range(SCENE_STATE["decoration_instance_count"])
                         ],
                     ],
                 },
             },
+            *([{
+                "id": "decoration:clearance-grass",
+                "prop_group3d": {
+                    "recipe_key": biome,
+                    "asset_key": "procedural.flower",
+                    "color": "#f2a4c8",
+                    "instances": [
+                        {"id": "near-exit", "position": {"x": 15.75, "y": 0, "z": 8}, "rotation_y": 0, "scale": 1},
+                        {"id": "near-player", "position": {"x": 14.5, "y": 0, "z": 8}, "rotation_y": 0.2, "scale": 1},
+                        {"id": "near-entity", "position": {"x": 12, "y": 0, "z": 10}, "rotation_y": 0.4, "scale": 1},
+                        {"id": "clear-a", "position": {"x": 13.2, "y": 0, "z": 7}, "rotation_y": 0.6, "scale": 0.8},
+                        {"id": "clear-b", "position": {"x": 14.7, "y": 0, "z": 5.5}, "rotation_y": 0.8, "scale": 1},
+                        {"id": "clear-c", "position": {"x": 15.5, "y": 0, "z": 5.8}, "rotation_y": 1, "scale": 0.85},
+                    ],
+                },
+            }] if SCENE_STATE["include_clearance_flora"] else []),
             {
                 "id": "decoration:light",
                 "transform3d": {"position": {"x": 8, "y": 2.4, "z": 8}},
@@ -483,10 +502,13 @@ def route_api(page):
         / "prop-generic.gltf"
     )
     prop_data = json.loads(prop_asset.read_text())
-    prop_data["scenes"][0]["nodes"].append(1)
+    hidden_node_index = len(prop_data["nodes"])
+    hidden_mesh_index = len(prop_data["meshes"])
+    hidden_material_index = len(prop_data["materials"])
+    prop_data["scenes"][0]["nodes"].append(hidden_node_index)
     prop_data["nodes"].append({
         "name": "HiddenAnchor",
-        "mesh": 1,
+        "mesh": hidden_mesh_index,
         "translation": [0.7, 0.3, 0],
         "scale": [0.2, 0.2, 0.2],
     })
@@ -495,7 +517,7 @@ def route_api(page):
         "primitives": [{
             "attributes": {"POSITION": 0, "NORMAL": 1},
             "indices": 2,
-            "material": 1,
+            "material": hidden_material_index,
         }],
     })
     prop_data["materials"].append({
@@ -850,10 +872,16 @@ def assert_responsive_toolbar(page, name: str, *, character: bool = False) -> No
     rows = layout["rows"]
     if not rows or not rows[0]["brand"] or not rows[0]["menu"]:
         raise AssertionError(f"{name} title and menu are not together on the first row: {layout!r}")
-    if not any(row["api"] and row["index"] == 1 for row in rows):
+    if character:
+        if any(row["api"] or row["character"] for row in rows):
+            raise AssertionError(f"{name} connection controls were not moved into the dialog: {layout!r}")
+        dialog = page.locator("#connection-dialog")
+        expect(dialog).to_be_visible()
+        expect(dialog.locator("#api-url")).to_have_count(1)
+        expect(dialog.locator("#character-select")).to_have_count(1)
+        dialog.get_by_role("button", name="Close").click()
+    elif not any(row["api"] and row["index"] == 1 for row in rows):
         raise AssertionError(f"{name} server controls are not on the second row: {layout!r}")
-    if character and not any(row["character"] and row["index"] == 2 for row in rows):
-        raise AssertionError(f"{name} character selection is not on the third row: {layout!r}")
     for row in rows:
         if row["scrollWidth"] > row["clientWidth"] + 1:
             raise AssertionError(f"{name} toolbar row overflows horizontally: {layout!r}")
@@ -866,6 +894,8 @@ def assert_responsive_toolbar(page, name: str, *, character: bool = False) -> No
     if menu_href.split("?", 1)[0] != "/toon-client.html":
         raise AssertionError(f"{name} menu link does not resolve from the site root: {menu_href!r}")
     page.keyboard.press("Escape")
+    if character:
+        page.locator("#btn-connection").click()
     if original_viewport:
         page.set_viewport_size(original_viewport)
 
@@ -912,6 +942,9 @@ def main() -> None:
                 raise AssertionError("admin page did not load the deferred Three.js chunk")
             expect(page.locator("#status")).to_contain_text("loaded 3 rooms")
             assert_responsive_toolbar(page, "3D admin")
+            initial_camera = page.evaluate("window.__world3d.cameraState()")
+            if initial_camera["view"] != "overview":
+                raise AssertionError(f"admin did not initially frame the graph: {initial_camera!r}")
             page.locator("#btn-preview-decoration").click()
             expect(page.locator("#decoration-result")).to_contain_text('"instances":92')
             page.locator("#room-has-roof").check()
@@ -963,8 +996,10 @@ def main() -> None:
             after = page.evaluate("window.__world3d.cameraState()")
             if after["moving"]:
                 raise AssertionError("camera transition did not settle")
-            if after["target"] == motion["before"]["target"]:
-                raise AssertionError(f"camera target did not change after room switch: {motion!r} -> {after!r}")
+            if after["target"] == motion["before"]["target"] and after["radius"] == motion["before"]["radius"]:
+                raise AssertionError(f"camera target and zoom did not change after room switch: {motion!r} -> {after!r}")
+            if after["view"] != "focused" or abs(after["radius"] - 11) > 0.01:
+                raise AssertionError(f"focused 3D room framing was incorrect: {after!r}")
             page.wait_for_timeout(250)
             canvas_3d = ARTIFACT_DIR / "world-3d-canvas-3d.png"
             download_capture_from_button(page, canvas_3d)
@@ -975,6 +1010,11 @@ def main() -> None:
                 full_page=FULL_PAGE_SCREENSHOTS,
             )
             page.locator("#btn-mode").click()
+            page.locator("#btn-overview").click()
+            page.wait_for_function("!window.__world3d.cameraState().moving")
+            overview_2d = page.evaluate("window.__world3d.cameraState()")
+            if overview_2d["view"] != "overview" or overview_2d["orthoHalf"] <= 5.5:
+                raise AssertionError(f"2D Overview did not restore graph framing: {overview_2d!r}")
             page.wait_for_timeout(150)
             static_frames = page.evaluate("window.__world3d.renderState().frames")
             page.wait_for_timeout(180)
@@ -1040,6 +1080,17 @@ def main() -> None:
                     f"character={page.locator('#character-select').input_value()!r}, "
                     f"claims={CLAIM_STATE['methods']!r}"
                 ) from error
+            expect(page.locator("#connection-dialog")).not_to_be_visible()
+            selected_tabs = page.locator('[role="tab"][aria-selected="true"]')
+            expect(selected_tabs).to_have_count(1)
+            expect(selected_tabs).to_have_text("Actions")
+            expect(page.locator("#panel-actions")).to_be_visible()
+            expect(page.locator("#panel-character")).not_to_be_visible()
+            tabs = page.locator('[role="tab"]')
+            expect(tabs).to_have_count(4)
+            for tab_index in range(4):
+                if tabs.nth(tab_index).get_attribute("aria-controls") is None:
+                    raise AssertionError("player panel tab did not expose aria-controls")
             initial_countdown = page.locator("#queue-title").text_content()
             page.wait_for_function(
                 "initial => document.querySelector('#queue-title')?.textContent !== initial",
@@ -1058,6 +1109,23 @@ def main() -> None:
             if not progress_events or progress_events[-1]["active"]:
                 raise AssertionError(f"scene asset loading did not settle: {progress_events!r}")
             expect(page.locator("#viewer .canvas-loading")).to_have_count(0)
+            variant_state = page.evaluate("window.__world3dPlayer.entityVariantState('character:ash')")
+            if variant_state != {"Variant.scout": True, "Variant.gardener": False}:
+                raise AssertionError(f"avatar variant roots were not resolved exclusively: {variant_state!r}")
+            environment_state = page.evaluate("window.__world3dPlayer.environmentState()")
+            if not environment_state["apron"] or environment_state["floorWidth"] != 16 or environment_state["floorDepth"] != 16:
+                raise AssertionError(f"outdoor apron changed authoritative floor bounds: {environment_state!r}")
+            expected_shadow = {
+                "left": -10,
+                "right": 10,
+                "top": 10,
+                "bottom": -10,
+                "bias": -0.0002,
+                "normalBias": 0.025,
+                "radius": 4,
+            }
+            if environment_state["shadow"] != expected_shadow:
+                raise AssertionError(f"room shadow camera was not bounds-fitted: {environment_state!r}")
             player_frames = page.evaluate("window.__world3dPlayer.renderState().frames")
             page.wait_for_timeout(120)
             if page.evaluate("window.__world3dPlayer.renderState().frames") <= player_frames:
@@ -1073,10 +1141,72 @@ def main() -> None:
                 raise AssertionError(f"legacy Render3D color replaced the GLB material: {entity_visual!r}")
             if not entity_visual["effectGroup"] or entity_visual["effectParticles"] != 12 or entity_visual["effectLightning"] != 3:
                 raise AssertionError(f"entity effects were not preserved across GLB replacement: {entity_visual!r}")
-            page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
+            page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 42")
             visual_state = page.evaluate("window.__world3dPlayer.visualState()")
-            if visual_state != {"propInstances": 7, "modelPropInstances": 7, "particles": 48, "localLights": 1, "skybox": True, "skyboxPreset": "vendor.weather/day", "particleSystems": ["vendor.weather/embers", "vendor.weather/snow"]}:
+            if visual_state != {"propInstances": 42, "modelPropInstances": 42, "particles": 48, "localLights": 1, "skybox": True, "skyboxPreset": "vendor.weather/day", "particleSystems": ["vendor.weather/embers", "vendor.weather/snow"]}:
                 raise AssertionError(f"provider model did not replace the procedural decoration: {visual_state!r}")
+            efficiency = page.evaluate("window.__world3dPlayer.renderEfficiencyState()")
+            if efficiency["decorationDrawCalls"] != 6 or efficiency["decorationInstances"] != 42:
+                raise AssertionError(f"model parts were not instanced into fixed draw-call batches: {efficiency!r}")
+            patch_player_scene(page, {"decoration_instance_count": 12})
+            page.wait_for_function(
+                "window.__world3dPlayer.renderEfficiencyState().decorationInstances === 78"
+            )
+            expanded_efficiency = page.evaluate("window.__world3dPlayer.renderEfficiencyState()")
+            if expanded_efficiency["decorationDrawCalls"] != efficiency["decorationDrawCalls"]:
+                raise AssertionError(
+                    f"decoration draw calls scaled with instance count: {efficiency!r} -> "
+                    f"{expanded_efficiency!r}"
+                )
+            patch_player_scene(page, {"decoration_instance_count": 6})
+            page.wait_for_function(
+                "window.__world3dPlayer.renderEfficiencyState().decorationInstances === 42"
+            )
+            patch_player_scene(page, {"include_clearance_flora": True})
+            page.wait_for_function(
+                """() => {
+                  const state = window.__world3dPlayer.renderEfficiencyState();
+                  return state.decorationDrawCalls === 13 && state.decorationInstances === 63;
+                }"""
+            )
+            clearance_efficiency = page.evaluate("window.__world3dPlayer.renderEfficiencyState()")
+            if clearance_efficiency["decorationInstances"] != 63:
+                raise AssertionError(
+                    f"ground-cover clearance did not omit three nearby recipe instances: "
+                    f"{clearance_efficiency!r}"
+                )
+            page.screenshot(
+                path=ARTIFACT_DIR / "world-3d-player-curated.png",
+                full_page=FULL_PAGE_SCREENSHOTS,
+            )
+            patch_player_scene(page, {"include_clearance_flora": False})
+            page.wait_for_function(
+                "window.__world3dPlayer.renderEfficiencyState().decorationInstances === 42"
+            )
+            patch_player_scene(page, {"avatar_variant": "gardener"})
+            gardener_state = page.evaluate("window.__world3dPlayer.entityVariantState('character:ash')")
+            if gardener_state != {"Variant.scout": False, "Variant.gardener": True}:
+                raise AssertionError(f"gardener variant was not selected exclusively: {gardener_state!r}")
+            patch_player_scene(page, {"avatar_variant": "unknown"})
+            unknown_state = page.evaluate("window.__world3dPlayer.entityVariantState('character:ash')")
+            if any(unknown_state.values()):
+                raise AssertionError(f"unknown variant exposed accessories: {unknown_state!r}")
+            patch_player_scene(page, {"avatar_variant": ""})
+            default_state = page.evaluate("window.__world3dPlayer.entityVariantState('character:ash')")
+            if any(default_state.values()):
+                raise AssertionError(f"default avatar exposed accessories: {default_state!r}")
+            patch_player_scene(page, {"avatar_variant": "scout"})
+            material_state = page.evaluate(
+                "window.__world3dPlayer.entityMaterialState('character:ash')"
+            )
+            if material_state["Fur"] != "89b4fa":
+                raise AssertionError(f"avatar Fur did not retain its entity tint: {material_state!r}")
+            for material in ("Belly", "InnerEar", "Face", "ScoutAccent", "ScoutLeather"):
+                if material_state[material] == "89b4fa":
+                    raise AssertionError(
+                        f"avatar detail material {material} was overwritten by entity tint: "
+                        f"{material_state!r}"
+                    )
 
             page.evaluate("window.__world3dPlayer.selectTarget('item:crate')")
             before_reconcile = page.evaluate("window.__world3dPlayer.reconciliationState()")
@@ -1158,7 +1288,7 @@ def main() -> None:
 
             before_decoration = page.evaluate("window.__world3dPlayer.reconciliationState()")
             patch_player_scene(page, {"decoration_color": "#71a84f"})
-            page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 7")
+            page.wait_for_function("window.__world3dPlayer.visualState().modelPropInstances === 42")
             after_decoration = page.evaluate("window.__world3dPlayer.reconciliationState()")
             if after_decoration["decorations"]["decoration:flora"] == before_decoration["decorations"]["decoration:flora"]:
                 raise AssertionError("changed decoration was not rebuilt")
@@ -1224,6 +1354,21 @@ def main() -> None:
                 raise AssertionError(f"east door did not align with its wall: {east_exit!r}")
             if abs(north_exit["rotationY"]) > 0.01 or abs(north_exit["z"] - 0.25) > 0.01:
                 raise AssertionError(f"north door did not align with its wall: {north_exit!r}")
+            required_exit_parts = {
+                "Exit.Lintel",
+                "Exit.Portal",
+                "Exit.Post.L",
+                "Exit.Post.R",
+                "Exit.Threshold",
+            }
+            if not required_exit_parts.issubset(east_exit["parts"]) or "Exit.LockedCrossbar" in east_exit["parts"]:
+                raise AssertionError(f"open exit structure was incomplete: {east_exit!r}")
+            if not required_exit_parts.issubset(north_exit["parts"]) or "Exit.LockedCrossbar" not in north_exit["parts"]:
+                raise AssertionError(f"locked exit structure was incomplete: {north_exit!r}")
+            if not north_exit["portalOpacity"] < east_exit["portalOpacity"]:
+                raise AssertionError(f"locked exit portal did not reduce opacity: {exits!r}")
+            if not east_exit["emissiveIntensity"] > north_exit["emissiveIntensity"]:
+                raise AssertionError(f"nearby open exit did not receive emissive emphasis: {exits!r}")
             page.locator("#btn-hud").click()
             stacked_point = page.evaluate("window.__world3dPlayer.entityScreenPoint('item:clover')")
             page.mouse.click(stacked_point["x"], stacked_point["y"])
@@ -1240,6 +1385,7 @@ def main() -> None:
             expect(page.locator("#target-label")).to_contain_text("none")
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(1)
             expect(page.locator("#photo-gallery")).to_contain_text("Scene image @ 10")
+            page.locator("#tab-journal").click()
             page.locator("#photo-gallery .gallery-item").first.click()
             if "hidden" in (page.locator("#photo-lightbox").get_attribute("class") or ""):
                 raise AssertionError("older scene image did not open in the lightbox")
@@ -1268,10 +1414,12 @@ def main() -> None:
             )
             if stable_rows != {"member": True, "action": True}:
                 raise AssertionError(f"Preact replaced unchanged keyed HUD rows: {stable_rows!r}")
+            page.locator("#tab-room").click()
             page.locator('[data-target-id="item:map"]').click()
             expect(page.locator("#target-label")).to_contain_text("Crinkled Map")
             page.locator('[data-target-id="item:clover"]').click()
             expect(page.locator("#target-label")).to_contain_text("Silver Clover")
+            page.locator("#tab-actions").click()
             page.locator("#action-filter").fill("inspect")
             page.locator('[data-action="inspect"]').click()
             if page.locator('[data-field="0"]').input_value() != "item:clover":
@@ -1371,6 +1519,7 @@ def main() -> None:
             page.locator("#btn-request-image").click()
             expect(page.locator("#activity")).to_contain_text("image")
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(2)
+            page.locator("#tab-character").click()
             page.locator("#btn-open-sheet").click()
             expect(page.locator("#activity")).to_contain_text("Character profile")
             player_canvas = ARTIFACT_DIR / "world-3d-player-canvas.png"

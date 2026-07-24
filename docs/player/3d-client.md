@@ -22,9 +22,11 @@ The add-on has three entry points:
 | `/3d/player.html` | Play as a character in the 3D view. |
 | `/3d/admin.html` | Admin room inspector. |
 
-Choose **Player** to play. Press **Connect**, choose a character, and claim control. If the
-claim succeeds, the room view, character sheet summary, available actions, command queue, and
-recent activity panels update together.
+Choose **Player** to play. The **Connection** dialog opens before a character is active. Set
+the server URL, press **Connect**, choose a character, and claim control. After joining, use
+the toolbar's **Connection** button to reopen the same controls. If the claim succeeds, the
+compact toolbar, room view, character summary, available actions, command queue, and recent
+activity update together.
 
 ## Read the room
 
@@ -32,13 +34,15 @@ The center of the page is the room view. The client shows your current room, vis
 contents, exits, and nearby rooms remembered from earlier visits. Decorated outdoor rooms
 also show biome-specific terrain, grouped flora and static props, ambient particles, local
 lights, fog, and a skybox when the room has no roof. Grouped scenery is deliberately
-noninteractive; selectable or collidable props remain ordinary ECS entities.
+noninteractive and noncolliding, including scenery that is visually clustered. It is omitted
+near exits, the player, and interactive objects only to keep those objects readable.
+Selectable or collidable props remain ordinary ECS entities.
 
 The server remains authoritative. If a target is hidden, blocked by fog, in another room, or
 otherwise unavailable, the client either hides the action or shows the server's rejection
 after you try it.
 
-The player requires scene schema v3 from the 3D server plugin. If capability negotiation fails, it shows a
+The player requires scene schema v4 from the 3D server plugin. If capability negotiation fails, it shows a
 compatibility error and does not enable character selection. Ask the server administrator to
 install matching server and web add-on images. Installed plugins are discovered through
 package entry points; obsolete runtime module-import flags will prevent startup.
@@ -68,7 +72,9 @@ Actions use the same verbs as every other Bunnyland client:
 
 The third-person camera follows your locally controlled avatar. It shortens its follow
 distance when room geometry would block the avatar, then eases back out when the view is
-clear. The bundled leporid avatar includes its corrected tail placement and animation.
+clear. The bundled leporid avatar has a rounded silhouette, breathing and walking animation,
+and optional visual variants. For example, `scout` adds a neckerchief and satchel, while
+`gardener` adds an apron and broad hat. Unknown variants safely use the base avatar.
 
 Use the view controls to:
 
@@ -76,8 +82,10 @@ Use the view controls to:
 - use the wheel to change follow distance;
 - click a visible character or object to target it;
 - capture the current canvas as a PNG;
-- use **Panels** to show or hide detailed character, room, action, queue, photo, and activity
-  controls;
+- use **Panels** to show or hide the sidebar without losing its selected tab;
+- use the accessible **Character**, **Room**, **Actions**, and **Journal** tabs to organize
+  profile details, room information, commands, and recent records; after joining, the
+  **Actions** tab is selected by default;
 - read the remembered-room map in the panels without leaving the character view.
 
 Plugin-owned room decorations and models are part of the same scene contract. Outdoor rooms

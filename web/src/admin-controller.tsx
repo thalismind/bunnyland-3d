@@ -66,6 +66,7 @@ async function connect(rawBase: string): Promise<void> {
     setServerInUrl(baseUrl);
     if (selectedRoomId) await selectRoom(selectedRoomId);
     if (generation !== connectGeneration || baseUrl !== nextBase) return;
+    scene.showOverview(false);
     status(`loaded ${layout.roomCount} rooms`, 'ok');
   } catch (err) {
     if (generation !== connectGeneration || baseUrl !== nextBase) return;
@@ -212,6 +213,7 @@ selectedEntitiesEl.addEventListener('click', event => {
 });
 document.getElementById('btn-load')?.addEventListener('click', () => { void connect(apiInput.value); });
 document.getElementById('btn-refresh')?.addEventListener('click', () => { void refresh(); });
+document.getElementById('btn-overview')?.addEventListener('click', () => { scene.showOverview(); });
 modeButton.addEventListener('click', () => {
   viewMode = viewMode === '3d' ? '2d' : '3d';
   scene.setMode(viewMode);
@@ -253,6 +255,7 @@ declare global {
       connect: (base: string) => Promise<void>;
       refresh: () => Promise<void>;
       selectRoom: (roomId: string) => Promise<void>;
+      overview: () => void;
       setMode: (mode: ViewMode) => void;
       capture: () => string;
       themeState: () => ReturnType<BunnylandScene['themeState']>;
@@ -267,6 +270,7 @@ window.__world3d = {
   connect,
   refresh,
   selectRoom,
+  overview: () => scene.showOverview(),
   setMode: mode => {
     viewMode = mode;
     scene.setMode(mode);

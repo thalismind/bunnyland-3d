@@ -9,8 +9,7 @@
       * { box-sizing: border-box; }
       html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
       #app { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-      #api-url { width: 250px; flex: 0 1 250px; }
-      #character-select { min-width: 190px; flex: 0 1 190px; }
+      #api-url, #character-select { width: 100%; }
       #claim-timeout { width: 62px; }
       input, select, button {
         min-height: 28px;
@@ -20,6 +19,17 @@
         color: var(--bl-text);
       }
       button { cursor: pointer; }
+      .toolbar-heading.player-toolbar { flex-wrap: wrap; }
+      .player-toolbar .toolbar-brand { flex: 1 1 190px; }
+      .toolbar-character {
+        max-width: 180px;
+        color: var(--bl-text);
+        font-weight: 700;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .toolbar-points { color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
       #btn-request-image, #btn-capture {
         min-width: max-content;
         white-space: nowrap;
@@ -51,6 +61,28 @@
         opacity: 0;
         transform: translateX(calc(100% + 24px));
       }
+      .panel-tabs {
+        position: sticky;
+        z-index: 4;
+        top: -8px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
+        padding: 8px 4px;
+        border-bottom: 1px solid var(--bl-border);
+        background: var(--bl-bg-strong);
+      }
+      .panel-tabs button {
+        min-width: 0;
+        padding: 4px 3px;
+        font-size: var(--bl-text-xs);
+      }
+      .panel-tabs button[aria-selected="true"] {
+        border-color: var(--bl-accent);
+        background: var(--bl-surface-hover);
+        color: var(--bl-accent-strong);
+      }
+      [role="tabpanel"][hidden] { display: none; }
       #scene-summary {
         position: absolute;
         z-index: 12;
@@ -65,8 +97,7 @@
         box-shadow: var(--bl-shadow-popover);
         pointer-events: none;
       }
-      #hud-character { font-size: 16px; font-weight: 800; }
-      #hud-room, #hud-points { margin-top: 3px; color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
+      #hud-room { color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
       #scene-summary.hidden { display: none; }
       #empty-state {
         position: absolute;
@@ -422,16 +453,22 @@
       .form-field input, .form-field select { width: 100%; }
       .form-error { min-height: 18px; color: var(--bl-error); font-size: var(--bl-text-sm); }
       .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px; border-top: 1px solid var(--bl-border); }
-      #claim-dialog {
+      #claim-dialog, #connection-dialog {
         max-width: min(440px, calc(100vw - 24px));
         border: 1px solid var(--bl-border-control);
         border-radius: var(--bl-radius-md);
         background: var(--bl-bg-strong);
         color: var(--bl-text);
       }
-      #claim-dialog::backdrop { background: var(--bl-overlay); }
-      .claim-dialog-form { display: grid; gap: 8px; }
-      .claim-dialog-form h3 { margin: 0 0 4px; }
+      #claim-dialog::backdrop, #connection-dialog::backdrop { background: var(--bl-overlay); }
+      .claim-dialog-form, .connection-dialog-form { display: grid; gap: 8px; }
+      .claim-dialog-form h3, .connection-dialog-form h2 { margin: 0 0 4px; }
+      .connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+      .connection-actions #status {
+        min-width: 0;
+        flex: 1 1 180px;
+        overflow-wrap: anywhere;
+      }
       #content-warning-dialog {
         width: min(560px, calc(100vw - 32px));
         max-height: calc(100vh - 32px);
@@ -447,6 +484,10 @@
       @media (max-width: 900px) {
         #side { inset: 8px 8px 8px auto; width: min(360px, calc(100% - 16px)); }
         #control-hint { display: none; }
+      }
+      @media (max-width: 560px) {
+        .player-toolbar .toolbar-brand { flex-basis: calc(100% - 72px); }
+        .toolbar-character { max-width: 120px; }
       }
       @media (prefers-reduced-motion: reduce) {
         #side { transition: none; }

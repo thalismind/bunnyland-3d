@@ -115,6 +115,13 @@ concrete operation and response schema. STL has no material convention, so
 set `default_color` when appearance matters. Use `instanced=True` only for static models;
 animated, skinned, and interactive props should remain individual ECS entities.
 
+Bundled and plugin-provided models may expose optional accessory subtrees with the exact node
+name `Variant.<key>`, such as `Variant.scout`. Declare the matching keys in
+`ModelAsset(variants=(...))`. The player hides every `Variant.*` root before showing only the
+root selected by the resolved visual variant or `Render3DComponent.variant_key`. Missing,
+unknown, or undeclared variants leave the base model visible without accessories. Keep the
+variant root above all nodes that belong exclusively to that variant.
+
 ## Registering Skyboxes and Particle Systems
 
 Visual plugins can also register bounded, declarative environment effects. Register them
