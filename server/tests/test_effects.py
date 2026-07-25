@@ -47,6 +47,11 @@ def _vendor_plugin() -> Plugin:
                     star_count=180,
                     portal_color="#78a7ff",
                     portal_effect="none",
+                    bloom_strength=0.18,
+                    ssao_strength=0.24,
+                    depth_of_field_strength=0.08,
+                    lens_flare_strength=0.06,
+                    sun_ray_strength=0.1,
                 ),
                 Skybox3D("vendor.weather/day"),
             ),
@@ -117,6 +122,11 @@ def test_plugin_effects_register_after_3d_and_project_declarative_views():
     assert environment["skybox"]["star_count"] == 180
     assert environment["skybox"]["portal_color"] == "#78a7ff"
     assert environment["skybox"]["portal_effect"] == "none"
+    assert environment["skybox"]["bloom_strength"] == 0.18
+    assert environment["skybox"]["ssao_strength"] == 0.24
+    assert environment["skybox"]["depth_of_field_strength"] == 0.08
+    assert environment["skybox"]["lens_flare_strength"] == 0.06
+    assert environment["skybox"]["sun_ray_strength"] == 0.1
     assert particles["system"] == {
         "key": "vendor.weather/snow",
         "blending": "normal",
@@ -152,6 +162,24 @@ def test_registration_enforces_ownership_uniqueness_and_bounds():
             "vendor.weather",
             [Skybox3D("vendor.weather/portal", portal_effect="spark")],
         )
+    for field, value in (
+        ("bloom_strength", -0.01),
+        ("bloom_strength", 0.41),
+        ("ssao_strength", -0.01),
+        ("ssao_strength", 0.61),
+        ("depth_of_field_strength", -0.01),
+        ("depth_of_field_strength", 0.31),
+        ("lens_flare_strength", -0.01),
+        ("lens_flare_strength", 0.41),
+        ("sun_ray_strength", -0.01),
+        ("sun_ray_strength", 0.41),
+    ):
+        with pytest.raises(EnvironmentEffectError, match=field):
+            register_skyboxes(
+                actor,
+                "vendor.weather",
+                [Skybox3D("vendor.weather/post", **{field: value})],
+            )
     with pytest.raises(EnvironmentEffectError, match="pulse_amount"):
         register_particle_systems(
             actor,

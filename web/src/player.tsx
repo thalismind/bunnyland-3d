@@ -81,6 +81,12 @@ function PlayerShell() {
         </div>
         <label for="character-select">Character</label>
         <select id="character-select"><option value="">Choose...</option></select>
+        <label for="effects-level">Shader effects</label>
+        <select id="effects-level" defaultValue="subtle">
+          <option value="off">Off</option>
+          <option value="subtle">Subtle</option>
+          <option value="full">Full</option>
+        </select>
         <div class="connection-actions"><button type="submit">Close</button></div>
       </form>
     </dialog>

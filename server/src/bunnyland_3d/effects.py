@@ -18,7 +18,7 @@ class EnvironmentEffectError(ValueError):
 
 @dataclass(frozen=True)
 class Skybox3D:
-    """A bounded, procedural skybox style rendered by the stock 3D client."""
+    """A bounded atmosphere style rendered by the stock 3D client."""
 
     key: str
     zenith_color: str = ""
@@ -40,6 +40,11 @@ class Skybox3D:
     locked_portal_color: str = "#b85858"
     portal_opacity: float = 0.135
     portal_effect: Literal["none", "ripple"] = "ripple"
+    bloom_strength: float = 0.08
+    ssao_strength: float = 0.14
+    depth_of_field_strength: float = 0.025
+    lens_flare_strength: float = 0.035
+    sun_ray_strength: float = 0.045
 
 
 @dataclass(frozen=True)
@@ -154,6 +159,18 @@ class EnvironmentEffectRegistry:
                 raise EnvironmentEffectError("skybox portal_opacity must be between 0 and 0.5")
             if skybox.portal_effect not in {"none", "ripple"}:
                 raise EnvironmentEffectError("skybox portal_effect must be 'none' or 'ripple'")
+            for name, maximum in (
+                ("bloom_strength", 0.4),
+                ("ssao_strength", 0.6),
+                ("depth_of_field_strength", 0.3),
+                ("lens_flare_strength", 0.4),
+                ("sun_ray_strength", 0.4),
+            ):
+                value = getattr(skybox, name)
+                if not 0.0 <= value <= maximum:
+                    raise EnvironmentEffectError(
+                        f"skybox {name} must be between 0 and {maximum}"
+                    )
             self._skyboxes[skybox.key] = skybox
 
     def register_particle_systems(

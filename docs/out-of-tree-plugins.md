@@ -158,6 +158,11 @@ def install_weather_effects(actor):
             locked_portal_color="#d65a66",
             portal_opacity=0.12,
             portal_effect="ripple",
+            bloom_strength=0.12,
+            ssao_strength=0.2,
+            depth_of_field_strength=0.04,
+            lens_flare_strength=0.05,
+            sun_ray_strength=0.08,
         ),
     ])
     register_particle_systems(actor, "vendor.weather", [
@@ -198,6 +203,15 @@ Skybox definitions also own the default exit-aperture palette and may select the
 `ripple` texture or `none`. This keeps the horizon, atmosphere, and portal treatment in one
 replaceable visual provider; uploaded equirectangular skies still replace the procedural
 sky texture itself.
+
+The same atmosphere definition supplies bounded post-processing intent. Bloom is limited to
+`0.4`, SSAO to `0.6`, and depth of field, lens flare, and sun rays to `0.3`, `0.4`, and
+`0.4` respectively. Set an effect to zero when it does not suit the room. The player remains
+in control of execution: **Off** disables the post-processing target, **Subtle** scales every
+requested strength to 55%, and **Full** uses the registered strengths. The stock client
+combines enabled effects into one deferred fullscreen shader pass at 1× resolution; plugins
+cannot transmit shader source or force a player's chosen quality level.
+
 The highest-priority matching particle rule replaces only the core ambient particle field;
 manually authored and plugin-owned emitters remain composable.
 

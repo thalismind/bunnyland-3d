@@ -10,6 +10,7 @@ import {
   rememberIgnoredContentFlags,
 } from './content-warning';
 import { PlayerScene, type PlayerSceneExit } from './player-scene';
+import type { ClientEffectLevel } from './post-effects';
 import {
   actionArguments,
   actionAvailable,
@@ -69,6 +70,7 @@ const connectionButton = document.getElementById('btn-connection') as HTMLButton
 const connectionDialog = document.getElementById('connection-dialog') as HTMLDialogElement;
 const refreshButton = document.getElementById('btn-refresh') as HTMLButtonElement;
 const characterSelect = document.getElementById('character-select') as HTMLSelectElement;
+const effectsLevelSelect = document.getElementById('effects-level') as HTMLSelectElement;
 const claimButton = document.getElementById('btn-claim') as HTMLButtonElement;
 const requestImageButton = document.getElementById('btn-request-image') as HTMLButtonElement;
 const openSheetButton = document.getElementById('btn-open-sheet') as HTMLButtonElement;
@@ -130,6 +132,8 @@ const panelTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-panel-
 const panelViews = [...document.querySelectorAll<HTMLElement>('[data-panel-name]')];
 
 type PanelName = 'character' | 'room' | 'actions' | 'journal';
+const EFFECT_LEVEL_KEY = 'bunnyland.3d.effects-level';
+const EFFECT_LEVELS: readonly ClientEffectLevel[] = ['off', 'subtle', 'full'];
 
 let baseUrl = '';
 let characters: CharacterSummary[] = [];
@@ -179,6 +183,21 @@ const scene = new PlayerScene(
     ? { active: true, loaded: progress.loaded, total: progress.total }
     : { active: false, loaded: 0, total: 0 }),
 );
+
+function storedEffectLevel(): ClientEffectLevel {
+  try {
+    const value = window.localStorage.getItem(EFFECT_LEVEL_KEY);
+    return EFFECT_LEVELS.includes(value as ClientEffectLevel)
+      ? value as ClientEffectLevel
+      : 'subtle';
+  } catch {
+    return 'subtle';
+  }
+}
+
+const initialEffectLevel = storedEffectLevel();
+effectsLevelSelect.value = initialEffectLevel;
+scene.setEffectLevel(initialEffectLevel);
 
 function status(text: string, cls = ''): void {
   statusEl.textContent = text;
@@ -506,7 +525,6 @@ function render(): void {
     joinedOnce = true;
     selectPanel('actions');
   }
-  if (connectionDialog.open) connectionDialog.close();
   const points = projection.points || {};
   emptyStateEl.classList.add('hidden');
   sceneSummaryEl.classList.remove('hidden');
@@ -1215,6 +1233,18 @@ characterSelect.addEventListener('change', () => {
   if (characterSelect.value && connectionDialog.open) connectionDialog.close();
   void selectCharacter(characterSelect.value);
 });
+effectsLevelSelect.addEventListener('change', () => {
+  const level = EFFECT_LEVELS.includes(effectsLevelSelect.value as ClientEffectLevel)
+    ? effectsLevelSelect.value as ClientEffectLevel
+    : 'subtle';
+  effectsLevelSelect.value = level;
+  scene.setEffectLevel(level);
+  try {
+    window.localStorage.setItem(EFFECT_LEVEL_KEY, level);
+  } catch {
+    // Browser storage can be unavailable in privacy modes; the current setting still applies.
+  }
+});
 claimButton.addEventListener('click', () => {
   if (!playerId) return;
   dialogClaimButton.textContent = control?.active === false ? 'Resume' : 'Claim';
@@ -1338,6 +1368,7 @@ declare global {
       renderEfficiencyState: () => ReturnType<PlayerScene['renderEfficiencyState']>;
       reconciliationState: () => ReturnType<PlayerScene['reconciliationState']>;
       renderState: () => ReturnType<PlayerScene['renderState']>;
+      postEffectsState: () => ReturnType<PlayerScene['postEffectsState']>;
       avatarState: () => ReturnType<PlayerScene['cameraState']>['avatar'];
       capture: () => string;
     };
@@ -1363,6 +1394,7 @@ window.__world3dPlayer = {
   renderEfficiencyState: () => scene.renderEfficiencyState(),
   reconciliationState: () => scene.reconciliationState(),
   renderState: () => scene.renderState(),
+  postEffectsState: () => scene.postEffectsState(),
   avatarState: () => scene.cameraState().avatar,
   capture: captureImage,
 };

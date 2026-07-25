@@ -69,6 +69,11 @@ equirectangular skyboxes accept PNG, JPEG, or WebP files through the existing me
 Uploads can target the selected room or become the default for its biome. Take a world
 snapshot before a whole-world apply, because these controls create persistent ECS entities.
 
+Registered skybox profiles also carry the room's bounded post-processing intent: bloom,
+SSAO, depth of field, lens flare, and sun rays. The 3D player renders that intent through a
+single combined pass and lets each player choose Off, Subtle, or Full. An environment can
+request or omit an effect, but it cannot override the player's client setting.
+
 ## Inspector framing
 
 The inspector opens in **Overview**, framing the entire calculated room graph. Selecting a

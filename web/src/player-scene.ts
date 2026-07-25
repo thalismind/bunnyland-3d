@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { ServerAssetManifest, ServerModelAsset } from './play';
+import type { ClientEffectLevel, PostEffectProfile, RoomPostEffects } from './post-effects';
 
 type GltfAssets = typeof import('./gltf-assets');
 
@@ -128,6 +129,11 @@ export interface Skybox3DView {
   locked_portal_color?: string;
   portal_opacity?: number;
   portal_effect?: 'none' | 'ripple';
+  bloom_strength?: number;
+  ssao_strength?: number;
+  depth_of_field_strength?: number;
+  lens_flare_strength?: number;
+  sun_ray_strength?: number;
 }
 
 export interface ParticleSystem3DView {
@@ -344,6 +350,18 @@ const MAX_LOCAL_LIGHTS = 8;
 const MAX_SHADOW_LIGHTS = 2;
 const FOCUS_RANGE = 5;
 const REACH_RANGE = 2.25;
+const EFFECT_LEVEL_SCALE: Record<ClientEffectLevel, number> = {
+  off: 0,
+  subtle: 0.55,
+  full: 1,
+};
+const DEFAULT_POST_EFFECT_PROFILE: PostEffectProfile = {
+  bloom: 0.08,
+  ssao: 0.14,
+  depthOfField: 0.025,
+  lensFlare: 0.035,
+  sunRays: 0.045,
+};
 
 const BIOME_PALETTES: Record<string, { ground: number; fog: number; accent: number }> = {
   cave: { ground: 0x4c4037, fog: 0x171514, accent: 0xc69568 },
@@ -458,11 +476,19 @@ export class PlayerScene {
   private readonly poseQuaternion = new THREE.Quaternion();
   private readonly poseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly poseUp = new THREE.Vector3(0, 1, 0);
+  private readonly postSunWorld = new THREE.Vector3();
+  private readonly postSunScreen = new THREE.Vector2(0.5, 0.5);
   private readonly instanceMatrix = new THREE.Matrix4();
   private readonly animatedParticles: THREE.Points[] = [];
   private readonly animatedLightning: THREE.Line[] = [];
   private foliageShadow: THREE.InstancedMesh | null = null;
   private portalTexture: THREE.CanvasTexture | null = null;
+  private postEffects: RoomPostEffects | null = null;
+  private postEffectProfile: PostEffectProfile = { ...DEFAULT_POST_EFFECT_PROFILE };
+  private postEffectLevel: ClientEffectLevel = 'subtle';
+  private postEffectRevision = 0;
+  private postSunX = 0.765;
+  private postSunY = 0.28;
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private roomId = '';
   private playerId = '';
@@ -529,6 +555,12 @@ export class PlayerScene {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) this.keys.clear();
+  }
+
+  setEffectLevel(level: ClientEffectLevel): void {
+    if (!(level in EFFECT_LEVEL_SCALE) || level === this.postEffectLevel) return;
+    this.postEffectLevel = level;
+    this.refreshPostEffects();
   }
 
   async loadRoom(data: PlayerRoomScene, playerId: string): Promise<void> {
@@ -610,6 +642,31 @@ export class PlayerScene {
 
   renderState(): { frames: number; scheduled: boolean } {
     return { frames: this.renderedFrames, scheduled: this.frameRequest !== null };
+  }
+
+  postEffectsState(): {
+    level: ClientEffectLevel;
+    active: boolean;
+    fullScreenPasses: number;
+    renderScale: number;
+    profile: PostEffectProfile;
+    effective: PostEffectProfile;
+  } {
+    const scale = EFFECT_LEVEL_SCALE[this.postEffectLevel];
+    return {
+      level: this.postEffectLevel,
+      active: this.postEffects !== null,
+      fullScreenPasses: this.postEffects ? 1 : 0,
+      renderScale: this.postEffects ? 1 : 0,
+      profile: { ...this.postEffectProfile },
+      effective: {
+        bloom: this.postEffectProfile.bloom * scale,
+        ssao: this.postEffectProfile.ssao * scale,
+        depthOfField: this.postEffectProfile.depthOfField * scale,
+        lensFlare: this.postEffectProfile.lensFlare * scale,
+        sunRays: this.postEffectProfile.sunRays * scale,
+      },
+    };
   }
 
   reconciliationState(): {
@@ -849,6 +906,16 @@ export class PlayerScene {
   }
 
   capturePng(): string {
+    if (this.postEffects) {
+      const sunVisible = this.updatePostSunScreen();
+      return this.postEffects.capturePng(
+        Math.max(1, this.renderer.domElement.width),
+        Math.max(1, this.renderer.domElement.height),
+        this.camera.position.distanceTo(this.cameraTarget),
+        this.postSunScreen,
+        sunVisible,
+      );
+    }
     const canvas = document.createElement('canvas');
     const width = Math.max(1, this.renderer.domElement.width);
     const height = Math.max(1, this.renderer.domElement.height);
@@ -977,6 +1044,7 @@ export class PlayerScene {
   private applyEnvironment(data: PlayerRoomScene, revision: number): void {
     const palette = BIOME_PALETTES[data.room.biome] || BIOME_PALETTES.unknown;
     const environment = data.room.environment3d;
+    this.configurePostEffects(environment?.skybox);
     const roomColor = color(data.room.render3d?.color, palette.ground);
     const fogColor = color(environment?.fog_color, palette.fog);
     const hasRoof = environment?.has_roof ?? data.room.indoor;
@@ -1112,6 +1180,54 @@ export class PlayerScene {
     this.environment.add(sun, sun.target);
 
     if (hasRoof) this.addIndoorWalls(data.exits, roomColor);
+  }
+
+  private configurePostEffects(skybox: Skybox3DView | undefined): void {
+    this.postEffectProfile = {
+      bloom: finite(skybox?.bloom_strength, DEFAULT_POST_EFFECT_PROFILE.bloom),
+      ssao: finite(skybox?.ssao_strength, DEFAULT_POST_EFFECT_PROFILE.ssao),
+      depthOfField: finite(
+        skybox?.depth_of_field_strength,
+        DEFAULT_POST_EFFECT_PROFILE.depthOfField,
+      ),
+      lensFlare: finite(skybox?.lens_flare_strength, DEFAULT_POST_EFFECT_PROFILE.lensFlare),
+      sunRays: finite(skybox?.sun_ray_strength, DEFAULT_POST_EFFECT_PROFILE.sunRays),
+    };
+    this.postSunX = finite(skybox?.sun_x, 0.765);
+    this.postSunY = finite(skybox?.sun_y, 0.28);
+    this.refreshPostEffects();
+  }
+
+  private refreshPostEffects(): void {
+    const revision = ++this.postEffectRevision;
+    const scale = EFFECT_LEVEL_SCALE[this.postEffectLevel];
+    const enabled = scale > 0 && Object.values(this.postEffectProfile).some(value => value > 0);
+    if (!enabled) {
+      this.postEffects?.dispose();
+      this.postEffects = null;
+      return;
+    }
+    if (this.postEffects) {
+      this.postEffects.setProfile(this.postEffectProfile, scale);
+      return;
+    }
+    void import('./post-effects').then(({ RoomPostEffects }) => {
+      if (revision !== this.postEffectRevision) return;
+      try {
+        this.postEffects = new RoomPostEffects(this.renderer, this.scene, this.camera);
+        this.postEffects.setProfile(this.postEffectProfile, scale);
+        this.postEffects.setSize(
+          Math.max(1, this.container.clientWidth),
+          Math.max(1, this.container.clientHeight),
+        );
+        this.requestFrame();
+      } catch (error: unknown) {
+        console.warn('Bunnyland 3D post effects unavailable:', error);
+        this.postEffects = null;
+      }
+    }).catch((error: unknown) => {
+      console.warn('Bunnyland 3D post effects failed to load:', error);
+    });
   }
 
   private proceduralSurface(recipe: string, baseColor: number, repeat: number): THREE.CanvasTexture {
@@ -2989,6 +3105,40 @@ export class PlayerScene {
     this.camera.lookAt(this.cameraTarget);
   }
 
+  private updatePostSunScreen(): boolean {
+    const theta = this.postSunY * Math.PI;
+    const phi = this.postSunX * Math.PI * 2;
+    const radius = 70;
+    this.postSunWorld.set(
+      (this.bounds.minX + this.bounds.maxX) / 2 - Math.cos(phi) * Math.sin(theta) * radius,
+      this.bounds.ground + Math.cos(theta) * radius,
+      (this.bounds.minZ + this.bounds.maxZ) / 2 + Math.sin(phi) * Math.sin(theta) * radius,
+    );
+    this.postSunWorld.project(this.camera);
+    const sunVisible = this.postSunWorld.z >= -1
+      && this.postSunWorld.z <= 1
+      && Math.abs(this.postSunWorld.x) <= 1.35
+      && Math.abs(this.postSunWorld.y) <= 1.35;
+    this.postSunScreen.set(
+      this.postSunWorld.x * 0.5 + 0.5,
+      this.postSunWorld.y * 0.5 + 0.5,
+    );
+    return sunVisible;
+  }
+
+  private renderScene(delta: number): void {
+    if (!this.postEffects) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    this.postEffects.render(
+      delta,
+      this.camera.position.distanceTo(this.cameraTarget),
+      this.postSunScreen,
+      this.updatePostSunScreen(),
+    );
+  }
+
   private animate = (): void => {
     this.frameRequest = null;
     if (document.hidden || !this.roomId) return;
@@ -3001,7 +3151,7 @@ export class PlayerScene {
     this.updatePortals(delta);
     this.updateNearbyExit();
     this.updateCamera(delta);
-    this.renderer.render(this.scene, this.camera);
+    this.renderScene(delta);
     this.renderedFrames += 1;
     this.requestFrame();
   };
@@ -3028,6 +3178,7 @@ export class PlayerScene {
     this.renderer.setSize(width, height);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    this.postEffects?.setSize(width, height);
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {

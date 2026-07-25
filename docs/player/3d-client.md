@@ -28,6 +28,16 @@ the toolbar's **Connection** button to reopen the same controls. If the claim su
 compact toolbar, room view, character summary, available actions, command queue, and recent
 activity update together.
 
+The Connection dialog also has a three-level **Shader effects** setting:
+
+- **Off** draws the room directly and allocates no post-processing target;
+- **Subtle** is the default and uses a restrained version of the room's visual profile;
+- **Full** uses the room profile at its authored strength.
+
+The choice is stored in this browser. Rooms and visual plugins decide which mix of subtle
+bloom, ambient occlusion, depth of field, lens flare, and sun rays suits their environment;
+your client setting always scales or disables that mix.
+
 ## Read the room
 
 The center of the page is the room view. The client shows your current room, visible room
@@ -98,9 +108,9 @@ Plugin-owned room decorations and models are part of the same scene contract. Ou
 can show stable grouped flora, detail props, lights, and particles before any player action;
 reloads update those owned entities idempotently rather than adding duplicates.
 
-The capture button downloads the current canvas only. It is useful for player notes,
-feedback, and bug reports. Server-generated scene images are separate and appear in the
-photo gallery when image generation is enabled.
+The capture button downloads the current canvas, including enabled shader effects. It is
+useful for player notes, feedback, and bug reports. Server-generated scene images are
+separate and appear in the photo gallery when image generation is enabled.
 
 ## Remembered rooms
 
