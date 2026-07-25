@@ -379,7 +379,7 @@ def player_3d_scene(room_id: str):
                 "sun_intensity": 2.0,
                 "has_roof": False,
                 "skybox_preset": "vendor.weather/day",
-                "skybox": {"key": "vendor.weather/day", "zenith_color": "", "horizon_color": "#ffe2b8", "horizon_mix": 0.32, "sun_color": "#fff5da", "sun_x": 0.765, "sun_y": 0.28, "sun_size": 0.035, "sun_opacity": 0.76, "cloud_color": "#ffffff", "cloud_opacity": 0.12, "cloud_count": 18, "star_color": "#ffffff", "star_opacity": 0.15, "star_count": 12, "portal_color": "#63e6d1", "locked_portal_color": "#c85656", "portal_opacity": 0.14, "portal_effect": "ripple", "bloom_strength": 0.08, "ssao_strength": 0.14, "depth_of_field_strength": 0.025, "lens_flare_strength": 0.035, "sun_ray_strength": 0.045},
+                "skybox": {"key": "vendor.weather/day", "zenith_color": "", "horizon_color": "#ffe2b8", "horizon_mix": 0.32, "sun_color": "#fff5da", "sun_x": 0.765, "sun_y": 0.28, "sun_size": 0.035, "sun_opacity": 0.76, "cloud_color": "#ffffff", "cloud_opacity": 0.12, "cloud_count": 18, "star_color": "#ffffff", "star_opacity": 0.15, "star_count": 12, "portal_color": "#63e6d1", "locked_portal_color": "#c85656", "portal_opacity": 0.14, "portal_effect": "ripple", "boundary_style": "hedge", "boundary_color": "#477343", "bloom_strength": 0.08, "ssao_strength": 0.14, "depth_of_field_strength": 0.025, "lens_flare_strength": 0.035, "sun_ray_strength": 0.045},
                 "surface_recipe": biome,
                 "albedo_url": "",
                 "normal_url": "",
@@ -1149,6 +1149,9 @@ def main() -> None:
             )
             if not any("gltf-assets-" in url for url in requested_urls):
                 raise AssertionError("player did not defer model tools until room assets were needed")
+            page.wait_for_function(
+                "() => performance.getEntriesByType('resource').some(entry => entry.name.includes('outdoor-boundary-'))"
+            )
             progress_events = page.evaluate("window.__playerProgressEvents")
             if not any(event["active"] and event["total"] > 0 for event in progress_events):
                 raise AssertionError(f"scene asset loading progress was not reported: {progress_events!r}")
@@ -1164,6 +1167,18 @@ def main() -> None:
             nearby_pose = page.evaluate("window.__world3dPlayer.interactionPoseState()")
             if nearby_pose["reaching"] != ["Arm.L", "Arm.R"]:
                 raise AssertionError(f"avatar did not reach toward a nearby item: {nearby_pose!r}")
+            page.locator("#viewer canvas").focus()
+            page.keyboard.down("w")
+            page.wait_for_function(
+                """() => {
+                  const pose = window.__world3dPlayer.interactionPoseState();
+                  return pose.targetId === 'item:clover' && pose.reaching.length === 0;
+                }"""
+            )
+            moving_pose = page.evaluate("window.__world3dPlayer.interactionPoseState()")
+            if moving_pose["targetId"] != "item:clover":
+                raise AssertionError(f"head focus stopped tracking while walking: {moving_pose!r}")
+            page.keyboard.up("w")
             page.evaluate("window.__world3dPlayer.selectTarget('item:crate')")
             page.wait_for_function(
                 """() => {
@@ -1175,11 +1190,16 @@ def main() -> None:
             if focused_pose["reaching"]:
                 raise AssertionError(f"avatar reached toward a distant item: {focused_pose!r}")
             page.evaluate("window.__world3dPlayer.selectTarget('')")
+            page.wait_for_function(
+                "window.__world3dPlayer.environmentState().boundaryInstances >= 40"
+            )
             environment_state = page.evaluate("window.__world3dPlayer.environmentState()")
             if not environment_state["apron"] or environment_state["floorWidth"] != 16 or environment_state["floorDepth"] != 16:
                 raise AssertionError(f"outdoor apron changed authoritative floor bounds: {environment_state!r}")
             if environment_state["floorVertices"] != 289 or environment_state["floorColorRange"] <= 0.01:
                 raise AssertionError(f"playable terrain did not retain deterministic vertex variation: {environment_state!r}")
+            if environment_state["boundaryInstances"] < 40:
+                raise AssertionError(f"outdoor boundary was not instanced around the room: {environment_state!r}")
             if environment_state["skyboxCloudCount"] != 18:
                 raise AssertionError(f"registered skybox did not own its cloud layer: {environment_state!r}")
             expected_shadow = {

@@ -129,6 +129,8 @@ export interface Skybox3DView {
   locked_portal_color?: string;
   portal_opacity?: number;
   portal_effect?: 'none' | 'ripple';
+  boundary_style?: 'auto' | 'hedge' | 'fence' | 'none';
+  boundary_color?: string;
   bloom_strength?: number;
   ssao_strength?: number;
   depth_of_field_strength?: number;
@@ -350,6 +352,7 @@ const MAX_LOCAL_LIGHTS = 8;
 const MAX_SHADOW_LIGHTS = 2;
 const FOCUS_RANGE = 5;
 const REACH_RANGE = 2.25;
+const REACH_CONE_HALF_ANGLE = 0.95;
 const EFFECT_LEVEL_SCALE: Record<ClientEffectLevel, number> = {
   off: 0,
   subtle: 0.55,
@@ -867,6 +870,7 @@ export class PlayerScene {
 
   environmentState(): {
     apron: boolean;
+    boundaryInstances: number;
     floorWidth: number;
     floorDepth: number;
     floorVertices: number;
@@ -875,6 +879,7 @@ export class PlayerScene {
     shadow: { left: number; right: number; top: number; bottom: number; bias: number; normalBias: number; radius: number } | null;
   } {
     const floor = this.environment.getObjectByName('playable-floor') as THREE.Mesh<THREE.PlaneGeometry> | undefined;
+    const boundary = this.environment.getObjectByName('outdoor-boundary') as THREE.InstancedMesh | undefined;
     const sun = this.environment.getObjectByName('room-sun') as THREE.DirectionalLight | undefined;
     const sky = this.environment.children.find(child => child.userData.skybox);
     const parameters = floor?.geometry.parameters;
@@ -890,6 +895,7 @@ export class PlayerScene {
     }
     return {
       apron: Boolean(this.environment.getObjectByName('terrain-apron')),
+      boundaryInstances: boundary?.count || 0,
       floorWidth: parameters?.width || 0,
       floorDepth: parameters?.height || 0,
       floorVertices: floor?.geometry.getAttribute('position').count || 0,
@@ -1133,6 +1139,15 @@ export class PlayerScene {
     floor.position.set(centerX, this.bounds.ground, centerZ);
     floor.receiveShadow = true;
     this.environment.add(floor);
+    if (!hasRoof) {
+      this.addOutdoorBoundary(
+        data.exits,
+        environment?.skybox,
+        data.room.biome,
+        roomColor,
+        revision,
+      );
+    }
 
     const albedo = this.loadMaterialTexture(environment?.albedo_url, true, texture => {
       if (revision === this.environmentRevision && floor.parent) {
@@ -1448,6 +1463,35 @@ export class PlayerScene {
     horizontal('south', this.bounds.maxZ);
     vertical('west', this.bounds.minX);
     vertical('east', this.bounds.maxX);
+  }
+
+  private addOutdoorBoundary(
+    exits: PlayerSceneExit[],
+    skybox: Skybox3DView | undefined,
+    biome: string,
+    roomColor: number,
+    revision: number,
+  ): void {
+    const style = skybox?.boundary_style || 'auto';
+    const bounds = { ...this.bounds };
+    const random = randomFrom(hash(`boundary:${this.roomId}:${style}:${biome}`));
+    void import('./outdoor-boundary').then(({ buildOutdoorBoundary }) => {
+      const boundary = buildOutdoorBoundary(
+        style,
+        biome,
+        exits.map(exit => this.cardinal(exit.direction)),
+        skybox?.boundary_color,
+        roomColor,
+        bounds,
+        random,
+      );
+      if (!boundary) return;
+      if (revision !== this.environmentRevision) {
+        disposeObject(boundary);
+        return;
+      }
+      this.environment.add(boundary);
+    });
   }
 
   private reconcileDecorations(decorations: PlayerSceneDecoration[], data: PlayerRoomScene): void {
@@ -2960,12 +3004,19 @@ export class PlayerScene {
       head.quaternion.premultiply(this.poseQuaternion);
       head.userData.focusYaw = yaw;
     }
-    if (!target.reach) return;
+    // Walking owns the arm pivots. Layering a free look-at quaternion over the walk
+    // track allowed the arms to roll through the torso as the avatar changed heading.
+    if (!target.reach || this.movement.lengthSq() > 0) return;
     const horizontalDistance = Math.hypot(
       this.poseTargetLocal.x,
       this.poseTargetLocal.z,
     );
     if (horizontalDistance < 0.45) this.poseTargetLocal.z += 0.62;
+    const reachYaw = Math.atan2(this.poseTargetLocal.x, this.poseTargetLocal.z);
+    if (
+      this.poseTargetLocal.z <= 0.2
+      || Math.abs(reachYaw) > REACH_CONE_HALF_ANGLE
+    ) return;
     this.poseTargetLocal.y = Math.max(this.poseTargetLocal.y, 0.64);
     for (const arm of [leftArm, rightArm]) {
       if (!arm) continue;

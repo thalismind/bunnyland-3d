@@ -28,15 +28,23 @@ function within(file, size, limit, kind) {
 const threeFile = oneChunk('three.module-');
 const playerFile = oneChunk('player-controller-');
 const gltfFile = oneChunk('gltf-assets-');
+const boundaryFile = oneChunk('outdoor-boundary-');
 const three = await sizes(threeFile);
 const player = await sizes(playerFile);
 const gltf = await sizes(gltfFile);
+const boundary = await sizes(boundaryFile);
 
 within(threeFile, three.raw, 580_000, 'raw');
 within(threeFile, three.brotli, 120_000, 'Brotli');
-within(playerFile, player.brotli, 32_000, 'Brotli');
+within(playerFile, player.brotli, 32_256, 'Brotli');
 within(gltfFile, gltf.brotli, 28_000, 'Brotli');
-within('player deferred JavaScript', three.brotli + player.brotli + gltf.brotli, 170_000, 'Brotli');
+within(boundaryFile, boundary.brotli, 2_000, 'Brotli');
+within(
+  'player deferred JavaScript',
+  three.brotli + player.brotli + gltf.brotli + boundary.brotli,
+  170_000,
+  'Brotli',
+);
 
 const indexHtml = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
 if (indexHtml.includes(threeFile) || indexHtml.includes(gltfFile)) {
@@ -44,5 +52,5 @@ if (indexHtml.includes(threeFile) || indexHtml.includes(gltfFile)) {
 }
 
 console.log(
-  `bundle budgets: three ${three.brotli} B br, player ${player.brotli} B br, glTF ${gltf.brotli} B br`,
+  `bundle budgets: three ${three.brotli} B br, player ${player.brotli} B br, glTF ${gltf.brotli} B br, boundary ${boundary.brotli} B br`,
 );

@@ -99,6 +99,13 @@ test('bundled avatar manifest resolves an animated repo-owned glTF', async () =>
   for (let index = 2; index < armRotations.length; index += 4) {
     assert.ok(Math.abs(armRotations[index]) > 0.5, 'walking arm preserves its outward angle');
   }
+  for (let index = 4; index < armRotations.length; index += 4) {
+    const dot = armRotations[index - 4] * armRotations[index]
+      + armRotations[index - 3] * armRotations[index + 1]
+      + armRotations[index - 2] * armRotations[index + 2]
+      + armRotations[index - 1] * armRotations[index + 3];
+    assert.ok(dot > 0.98, 'walking arm keyframes stay in one close quaternion hemisphere');
+  }
   assert.match(gltf.buffers[0].uri, /^data:application\/octet-stream;base64,/);
   assert.doesNotMatch(gltfText, /https?:\/\//);
   assert.ok((await stat(fileURLToPath(assetUrl))).size < 500_000);

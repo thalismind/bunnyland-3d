@@ -74,6 +74,11 @@ SSAO, depth of field, lens flare, and sun rays. The 3D player renders that inten
 single combined pass and lets each player choose Off, Subtle, or Full. An environment can
 request or omit an effect, but it cannot override the player's client setting.
 
+Skybox profiles also choose the visual outdoor boundary: `auto`, `hedge`, `fence`, or
+`none`, with an optional boundary color. `auto` selects a hedge for green biomes and a
+fence elsewhere. The stock client batches the complete boundary into one instanced draw,
+leaves openings around exits, and never adds colliders or room-content entities.
+
 ## Inspector framing
 
 The inspector opens in **Overview**, framing the entire calculated room graph. Selecting a

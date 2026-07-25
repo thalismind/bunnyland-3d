@@ -47,6 +47,8 @@ def _vendor_plugin() -> Plugin:
                     star_count=180,
                     portal_color="#78a7ff",
                     portal_effect="none",
+                    boundary_style="fence",
+                    boundary_color="#61784a",
                     bloom_strength=0.18,
                     ssao_strength=0.24,
                     depth_of_field_strength=0.08,
@@ -122,6 +124,8 @@ def test_plugin_effects_register_after_3d_and_project_declarative_views():
     assert environment["skybox"]["star_count"] == 180
     assert environment["skybox"]["portal_color"] == "#78a7ff"
     assert environment["skybox"]["portal_effect"] == "none"
+    assert environment["skybox"]["boundary_style"] == "fence"
+    assert environment["skybox"]["boundary_color"] == "#61784a"
     assert environment["skybox"]["bloom_strength"] == 0.18
     assert environment["skybox"]["ssao_strength"] == 0.24
     assert environment["skybox"]["depth_of_field_strength"] == 0.08
@@ -161,6 +165,18 @@ def test_registration_enforces_ownership_uniqueness_and_bounds():
             actor,
             "vendor.weather",
             [Skybox3D("vendor.weather/portal", portal_effect="spark")],
+        )
+    with pytest.raises(EnvironmentEffectError, match="boundary_style"):
+        register_skyboxes(
+            actor,
+            "vendor.weather",
+            [Skybox3D("vendor.weather/boundary", boundary_style="wall")],
+        )
+    with pytest.raises(EnvironmentEffectError, match="boundary_color"):
+        register_skyboxes(
+            actor,
+            "vendor.weather",
+            [Skybox3D("vendor.weather/boundary-color", boundary_color="green")],
         )
     for field, value in (
         ("bloom_strength", -0.01),

@@ -40,6 +40,8 @@ class Skybox3D:
     locked_portal_color: str = "#b85858"
     portal_opacity: float = 0.135
     portal_effect: Literal["none", "ripple"] = "ripple"
+    boundary_style: Literal["auto", "hedge", "fence", "none"] = "auto"
+    boundary_color: str = ""
     bloom_strength: float = 0.08
     ssao_strength: float = 0.14
     depth_of_field_strength: float = 0.025
@@ -139,6 +141,7 @@ class EnvironmentEffectRegistry:
                 "locked_portal_color",
             ):
                 _validate_color(name, getattr(skybox, name))
+            _validate_color("boundary_color", skybox.boundary_color, optional=True)
             if not 0.0 <= skybox.horizon_mix <= 1.0:
                 raise EnvironmentEffectError("skybox horizon_mix must be between 0 and 1")
             if not 0.0 <= skybox.sun_x <= 1.0 or not 0.0 <= skybox.sun_y <= 1.0:
@@ -159,6 +162,10 @@ class EnvironmentEffectRegistry:
                 raise EnvironmentEffectError("skybox portal_opacity must be between 0 and 0.5")
             if skybox.portal_effect not in {"none", "ripple"}:
                 raise EnvironmentEffectError("skybox portal_effect must be 'none' or 'ripple'")
+            if skybox.boundary_style not in {"auto", "hedge", "fence", "none"}:
+                raise EnvironmentEffectError(
+                    "skybox boundary_style must be 'auto', 'hedge', 'fence', or 'none'"
+                )
             for name, maximum in (
                 ("bloom_strength", 0.4),
                 ("ssao_strength", 0.6),

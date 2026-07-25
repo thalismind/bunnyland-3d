@@ -125,8 +125,10 @@ variant root above all nodes that belong exclusively to that variant.
 Character models may opt into the stock attention pose through semantic roles. Map
 `look-focus` to the head pivot and `reach-left` / `reach-right` to arm pivots. The bundled
 leporid falls back to its stable `Head`, `Arm.L`, and `Arm.R` names. The client turns only
-these pivots toward nearby or selected targets, so provider-owned meshes, materials, and
-animations remain replaceable without requiring browser-side plugin code.
+these pivots toward nearby or selected targets. Head focus remains active during movement;
+arm reach is applied only after movement stops and only inside a limited forward cone, so
+provider-owned meshes, materials, and animations remain replaceable without requiring
+browser-side plugin code.
 
 ## Registering Skyboxes and Particle Systems
 
@@ -158,6 +160,8 @@ def install_weather_effects(actor):
             locked_portal_color="#d65a66",
             portal_opacity=0.12,
             portal_effect="ripple",
+            boundary_style="fence",
+            boundary_color="#5f7048",
             bloom_strength=0.12,
             ssao_strength=0.2,
             depth_of_field_strength=0.04,
@@ -202,7 +206,9 @@ without mutating room components. An explicit non-default `skybox_preset` takes 
 Skybox definitions also own the default exit-aperture palette and may select the subtle
 `ripple` texture or `none`. This keeps the horizon, atmosphere, and portal treatment in one
 replaceable visual provider; uploaded equirectangular skies still replace the procedural
-sky texture itself.
+sky texture itself. They also select `boundary_style` as `auto`, `hedge`, `fence`, or
+`none` and may provide `boundary_color`. Boundaries are one visual-only instanced batch
+with exit openings; they never add collision or room-content state.
 
 The same atmosphere definition supplies bounded post-processing intent. Bloom is limited to
 `0.4`, SSAO to `0.6`, and depth of field, lens flare, and sun rays to `0.3`, `0.4`, and

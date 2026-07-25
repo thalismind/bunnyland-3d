@@ -45,7 +45,8 @@ your client setting always scales or disables that mix.
 The center of the page is the room view. The client shows your current room, visible room
 contents, exits, and nearby rooms remembered from earlier visits. Decorated outdoor rooms
 also show biome-specific terrain, grouped flora and static props, ambient particles, local
-lights, fog, and a skybox when the room has no roof. Grouped scenery is deliberately
+lights, fog, a low outdoor boundary, and a skybox when the room has no roof. The boundary
+uses hedges or a fence with clear portal openings; like grouped scenery, it is deliberately
 noninteractive and noncolliding, including scenery that is visually clustered. It is omitted
 near exits, the player, and interactive objects only to keep those objects readable.
 Selectable or collidable props remain ordinary ECS entities.
@@ -91,7 +92,9 @@ The third-person camera follows your locally controlled avatar. It shortens its 
 distance when room geometry would block the avatar, then eases back out when the view is
 clear. The bundled leporid avatar has a faceted low-poly silhouette, breathing and walking
 animation, and optional visual variants. Its head follows selected or nearby characters,
-items, and exits, while its arms reach toward nearby items and portals. For example, `scout`
+items, and exits even while walking. Its walk animation controls the arms during movement;
+after stopping, the arms can reach toward nearby items and portals within a limited forward
+cone. For example, `scout`
 adds a neckerchief and satchel, while `gardener` adds an apron and broad hat. Unknown variants
 safely use the base avatar.
 

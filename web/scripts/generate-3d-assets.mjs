@@ -287,8 +287,8 @@ const walkTimes = accessor([0, 0.25, 0.5, 0.75, 1], 5126, 'SCALAR', 1, { min: [0
 const walkBounce = accessor([0,0.8,0, 0,0.86,0, 0,0.8,0, 0,0.86,0, 0,0.8,0], 5126, 'VEC3', 3);
 const legAnglesA = [1.86, 1.28, 1.86, 1.28, 1.86];
 const legAnglesB = [1.28, 1.86, 1.28, 1.86, 1.28];
-const armAnglesA = [0.62, 0.06, 0.62, 0.06, 0.62];
-const armAnglesB = [0.06, 0.62, 0.06, 0.62, 0.06];
+const armAnglesA = [0.46, 0.22, 0.46, 0.22, 0.46];
+const armAnglesB = [0.22, 0.46, 0.22, 0.46, 0.22];
 const legSwingA = accessor(legAnglesA.flatMap(quatX), 5126, 'VEC4', 4);
 const legSwingB = accessor(legAnglesB.flatMap(quatX), 5126, 'VEC4', 4);
 const armSwingL = accessor(armAnglesB.flatMap(angle => quatArm(armOutwardAngle, angle)), 5126, 'VEC4', 4);
