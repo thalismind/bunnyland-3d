@@ -1060,6 +1060,7 @@ def main() -> None:
             page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
             expect(page.locator("#status")).to_contain_text("loaded 1 characters")
             assert_responsive_toolbar(page, "3D player", character=True)
+            expect(page.locator("#toolbar #theme-select")).to_have_count(0)
             expect(page.locator("#empty-state-title")).to_contain_text("Pick a character to start")
             idle_render = page.evaluate("window.__world3dPlayer.renderState()")
             if idle_render["frames"] != 0 or idle_render["scheduled"]:
@@ -1128,10 +1129,19 @@ def main() -> None:
                 if tabs.nth(tab_index).get_attribute("aria-controls") is None:
                     raise AssertionError("player panel tab did not expose aria-controls")
             initial_countdown = page.locator("#queue-title").text_content()
+            hud_countdown = page.locator("#hud-next-tick")
+            expect(hud_countdown).to_be_visible()
+            expect(hud_countdown).to_contain_text("Next tick")
+            initial_hud_countdown = hud_countdown.text_content()
             page.wait_for_function(
                 "initial => document.querySelector('#queue-title')?.textContent !== initial",
                 arg=initial_countdown,
-                timeout=2000,
+                timeout=2500,
+            )
+            page.wait_for_function(
+                "initial => document.querySelector('#hud-next-tick')?.textContent !== initial",
+                arg=initial_hud_countdown,
+                timeout=2500,
             )
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
             page.wait_for_function(
@@ -1489,6 +1499,18 @@ def main() -> None:
                 raise AssertionError(f"locked exit portal did not reduce opacity: {exits!r}")
             if not east_exit["emissiveIntensity"] > north_exit["emissiveIntensity"]:
                 raise AssertionError(f"nearby open exit did not receive emissive emphasis: {exits!r}")
+            page.locator("#btn-hud").click()
+            exit_point = page.evaluate("window.__world3dPlayer.exitScreenPoint('room:pond')")
+            page.mouse.click(exit_point["x"], exit_point["y"])
+            page.locator("#btn-hud").click()
+            expect(page.locator("#target-label")).to_contain_text("Mirror Pond")
+            selected_exit = next(
+                exit_state
+                for exit_state in page.evaluate("window.__world3dPlayer.exitStates()")
+                if exit_state["id"] == "room:pond"
+            )
+            if not selected_exit["selected"]:
+                raise AssertionError(f"clicked portal did not retain its selection affordance: {selected_exit!r}")
             page.locator("#btn-hud").click()
             stacked_point = page.evaluate("window.__world3dPlayer.entityScreenPoint('item:clover')")
             page.mouse.click(stacked_point["x"], stacked_point["y"])

@@ -2,7 +2,7 @@ import '@bunnyland/ui-web/assets/bunnyland-ui.css';
 import '@bunnyland/ui-web/assets/bunnyland-ui.js';
 import './canvas-loading.css';
 import { serverFromUrl } from '@bunnyland/ui-web/api';
-import { AuthGate, AuthProvider, ThemeSelect, Toolbar, ToolbarBrand, ToolbarRow } from '@bunnyland/ui-web/preact';
+import { AuthGate, AuthProvider, Toolbar, ToolbarBrand, ToolbarRow } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { CanvasLoading } from './canvas-loading';
@@ -60,13 +60,12 @@ function PlayerShell() {
         <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
         <span id="hud-character" class="toolbar-character">No character</span>
         <span id="hud-points" class="toolbar-points"></span>
+        <span id="hud-next-tick" class="toolbar-tick" hidden></span>
       <button id="btn-connection" type="button" aria-haspopup="dialog">Connection</button>
       <button id="btn-claim" type="button" disabled>Claim</button>
       <button id="btn-request-image" type="button">Image</button>
       <button id="btn-capture" type="button">📷 Capture</button>
       <button id="btn-hud" type="button" aria-controls="side" aria-expanded="true">Panels</button>
-      <label for="theme-select">Theme</label>
-      <span id="theme-select-root"><ThemeSelect id="theme-select" aria-label="Theme" /></span>
       </ToolbarRow>
     </Toolbar>
     <dialog id="connection-dialog" aria-labelledby="connection-dialog-title">

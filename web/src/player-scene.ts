@@ -593,7 +593,7 @@ export class PlayerScene {
   }
 
   selectEntity(entityId: string): boolean {
-    if (!this.entities.has(entityId)) return false;
+    if (!this.entities.has(entityId) && !this.exits.has(entityId)) return false;
     this.selectedEntityId = entityId;
     this.applySelection();
     return true;
@@ -838,6 +838,7 @@ export class PlayerScene {
     parts: string[];
     portalOpacity: number;
     emissiveIntensity: number;
+    selected: boolean;
   }> {
     return [...this.exits.values()].map(tracked => {
       const portal = tracked.root.getObjectByName('Exit.Aperture') as THREE.Mesh<THREE.PlaneGeometry> | undefined;
@@ -859,6 +860,7 @@ export class PlayerScene {
         const material = (child as THREE.Mesh).material;
         return material instanceof THREE.MeshStandardMaterial ? material.emissiveIntensity : 0;
         })),
+        selected: tracked.exit.id === this.selectedEntityId,
       };
     });
   }
@@ -1890,6 +1892,7 @@ export class PlayerScene {
       tracked.root.removeFromParent();
       disposeObject(tracked.root);
       this.exits.delete(id);
+      if (this.selectedEntityId === id) this.selectedEntityId = '';
     }
     const counts = new Map<string, number>();
     for (const exit of exits) counts.set(this.cardinal(exit.direction), (counts.get(this.cardinal(exit.direction)) || 0) + 1);
@@ -2900,6 +2903,15 @@ export class PlayerScene {
         };
       }
     }
+    const selectedExit = this.exits.get(this.selectedEntityId);
+    if (selectedExit) {
+      this.poseTargetWorld.copy(selectedExit.position);
+      this.poseTargetWorld.y = this.bounds.ground + 1.2;
+      const distanceSquared = selectedExit.root.position.distanceToSquared(player.root.position);
+      if (distanceSquared <= FOCUS_RANGE * FOCUS_RANGE) {
+        return { id: selectedExit.exit.id, reach: distanceSquared <= REACH_RANGE * REACH_RANGE };
+      }
+    }
     let nearest: TrackedEntity | null = null;
     let nearestDistanceSquared = FOCUS_RANGE * FOCUS_RANGE;
     for (const tracked of this.entities.values()) {
@@ -3040,18 +3052,22 @@ export class PlayerScene {
     }
     const next = nearest?.exit.id || '';
     for (const [id, tracked] of this.exits) {
+      const selected = id === this.selectedEntityId;
+      const emphasized = id === next || selected;
       tracked.root.traverse(child => {
         const mesh = child as THREE.Mesh;
         if (mesh.userData.exitFrame && mesh.material instanceof THREE.MeshStandardMaterial) {
-          mesh.material.emissiveIntensity = id === next
-            ? 0.78
+          mesh.material.emissiveIntensity = emphasized
+            ? selected ? 0.92 : 0.78
             : child.name === 'Exit.LockedCrossbar' || child.name === 'Exit.LockBadge'
               ? 0.68
               : 0.48;
         }
         if (mesh.userData.exitPortal && mesh.material instanceof THREE.MeshBasicMaterial) {
           const baseOpacity = finite(mesh.userData.baseOpacity, 0.1);
-          mesh.material.opacity = id === next ? Math.min(0.24, baseOpacity + 0.055) : baseOpacity;
+          mesh.material.opacity = emphasized
+            ? Math.min(0.27, baseOpacity + (selected ? 0.08 : 0.055))
+            : baseOpacity;
         }
       });
     }
@@ -3075,6 +3091,22 @@ export class PlayerScene {
       ring.name = 'selection-ring';
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = 0.025;
+      tracked.root.add(ring);
+    }
+    for (const [id, tracked] of this.exits) {
+      const old = tracked.root.getObjectByName('selection-ring');
+      if (old && id !== this.selectedEntityId) {
+        tracked.root.remove(old);
+        disposeObject(old);
+      }
+      if (id !== this.selectedEntityId || old) continue;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.72, 0.86, 28),
+        new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.92, side: THREE.DoubleSide }),
+      );
+      ring.name = 'selection-ring';
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.035;
       tracked.root.add(ring);
     }
   }
@@ -3223,8 +3255,8 @@ export class PlayerScene {
     this.raycaster.far = Infinity;
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const ids = [...new Set(
-      this.raycaster.intersectObjects(this.entityGroup.children, true)
-        .map(hit => this.parentData(hit.object, 'entityId'))
+      this.raycaster.intersectObjects([...this.entityGroup.children, ...this.exitGroup.children], true)
+        .map(hit => this.parentData(hit.object, 'entityId') || this.parentData(hit.object, 'exitId'))
         .filter(Boolean),
     )];
     const ordered = [...ids.filter(id => id !== this.playerId), ...ids.filter(id => id === this.playerId)];

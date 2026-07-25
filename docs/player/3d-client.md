@@ -26,7 +26,9 @@ Choose **Player** to play. The **Connection** dialog opens before a character is
 the server URL, press **Connect**, choose a character, and claim control. After joining, use
 the toolbar's **Connection** button to reopen the same controls. If the claim succeeds, the
 compact toolbar, room view, character summary, available actions, command queue, and recent
-activity update together.
+activity update together. The compact toolbar shows the countdown to the next world tick
+whenever the server supplies tick timing. Theme selection stays in the shared client menu,
+using the same canonical theme names as the other Bunnyland clients.
 
 The Connection dialog also has a three-level **Shader effects** setting:
 
@@ -71,9 +73,10 @@ Walk close to an exit to reveal its prompt, then press **E** or click **Travel**
 normal `move` action. The move spends action points the same way it does in the terminal,
 Discord, REPL, or Toon client.
 
-Click a visible character, item, or prop to select it as the current target. The action panel
-then filters and labels actions around that target. You can also search actions directly from
-the action box.
+Click a visible character, item, prop, or portal to select it as the current target. Selecting
+a portal does not travel through it; walk close and use **E** or **Travel** when you are ready.
+The action panel then filters and labels actions around that target. You can also search
+actions directly from the action box.
 
 Actions use the same verbs as every other Bunnyland client:
 

@@ -110,6 +110,7 @@ const sideEl = document.getElementById('side') as HTMLElement;
 const hudCharacterEl = document.getElementById('hud-character') as HTMLElement;
 const hudRoomEl = document.getElementById('hud-room') as HTMLElement;
 const hudPointsEl = document.getElementById('hud-points') as HTMLElement;
+const hudNextTickEl = document.getElementById('hud-next-tick') as HTMLElement;
 const sceneSummaryEl = document.getElementById('scene-summary') as HTMLElement;
 const emptyStateEl = document.getElementById('empty-state') as HTMLElement;
 const emptyStateTitleEl = document.getElementById('empty-state-title') as HTMLElement;
@@ -509,6 +510,7 @@ function render(): void {
     hudCharacterEl.textContent = 'No character selected';
     hudRoomEl.textContent = 'Connect to a Bunnyland 3D v2 server to begin.';
     hudPointsEl.textContent = '';
+    updateTickCountdown();
     renderCharacterPanel();
     roomTitleEl.textContent = 'No character selected';
     roomMetaEl.textContent = 'Connect and choose a character.';
@@ -611,7 +613,7 @@ function renderRoom(): void {
     })}</> : <EmptyState>No visible entities.</EmptyState>, membersEl);
 
   renderView(projection.room.exits.length ? <>{projection.room.exits.map(exit => (
-      <button key={exit.id} class="option-row" type="button" data-exit-id={exit.id}>
+      <button key={exit.id} class={`option-row ${exit.id === selectedTargetId ? 'selected' : ''}`} type="button" data-exit-id={exit.id}>
         <span class="row-main"><span><RowIcon icon="🚪" />{exit.direction || exit.label || exit.id}</span><span>{exit.locked ? 'locked' : ''}</span></span>
         <span class="row-detail">{exit.label || exit.id}</span>
       </button>
@@ -701,13 +703,16 @@ function renderQueue(): void {
       </button>
     )) : <EmptyState>No queued actions.</EmptyState>}
   </>, queueEl);
+  updateTickCountdown();
 }
 
-function updateQueueCountdown(): void {
-  const title = document.getElementById('queue-title');
-  if (!title) return;
+function updateTickCountdown(): void {
   const countdown = queuedCountdownSeconds(queue);
-  title.textContent = `Queued actions${countdown == null ? '' : ` / next tick in ${countdown}s`}`;
+  const title = document.getElementById('queue-title');
+  if (title) title.textContent = `Queued actions${countdown == null ? '' : ` / next tick in ${countdown}s`}`;
+  hudNextTickEl.hidden = countdown == null;
+  hudNextTickEl.textContent = countdown == null ? '' : `Next tick ${countdown}s`;
+  hudNextTickEl.title = countdown == null ? '' : `Next world tick in ${countdown} seconds`;
 }
 
 function renderActivity(): void {
@@ -1084,6 +1089,7 @@ function nameFor(entityId: string): string | null {
   if (!projection) return characters.find(character => character.id === entityId)?.name || null;
   if (entityId === playerId) return projection.characterName;
   return allTargets(projection).find(item => item.value === entityId)?.label
+    || projection.room.exits.find(exit => exit.id === entityId)?.label
     || characters.find(character => character.id === entityId)?.name
     || null;
 }
@@ -1344,9 +1350,9 @@ document.addEventListener('keydown', event => {
     void confirmNearbyExit();
   }
 });
-const queueCountdownTimer = window.setInterval(updateQueueCountdown, 250);
+const tickCountdownTimer = window.setInterval(updateTickCountdown, 1000);
 window.addEventListener('beforeunload', () => {
-  window.clearInterval(queueCountdownTimer);
+  window.clearInterval(tickCountdownTimer);
   stopPlayerUpdates();
   stopLobbyPolling();
 });
