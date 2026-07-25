@@ -145,6 +145,7 @@ let selectedTargetId = '';
 let showActionIcons = iconPreference(true);
 let activityLines: ActivityLine[] = [];
 let seenEventIds = new Set<string>();
+let renderedGalleryItems: Array<Pick<GalleryItem, 'id' | 'src' | 'title'>> = [];
 let eventsPrimed = false;
 let eventImageUrl = '';
 let eventImageFailureEpoch = -1;
@@ -720,7 +721,16 @@ function renderActivity(): void {
 }
 
 function renderGallery(): void {
+  const unchanged = galleryItems.length === renderedGalleryItems.length
+    && galleryItems.every((item, index) => {
+      const rendered = renderedGalleryItems[index];
+      return rendered?.id === item.id
+        && rendered.src === item.src
+        && rendered.title === item.title;
+    });
+  if (unchanged) return;
   photoGalleryEl.innerHTML = galleryItems.length ? renderGalleryItems(galleryItems) : '<div class="muted">No photos yet.</div>';
+  renderedGalleryItems = galleryItems.map(({ id, src, title }) => ({ id, src, title }));
 }
 
 async function doAction(action: ActionView): Promise<void> {

@@ -1506,6 +1506,16 @@ def main() -> None:
             expect(page.locator("#photo-gallery .gallery-item")).to_have_count(1)
             expect(page.locator("#photo-gallery")).to_contain_text("Scene image @ 10")
             page.locator("#tab-journal").click()
+            gallery_stable = page.evaluate(
+                """async () => {
+                  const before = document.querySelector('#photo-gallery .gallery-item');
+                  await window.__world3dPlayer.refresh();
+                  return before !== null
+                    && before === document.querySelector('#photo-gallery .gallery-item');
+                }"""
+            )
+            if not gallery_stable:
+                raise AssertionError("unchanged activity refresh replaced gallery DOM nodes")
             page.locator("#photo-gallery .gallery-item").first.click()
             if "hidden" in (page.locator("#photo-lightbox").get_attribute("class") or ""):
                 raise AssertionError("older scene image did not open in the lightbox")
