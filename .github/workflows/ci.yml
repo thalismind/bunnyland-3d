@@ -130,7 +130,7 @@ jobs:
         run: |
           mkdir -p .reports/artifacts
           set +e
-          docker run --rm -e BUNNYLAND_3D_ARTIFACT_DIR=/reports/artifacts -v "${PWD}/.reports:/reports" bunnyland-3d-browser-test:ci
+          docker run --rm --shm-size=1g -e BUNNYLAND_3D_ARTIFACT_DIR=/reports/artifacts -v "${PWD}/.reports:/reports" bunnyland-3d-browser-test:ci
           status=$?
           if [ "$status" -eq 0 ]; then
             printf '%s\n' '<testsuite name="browser-smoke" tests="1" failures="0" errors="0"><testcase classname="browser" name="playwright-world-3d"/></testsuite>' > .reports/browser-smoke.xml
