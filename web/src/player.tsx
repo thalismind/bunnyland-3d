@@ -126,6 +126,26 @@ function PlayerShell() {
         </div>
       </form>
     </dialog>
+    <dialog id="world-intro-dialog" aria-labelledby="world-intro-title">
+      <form method="dialog" class="content-warning-form">
+        <h2 id="world-intro-title"></h2>
+        <p id="world-intro-description"></p>
+        <fieldset class="world-intro-options">
+          <legend>Future loads</legend>
+          <label>
+            <input id="world-intro-skip-world" type="checkbox" />
+            Skip this introduction for this world and server.
+          </label>
+          <label>
+            <input id="world-intro-skip-all" type="checkbox" />
+            Skip introductions for all worlds and servers.
+          </label>
+        </fieldset>
+        <div class="claim-actions">
+          <button id="btn-world-intro-continue" type="button">Continue</button>
+        </div>
+      </form>
+    </dialog>
     <main id="main">
       <section id="viewer" aria-busy={renderer.kind === 'loading'}>
         {renderer.kind !== 'ready' && <CanvasLoading

@@ -36,7 +36,7 @@ const boundary = await sizes(boundaryFile);
 
 within(threeFile, three.raw, 580_000, 'raw');
 within(threeFile, three.brotli, 120_000, 'Brotli');
-within(playerFile, player.brotli, 32_256, 'Brotli');
+within(playerFile, player.brotli, 33_000, 'Brotli');
 within(gltfFile, gltf.brotli, 28_000, 'Brotli');
 within(boundaryFile, boundary.brotli, 2_000, 'Brotli');
 within(

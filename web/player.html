@@ -472,7 +472,7 @@
         color: var(--bl-text);
         box-shadow: var(--bl-shadow-popover);
       }
-      #claim-dialog, #connection-dialog, #content-warning-dialog {
+      #claim-dialog, #connection-dialog, #content-warning-dialog, #world-intro-dialog {
         position: fixed;
         inset: 0;
         margin: auto;
@@ -486,19 +486,25 @@
         flex: 1 1 180px;
         overflow-wrap: anywhere;
       }
-      #content-warning-dialog {
+      #content-warning-dialog, #world-intro-dialog {
         width: min(560px, calc(100vw - 32px));
         max-height: calc(100vh - 32px);
-        border: 2px solid var(--bl-warn);
         border-radius: var(--bl-radius-md);
         background: var(--bl-bg-strong);
         color: var(--bl-text);
         box-shadow: var(--bl-shadow-popover);
+        padding: 20px;
       }
-      #content-warning-dialog::backdrop { background: var(--bl-overlay); }
+      #content-warning-dialog { border: 2px solid var(--bl-warn); }
+      #world-intro-dialog { border: 2px solid var(--bl-accent); }
+      #content-warning-dialog::backdrop, #world-intro-dialog::backdrop { background: var(--bl-overlay); }
       .content-warning-form { display: grid; gap: 10px; }
       .content-warning-form h2 { margin: 0; color: var(--bl-warn); }
+      #world-intro-title { color: var(--bl-accent); }
+      #world-intro-description { white-space: pre-wrap; }
       .content-warning-ignore { display: flex; gap: 8px; align-items: flex-start; }
+      .world-intro-options { display: grid; gap: 8px; }
+      .world-intro-options label { display: flex; gap: 8px; align-items: flex-start; }
       .claim-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
       @media (max-width: 900px) {
         #side { inset: 8px 8px 8px auto; width: min(360px, calc(100% - 16px)); }

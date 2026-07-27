@@ -1,7 +1,23 @@
 import { sendJson } from '@bunnyland/ui-web/api';
 
 const IGNORED_CONTENT_FLAGS_KEY = 'bunnyland.contentFlags.ignore';
+const WORLD_INTRO_PREFERENCES_KEY = 'bunnyland.worldIntro.preferences';
 const CONTENT_FLAG_PATTERN = /^[a-z][a-z0-9_]*(?::[a-z][a-z0-9_]*)*$/;
+
+export interface PublicWorldResource {
+  contentFlags: string[];
+  description: string;
+  title: string;
+  worldEpoch: number;
+  worldId: string;
+}
+
+export type WorldIntroSkip = 'none' | 'world' | 'all';
+
+interface WorldIntroPreferences {
+  skipAll: boolean;
+  worlds: string[];
+}
 
 export function normalizeContentFlags(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
@@ -12,7 +28,7 @@ export function normalizeContentFlags(values: unknown): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
-export async function fetchContentFlags(base: string): Promise<string[]> {
+export async function fetchPublicWorld(base: string): Promise<PublicWorldResource> {
   const resource = await sendJson(base, '/public/world');
   if (
     !resource
@@ -20,6 +36,7 @@ export async function fetchContentFlags(base: string): Promise<string[]> {
     || !('world_id' in resource)
     || typeof resource.world_id !== 'string'
     || !('world_epoch' in resource)
+    || typeof resource.world_epoch !== 'number'
     || !Number.isInteger(resource.world_epoch)
     || !('title' in resource)
     || typeof resource.title !== 'string'
@@ -35,7 +52,17 @@ export async function fetchContentFlags(base: string): Promise<string[]> {
   ) {
     throw new Error('invalid public world resource');
   }
-  return normalizeContentFlags(resource.content_flags);
+  return {
+    contentFlags: normalizeContentFlags(resource.content_flags),
+    description: resource.description,
+    title: resource.title,
+    worldEpoch: resource.world_epoch,
+    worldId: resource.world_id,
+  };
+}
+
+export async function fetchContentFlags(base: string): Promise<string[]> {
+  return (await fetchPublicWorld(base)).contentFlags;
 }
 
 export function ignoredContentFlags(): string[] {
@@ -51,5 +78,52 @@ export function rememberIgnoredContentFlags(flags: string[]): void {
     );
   } catch {
     // Preferences are best-effort; the current-session acceptance still applies.
+  }
+}
+
+function worldIntroScope(base: string, worldId: string): string {
+  return `${base.replace(/\/+$/, '')}\n${worldId}`;
+}
+
+function worldIntroPreferences(): WorldIntroPreferences {
+  try {
+    const value: unknown = JSON.parse(
+      localStorage.getItem(WORLD_INTRO_PREFERENCES_KEY) || '{}',
+    );
+    if (!value || typeof value !== 'object') return { skipAll: false, worlds: [] };
+    const skipAll = 'skipAll' in value && value.skipAll === true;
+    const worlds = 'worlds' in value && Array.isArray(value.worlds)
+      ? [...new Set(value.worlds.filter((scope): scope is string => (
+          typeof scope === 'string' && scope.length <= 2048
+        )))]
+      : [];
+    return { skipAll, worlds };
+  } catch {
+    return { skipAll: false, worlds: [] };
+  }
+}
+
+export function shouldSkipWorldIntro(base: string, worldId: string): boolean {
+  const preferences = worldIntroPreferences();
+  return preferences.skipAll || preferences.worlds.includes(worldIntroScope(base, worldId));
+}
+
+export function rememberWorldIntroSkip(
+  base: string,
+  worldId: string,
+  skip: WorldIntroSkip,
+): void {
+  if (skip === 'none') return;
+  try {
+    const preferences = worldIntroPreferences();
+    if (skip === 'all') preferences.skipAll = true;
+    if (skip === 'world') {
+      preferences.worlds = [
+        ...new Set([...preferences.worlds, worldIntroScope(base, worldId)]),
+      ];
+    }
+    localStorage.setItem(WORLD_INTRO_PREFERENCES_KEY, JSON.stringify(preferences));
+  } catch {
+    // Preferences are best-effort; continuing still applies to this session.
   }
 }

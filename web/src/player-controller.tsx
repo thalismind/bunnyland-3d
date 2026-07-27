@@ -5,9 +5,13 @@ import { Fragment, render as renderView } from 'preact';
 import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { reportPlayerCanvasProgress } from './canvas-progress';
 import {
-  fetchContentFlags,
+  fetchPublicWorld,
   ignoredContentFlags,
   rememberIgnoredContentFlags,
+  rememberWorldIntroSkip,
+  shouldSkipWorldIntro,
+  type PublicWorldResource,
+  type WorldIntroSkip,
 } from './content-warning';
 import { PlayerScene, type PlayerSceneExit } from './player-scene';
 import type { ClientEffectLevel } from './post-effects';
@@ -129,6 +133,12 @@ const contentWarningFlagsEl = document.getElementById('content-warning-flags') a
 const contentWarningRememberEl = document.getElementById('content-warning-remember') as HTMLInputElement;
 const contentWarningAcceptButton = document.getElementById('btn-content-warning-accept') as HTMLButtonElement;
 const contentWarningDeclineButton = document.getElementById('btn-content-warning-decline') as HTMLButtonElement;
+const worldIntroDialog = document.getElementById('world-intro-dialog') as HTMLDialogElement;
+const worldIntroTitleEl = document.getElementById('world-intro-title') as HTMLElement;
+const worldIntroDescriptionEl = document.getElementById('world-intro-description') as HTMLElement;
+const worldIntroSkipWorldEl = document.getElementById('world-intro-skip-world') as HTMLInputElement;
+const worldIntroSkipAllEl = document.getElementById('world-intro-skip-all') as HTMLInputElement;
+const worldIntroContinueButton = document.getElementById('btn-world-intro-continue') as HTMLButtonElement;
 const panelTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-panel-tab]')];
 const panelViews = [...document.querySelectorAll<HTMLElement>('[data-panel-name]')];
 
@@ -164,9 +174,11 @@ let lobbyRequest: { generation: number; promise: Promise<void> } | null = null;
 let requestGeneration = 0;
 let refreshPromise: Promise<void> | null = null;
 const acceptedContentFlags = new Map<string, string>();
+const introducedWorlds = new Set<string>();
 let pendingContentFlags: string[] = [];
 let pendingContentSignature = '';
 let pendingContentBase = '';
+let pendingPublicWorld: PublicWorldResource | null = null;
 let contentWarningRequestId = 0;
 let contentWarningResolver: { requestId: number; resolve: (accepted: boolean) => void } | null = null;
 let selectedPanel: PanelName = 'character';
@@ -862,33 +874,43 @@ async function requireContentWarning(base: string): Promise<boolean> {
   contentWarningResolver?.resolve(false);
   contentWarningResolver = null;
   if (contentWarningDialog.open) contentWarningDialog.close();
-  let flags: string[];
+  if (worldIntroDialog.open) worldIntroDialog.close();
+  let world: PublicWorldResource;
   try {
-    flags = await fetchContentFlags(base);
+    world = await fetchPublicWorld(base);
   } catch (error) {
     if (requestId !== contentWarningRequestId) return false;
     throw error;
   }
   if (requestId !== contentWarningRequestId) return false;
+  const flags = world.contentFlags;
   const signature = flags.join('\n');
-  if (acceptedContentFlags.get(base) === signature) return true;
+  const scope = contentGateScope(base, world.worldId);
+  const warningAccepted = acceptedContentFlags.get(scope) === signature;
   const ignored = new Set(ignoredContentFlags());
   const visible = flags.filter(flag => !ignored.has(flag));
-  if (!visible.length) {
-    acceptedContentFlags.set(base, signature);
-    return true;
-  }
-  pendingContentFlags = visible;
-  pendingContentSignature = signature;
   pendingContentBase = base;
-  contentWarningRememberEl.checked = false;
-  contentWarningFlagsEl.replaceChildren(...visible.map(flag => {
-    const item = document.createElement('li');
-    item.textContent = flag;
-    return item;
-  }));
-  scene.setEnabled(false);
-  contentWarningDialog.showModal();
+  pendingPublicWorld = world;
+  pendingContentSignature = signature;
+  if (!visible.length || warningAccepted) {
+    acceptedContentFlags.set(scope, signature);
+    if (introducedWorlds.has(scope) || shouldSkipWorldIntro(base, world.worldId)) {
+      clearPendingContentGate();
+      return true;
+    }
+    scene.setEnabled(false);
+    showWorldIntro(world);
+  } else {
+    pendingContentFlags = visible;
+    contentWarningRememberEl.checked = false;
+    contentWarningFlagsEl.replaceChildren(...visible.map(flag => {
+      const item = document.createElement('li');
+      item.textContent = flag;
+      return item;
+    }));
+    scene.setEnabled(false);
+    contentWarningDialog.showModal();
+  }
   return new Promise<boolean>(resolve => {
     if (requestId !== contentWarningRequestId) {
       resolve(false);
@@ -901,27 +923,73 @@ async function requireContentWarning(base: string): Promise<boolean> {
 function settleContentWarning(accepted: boolean): void {
   const active = contentWarningResolver;
   if (!active || active.requestId !== contentWarningRequestId) return;
-  contentWarningResolver = null;
   if (accepted) {
     if (contentWarningRememberEl.checked) rememberIgnoredContentFlags(pendingContentFlags);
-    acceptedContentFlags.set(pendingContentBase, pendingContentSignature);
+    const world = pendingPublicWorld;
+    if (!world) return;
+    const scope = contentGateScope(pendingContentBase, world.worldId);
+    acceptedContentFlags.set(scope, pendingContentSignature);
+    pendingContentFlags = [];
+    if (contentWarningDialog.open) contentWarningDialog.close();
+    if (
+      !introducedWorlds.has(scope)
+      && !shouldSkipWorldIntro(pendingContentBase, world.worldId)
+    ) {
+      showWorldIntro(world);
+      return;
+    }
   }
+  contentWarningResolver = null;
+  if (contentWarningDialog.open) contentWarningDialog.close();
+  clearPendingContentGate();
+  scene.setEnabled(true);
+  active.resolve(accepted);
+}
+
+function contentGateScope(base: string, worldId: string): string {
+  return `${base.replace(/\/+$/, '')}\n${worldId}`;
+}
+
+function showWorldIntro(world: PublicWorldResource): void {
+  worldIntroTitleEl.textContent = world.title;
+  worldIntroDescriptionEl.textContent = world.description;
+  worldIntroSkipWorldEl.checked = false;
+  worldIntroSkipAllEl.checked = false;
+  worldIntroDialog.showModal();
+}
+
+function settleWorldIntro(): void {
+  const active = contentWarningResolver;
+  const world = pendingPublicWorld;
+  if (!active || active.requestId !== contentWarningRequestId || !world) return;
+  const skip: WorldIntroSkip = worldIntroSkipAllEl.checked
+    ? 'all'
+    : worldIntroSkipWorldEl.checked
+      ? 'world'
+      : 'none';
+  rememberWorldIntroSkip(pendingContentBase, world.worldId, skip);
+  introducedWorlds.add(contentGateScope(pendingContentBase, world.worldId));
+  contentWarningResolver = null;
+  if (worldIntroDialog.open) worldIntroDialog.close();
+  clearPendingContentGate();
+  scene.setEnabled(true);
+  active.resolve(true);
+}
+
+function clearPendingContentGate(): void {
   pendingContentFlags = [];
   pendingContentSignature = '';
   pendingContentBase = '';
-  if (contentWarningDialog.open) contentWarningDialog.close();
-  scene.setEnabled(true);
-  active.resolve(accepted);
+  pendingPublicWorld = null;
 }
 
 function cancelContentWarning(): void {
   contentWarningRequestId += 1;
   const active = contentWarningResolver;
   contentWarningResolver = null;
-  pendingContentFlags = [];
-  pendingContentSignature = '';
-  pendingContentBase = '';
+  clearPendingContentGate();
   if (contentWarningDialog.open) contentWarningDialog.close();
+  if (worldIntroDialog.open) worldIntroDialog.close();
   scene.setEnabled(true);
   active?.resolve(false);
 }
@@ -1313,6 +1381,14 @@ contentWarningDialog.addEventListener('cancel', event => {
   event.preventDefault();
   settleContentWarning(false);
 });
+worldIntroSkipWorldEl.addEventListener('change', () => {
+  if (worldIntroSkipWorldEl.checked) worldIntroSkipAllEl.checked = false;
+});
+worldIntroSkipAllEl.addEventListener('change', () => {
+  if (worldIntroSkipAllEl.checked) worldIntroSkipWorldEl.checked = false;
+});
+worldIntroContinueButton.addEventListener('click', settleWorldIntro);
+worldIntroDialog.addEventListener('cancel', event => event.preventDefault());
 photoGalleryEl.addEventListener('click', event => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-gallery-id]');
   if (row?.dataset.galleryId) openGalleryItem(row.dataset.galleryId);

@@ -1102,6 +1102,30 @@ def main() -> None:
                 raise AssertionError("3D player claimed before content warning acceptance")
             page.locator("#content-warning-remember").check()
             page.locator("#btn-content-warning-accept").click()
+            expect(page.locator("#world-intro-dialog")).to_be_visible()
+            expect(page.locator("#world-intro-title")).to_have_text("Clover City")
+            expect(page.locator("#world-intro-description")).to_have_text(
+                "Mind the foxes after dark."
+            )
+            intro_padding = page.locator("#world-intro-dialog").evaluate(
+                """element => {
+                  const style = getComputedStyle(element);
+                  return {
+                    top: parseFloat(style.paddingTop),
+                    right: parseFloat(style.paddingRight),
+                    bottom: parseFloat(style.paddingBottom),
+                    left: parseFloat(style.paddingLeft),
+                  };
+                }"""
+            )
+            if min(intro_padding.values()) < 16:
+                raise AssertionError(
+                    f"world introduction text was too close to its border: {intro_padding!r}"
+                )
+            if len(CLAIM_STATE["methods"]) != claims_before_warning:
+                raise AssertionError("3D player claimed before world introduction continued")
+            page.locator("#world-intro-skip-world").check()
+            page.locator("#btn-world-intro-continue").click()
             page.wait_for_timeout(250)
             if len(CLAIM_STATE["methods"]) == claims_before_warning:
                 raise AssertionError(
