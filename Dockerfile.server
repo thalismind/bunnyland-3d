@@ -24,7 +24,7 @@ ENV UV_CACHE_DIR=/tmp/bunnyland-3d-uv-cache
 COPY server/tests ./tests
 
 ENTRYPOINT ["uv"]
-CMD ["run", "--project", "/app", "--with", "pytest", "-m", "pytest", "/plugin/bunnyland-3d/tests", "--junitxml=/reports/server.xml"]
+CMD ["run", "--no-sync", "--project", "/app", "--with", "pytest", "-m", "pytest", "/plugin/bunnyland-3d/tests", "--junitxml=/reports/server.xml"]
 
 FROM plugin AS runtime
 
