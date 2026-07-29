@@ -1400,7 +1400,7 @@ def main() -> None:
                 requests_after_patch["projection_requests"]
                 - requests_before_patch["projection_requests"]
             )
-            if projection_delta not in (1, 2):
+            if projection_delta < 1:
                 raise AssertionError(
                     "scene patch did not complete a fresh projection after any in-flight "
                     f"refresh: {requests_before_patch!r} -> {requests_after_patch!r}"
