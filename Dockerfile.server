@@ -8,15 +8,18 @@ WORKDIR /plugin/bunnyland-3d
 COPY server/pyproject.toml server/README.md ./
 COPY server/src ./src
 
+USER root
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /app/.venv/bin/python --no-deps "trimesh==4.12.2" && \
     uv build --wheel --out-dir /tmp/bunnyland-3d-dist . && \
-    uv pip install --python /app/.venv/bin/python --no-deps /tmp/bunnyland-3d-dist/*.whl
+    uv pip install --python /app/.venv/bin/python --no-deps /tmp/bunnyland-3d-dist/*.whl && \
+    mkdir -p /reports && \
+    chown 10001:10001 /reports
+USER 10001:10001
 
 FROM plugin AS test
 
 COPY server/tests ./tests
-RUN mkdir -p /reports
 
 ENTRYPOINT ["uv"]
 CMD ["run", "--project", "/app", "--with", "pytest", "-m", "pytest", "/plugin/bunnyland-3d/tests", "--junitxml=/reports/server.xml"]
