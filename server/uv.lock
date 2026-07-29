@@ -101,28 +101,28 @@ server = [
 requires-dist = [
     { name = "chromadb", marker = "extra == 'chroma'", specifier = ">=0.5" },
     { name = "discord-py", marker = "extra == 'discord'", specifier = ">=2.4" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.110" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = "==0.140.13" },
     { name = "httpx", marker = "extra == 'imagegen'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'repl'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'tui'", specifier = ">=0.27" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.10" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = "==1.28.1" },
     { name = "ollama", marker = "extra == 'llm'", specifier = ">=0.3" },
-    { name = "openrouter", marker = "extra == 'llm'", specifier = ">=0.9.1" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.27" },
-    { name = "opentelemetry-exporter-otlp", marker = "extra == 'otel'", specifier = ">=1.27" },
-    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'otel'", specifier = ">=0.48b0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.27" },
+    { name = "openrouter", marker = "extra == 'llm'", specifier = ">=0.9.1,<0.10" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.27,<1.43" },
+    { name = "opentelemetry-exporter-otlp", marker = "extra == 'otel'", specifier = ">=1.27,<1.43" },
+    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'otel'", specifier = ">=0.48b0,<0.64b0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.27,<1.43" },
     { name = "pillow", marker = "extra == 'imagegen'", specifier = ">=10" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "relics-ecs", specifier = ">=0.1.1,<0.2" },
-    { name = "textual", marker = "extra == 'repl'", specifier = ">=0.60" },
-    { name = "textual", marker = "extra == 'tui'", specifier = ">=0.60" },
+    { name = "textual", marker = "extra == 'repl'", specifier = "==8.2.8" },
+    { name = "textual", marker = "extra == 'tui'", specifier = "==8.2.8" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.27" },
-    { name = "websockets", marker = "extra == 'imagegen'", specifier = ">=12" },
-    { name = "websockets", marker = "extra == 'repl'", specifier = ">=12" },
-    { name = "websockets", marker = "extra == 'tui'", specifier = ">=12" },
+    { name = "websockets", marker = "extra == 'imagegen'", specifier = "==16.1.1" },
+    { name = "websockets", marker = "extra == 'repl'", specifier = "==16.1.1" },
+    { name = "websockets", marker = "extra == 'tui'", specifier = "==16.1.1" },
 ]
 provides-extras = ["chroma", "discord", "imagegen", "llm", "mcp", "otel", "server", "tui", "repl"]
 
@@ -252,7 +252,7 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.139.0"
+version = "0.140.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
@@ -261,9 +261,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d3/af/a5f50ccfa659ec1802cb4ca842c23f06d906a8cc9aef6016a2caeea3d4ed/fastapi-0.139.0.tar.gz", hash = "sha256:99ab7b2d92223c76d6cf10757ab3f89d45b38267fc20b2a136cf02f6beac3145", size = 423016, upload-time = "2026-07-01T16:35:33.436Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/cb/7a4d2c2eb5a5d8a91763c05b7383d72917862e32f780daa0e27ffbb34cc6/fastapi-0.140.13.tar.gz", hash = "sha256:500172a08cf1459901f90b05c37d93060dada3b573fec8f0862445db52ba6b4b", size = 424843, upload-time = "2026-07-28T15:37:00.805Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/7c/8e3c6ad324ea5cb36604fc3f968554887891c316d9dfde57761611d907ad/fastapi-0.139.0-py3-none-any.whl", hash = "sha256:cf15e1e9e667ddb0ad63811e60bd11390d1aac838ca4a7a23f421807b2308189", size = 130339, upload-time = "2026-07-01T16:35:32.19Z" },
+    { url = "https://files.pythonhosted.org/packages/84/4e/f9e8c762ef5e05c40482131e3d5e8b36bca13fa127578261f1d6b35a25d4/fastapi-0.140.13-py3-none-any.whl", hash = "sha256:8b017110e1e9f30a95e8bdb8f71fbe2f0fe3af5717109e5b14f9e069df54f6d4", size = 131222, upload-time = "2026-07-28T15:37:02.124Z" },
 ]
 
 [[package]]
