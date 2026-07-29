@@ -824,7 +824,6 @@ def patch_player_scene(page, patch):
             body: JSON.stringify(patch),
           });
           await window.__world3dPlayer.refresh();
-          await new Promise(resolve => setTimeout(resolve, 20));
           await window.__world3dPlayer.refresh();
         }""",
         patch,
@@ -1390,7 +1389,22 @@ def main() -> None:
                 raise AssertionError(f"identical refresh flashed asset progress: {refresh_progress!r}")
 
             original_effects = after_reconcile["entities"]["item:crate"]["registeredEffects"]
+            requests_before_patch = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
+            )
             patch_player_scene(page, {"effect_remaining": 4})
+            requests_after_patch = page.evaluate(
+                """async () => (await fetch('./mock/test-claim')).json()"""
+            )
+            projection_delta = (
+                requests_after_patch["projection_requests"]
+                - requests_before_patch["projection_requests"]
+            )
+            if projection_delta not in (1, 2):
+                raise AssertionError(
+                    "scene patch did not complete a fresh projection after any in-flight "
+                    f"refresh: {requests_before_patch!r} -> {requests_after_patch!r}"
+                )
             countdown_state = page.evaluate("window.__world3dPlayer.reconciliationState()")
             if countdown_state["entities"]["item:crate"]["registeredEffects"] != original_effects:
                 raise AssertionError("effect countdown refresh rebuilt particle or lightning buffers")
