@@ -223,7 +223,7 @@ export async function releaseController(base: string, characterId: string, contr
     }),
   });
   const next = controlFromResponse(
-    { ...(data as Record<string, unknown>), claim_secret: control.claimSecret },
+    data,
     characterId,
     { active: false },
   ) || { ...control, active: false };

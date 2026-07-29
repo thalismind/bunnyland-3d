@@ -9,9 +9,24 @@ permissions:
   packages: write
 
 jobs:
+  source-security:
+    name: Repository security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full 3D plugin history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Scan full history for exposed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
   package:
     name: Artifact on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    needs: source-security
     strategy:
       fail-fast: false
       matrix:
@@ -87,7 +102,21 @@ jobs:
           target: runtime
           pull: true
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/thalismind/bunnyland-3d-server:main
+          load: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+          tags: |
+            ghcr.io/thalismind/bunnyland-3d-server:main
+            ghcr.io/thalismind/bunnyland-3d-server:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - name: Scan exact server image
+        uses: anchore/scan-action@v7.4.0
+        with:
+          image: ghcr.io/thalismind/bunnyland-3d-server:${{ github.sha }}
+          output-format: table
+          fail-build: true
+          only-fixed: true
+          severity-cutoff: high
+          by-cve: true
 
   web:
     name: Web Client
@@ -162,4 +191,18 @@ jobs:
           file: Dockerfile.web
           target: runtime
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/thalismind/bunnyland-3d-web:main
+          load: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+          tags: |
+            ghcr.io/thalismind/bunnyland-3d-web:main
+            ghcr.io/thalismind/bunnyland-3d-web:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - name: Scan exact web image
+        uses: anchore/scan-action@v7.4.0
+        with:
+          image: ghcr.io/thalismind/bunnyland-3d-web:${{ github.sha }}
+          output-format: table
+          fail-build: true
+          only-fixed: true
+          severity-cutoff: high
+          by-cve: true

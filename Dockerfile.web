@@ -2,11 +2,12 @@
 
 ARG BUNNYLAND_WEB_IMAGE=ghcr.io/thalismind/bunnyland-web@sha256:da7e6837b1a0fb9ceed64e03f80ca8dc028e6664f155471eca0743a8fa109ec1
 
-FROM node:22-bookworm-slim AS build
+FROM node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS build
 
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
+RUN npm audit --audit-level=high
 
 COPY web/index.html web/admin.html web/player.html web/vite.config.ts web/tsconfig.json ./
 COPY web/src ./src
@@ -22,7 +23,7 @@ COPY web/test ./test
 RUN mkdir -p /reports
 CMD ["node", "--test", "--test-reporter=junit", "--test-reporter-destination=/reports/web.xml"]
 
-FROM mcr.microsoft.com/playwright/python:v1.56.0-noble AS browser-test
+FROM mcr.microsoft.com/playwright/python:v1.56.0-noble@sha256:a7f6cf3ae520c9d670ad956572c13747ed5abdbba5123a01526f873ed1662528 AS browser-test
 
 WORKDIR /app/web
 RUN python -m pip install --no-cache-dir playwright==1.56.0
