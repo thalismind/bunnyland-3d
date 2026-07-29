@@ -10,7 +10,10 @@ COPY scripts ./scripts
 RUN npm run build
 
 FROM nginx:1.30.4-trixie@sha256:5cf90903deda2c5981b8ad05e7617ac010e389f0dde0ac83487c02c509281de6
-RUN chown -R 101:101 /var/cache/nginx /var/run
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown -R 101:101 /var/cache/nginx /var/run
 COPY --from=build /app/web/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 USER 101:101

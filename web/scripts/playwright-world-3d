@@ -158,6 +158,7 @@ CLAIM_STATE = {
     "character_requests": 0,
     "event_requests": 0,
     "expired": False,
+    "paths": [],
     "projection_requests": 0,
     "room_requests": 0,
     "methods": [],
@@ -627,8 +628,21 @@ def route_api(page):
         "description": "Mind the foxes after dark.",
         "content_flags": ["adult:violence"],
     }))
+
+    def assert_browser_claim(route):
+        headers = route.request.all_headers()
+        if "x-bunnyland-claim-secret" in headers:
+            raise AssertionError(f"3D browser leaked a claim secret header: {route.request.url}")
+        if "bunnyland_claim=secret-1" not in headers.get("cookie", ""):
+            raise AssertionError(f"3D browser omitted its HttpOnly claim cookie: {route.request.url}")
+
     def claim_route(route):
+        path = urlparse(route.request.url).path
         CLAIM_STATE["methods"].append(route.request.method)
+        CLAIM_STATE["paths"].append(path)
+        is_create = path.endswith("/mock/play/claims")
+        if not is_create:
+            assert_browser_claim(route)
         if route.request.method == "DELETE":
             claim_release_route(route)
             return
@@ -639,12 +653,20 @@ def route_api(page):
         if route.request.method == "PATCH" and payload.get("kind") == "control":
             controller_release_route(route)
             return
-        if route.request.method == "PUT" and CLAIM_STATE["expired"]:
+        if path.endswith("/recover") and CLAIM_STATE["expired"]:
             route.fulfill(status=404, json={"detail": "claim does not exist"})
             return
-        if route.request.method == "POST":
+        if is_create:
+            if payload.get("delivery") != "cookie":
+                raise AssertionError(f"3D browser did not request cookie delivery: {payload!r}")
             CLAIM_STATE["expired"] = False
-        route.fulfill(status=200, headers={"X-Bunnyland-Claim-Secret": "secret-1"}, json={
+        cookie_path = f"{path.split('/play/claims', 1)[0]}/play"
+        route.fulfill(status=200, headers={
+            "Set-Cookie": (
+                f"bunnyland_claim=secret-1; Path={cookie_path}; "
+                "Secure; HttpOnly; SameSite=Strict"
+            ),
+        }, json={
             "id": "claim-1",
             "character_id": "character:ash",
             "controller_id": "controller:web",
@@ -657,6 +679,7 @@ def route_api(page):
     page.route("**/mock/play/claims", claim_route)
 
     def character_route(route):
+        assert_browser_claim(route)
         path = route.request.url.split("/mock/play/claims/", 1)[1].split("?", 1)[0]
         if path.endswith("/jobs"):
             RECENT_EVENTS.append({
@@ -675,9 +698,6 @@ def route_api(page):
             return
         if path.endswith("/events"):
             CLAIM_STATE["event_requests"] += 1
-            if route.request.headers.get("x-bunnyland-claim-secret") != "secret-1":
-                route.fulfill(status=403, json={"detail": "missing claim secret"})
-                return
             route.fulfill(status=200, json={"ok": True, "events": RECENT_EVENTS})
             return
         if "/commands/" in path and route.request.method == "DELETE":
@@ -727,7 +747,6 @@ def controller_release_route(route):
         "controller_id": "controller:web",
         "controller_generation": 4,
         "claim_id": "claim-1",
-        "claim_secret": "secret-1",
     })
 
 
@@ -922,6 +941,17 @@ def main() -> None:
             page = browser.new_page(viewport=VIEWPORT)
             requested_urls = []
             browser_errors = []
+            websocket_messages = []
+            websocket_open_states = []
+
+            def route_player_stream(websocket):
+                websocket_open_states.append({
+                    "methods": list(CLAIM_STATE["methods"]),
+                    "paths": list(CLAIM_STATE["paths"]),
+                })
+                websocket.on_message(lambda message: websocket_messages.append(message))
+
+            page.route_web_socket("**/mock/play/claims/**/stream", route_player_stream)
             page.on("request", lambda request: requested_urls.append(request.url))
             page.on(
                 "console",
@@ -1141,6 +1171,34 @@ def main() -> None:
                     f"claims={CLAIM_STATE['methods']!r}"
                 ) from error
             expect(page.locator("#connection-dialog")).not_to_be_visible()
+            page.wait_for_timeout(250)
+            if not websocket_open_states:
+                raise AssertionError("3D player did not initiate live updates after its claim")
+            first_open = websocket_open_states[0]
+            if (
+                first_open["methods"][-1:] != ["POST"]
+                or not first_open["paths"][-1].endswith("/mock/play/claims")
+            ):
+                raise AssertionError(
+                    "3D player opened its first WebSocket before cookie claim creation: "
+                    f"{first_open!r}"
+                )
+            sent_frames = [
+                json.loads(message)
+                for message in websocket_messages
+                if isinstance(message, str) and message.startswith("{")
+            ]
+            authenticate_frames = [
+                frame for frame in sent_frames if frame.get("type") == "authenticate"
+            ]
+            if (
+                not authenticate_frames
+                or not authenticate_frames[0].get("data", {}).get("client_id")
+                or "claim_secret" in authenticate_frames[0].get("data", {})
+            ):
+                raise AssertionError(
+                    f"3D player first WebSocket authentication frame was unsafe: {sent_frames!r}"
+                )
             selected_tabs = page.locator('[role="tab"][aria-selected="true"]')
             expect(selected_tabs).to_have_count(1)
             expect(selected_tabs).to_have_text("Actions")
@@ -1749,7 +1807,7 @@ def main() -> None:
                 """async () => fetch('./mock/test-claim', {
                   method: 'POST',
                   headers: {'content-type': 'application/json'},
-                  body: JSON.stringify({expired: true, methods: []}),
+                  body: JSON.stringify({expired: true, methods: [], paths: []}),
                 })"""
             )
             page.evaluate("window.__world3dPlayer.refresh()")
@@ -1780,7 +1838,10 @@ def main() -> None:
             reclaimed_state = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
-            if reclaimed_state["methods"][-1:] != ["POST"]:
+            if (
+                reclaimed_state["methods"][-1:] != ["POST"]
+                or not reclaimed_state["paths"][-1].endswith("/mock/play/claims")
+            ):
                 raise AssertionError(
                     f"expired claim was not replaced with a fresh POST: {reclaimed_state!r}"
                 )
@@ -1810,7 +1871,7 @@ def main() -> None:
                   await fetch('./mock/test-claim', {
                     method: 'POST',
                     headers: {'content-type': 'application/json'},
-                    body: JSON.stringify({expired: true, methods: []}),
+                    body: JSON.stringify({expired: true, methods: [], paths: []}),
                   });
                 }"""
             )
@@ -1821,7 +1882,13 @@ def main() -> None:
             resumed_state = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )
-            if resumed_state["methods"][:2] != ["PUT", "POST"]:
+            resume_paths = resumed_state["paths"][:2]
+            if (
+                resumed_state["methods"][:2] != ["POST", "POST"]
+                or len(resume_paths) != 2
+                or not resume_paths[0].endswith("/mock/play/claims/claim-expired/recover")
+                or not resume_paths[1].endswith("/mock/play/claims")
+            ):
                 raise AssertionError(
                     f"stale persisted claim did not retry with a fresh POST: {resumed_state!r}"
                 )
