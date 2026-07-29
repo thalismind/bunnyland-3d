@@ -19,6 +19,8 @@ USER 10001:10001
 
 FROM plugin AS test
 
+ENV UV_CACHE_DIR=/tmp/bunnyland-3d-uv-cache
+
 COPY server/tests ./tests
 
 ENTRYPOINT ["uv"]

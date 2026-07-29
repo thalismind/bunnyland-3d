@@ -82,7 +82,7 @@ jobs:
           tags: bunnyland-3d-server-test:ci
       - name: Run server tests
         run: |
-          mkdir -p .reports
+          sudo install -d -o 10001 -g 10001 -m 0755 .reports
           docker run --rm -v "${PWD}/.reports:/reports" bunnyland-3d-server-test:ci
       - name: Upload server test reports
         if: always()
