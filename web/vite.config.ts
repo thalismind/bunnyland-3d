@@ -33,6 +33,7 @@ export default defineConfig({
       },
     },
     outDir: 'dist',
-    sourcemap: true,
+    // Do not ship original sources to production browsers.
+    sourcemap: false,
   },
 });
