@@ -22,6 +22,7 @@ FROM plugin AS test
 ENV UV_CACHE_DIR=/tmp/bunnyland-3d-uv-cache
 
 COPY server/tests ./tests
+COPY scripts/check-grype-findings ./scripts/check-grype-findings
 
 ENTRYPOINT ["uv"]
 CMD ["run", "--no-sync", "--project", "/app", "--with", "pytest", "-m", "pytest", "/plugin/bunnyland-3d/tests", "--junitxml=/reports/server.xml"]

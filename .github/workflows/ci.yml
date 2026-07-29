@@ -22,6 +22,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
+      - name: Validate scanner exceptions
+        run: scripts/check-security-exceptions
 
   package:
     name: Artifact on Python ${{ matrix.python-version }}
@@ -112,11 +114,15 @@ jobs:
         uses: anchore/scan-action@v7.4.0
         with:
           image: ghcr.io/thalismind/bunnyland-3d-server:${{ github.sha }}
-          output-format: table
-          fail-build: true
-          only-fixed: true
+          output-format: json
+          output-file: bunnyland-3d-server.grype.json
+          fail-build: false
+          only-fixed: false
           severity-cutoff: high
           by-cve: true
+          config: .grype.yaml
+      - name: Fail on actionable server image findings
+        run: scripts/check-grype-findings bunnyland-3d-server.grype.json
 
   web:
     name: Web Client
