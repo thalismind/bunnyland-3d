@@ -502,6 +502,7 @@ def route_api(page):
         / "3d"
         / "prop-generic.gltf"
     )
+    binary_asset = prop_asset.with_name("bunnyland-3d.bin")
     prop_data = json.loads(prop_asset.read_text())
     hidden_node_index = len(prop_data["nodes"])
     hidden_mesh_index = len(prop_data["meshes"])
@@ -543,6 +544,10 @@ def route_api(page):
     page.route(
         "**/assets/3d/prop-delayed.glb",
         lambda route: (time.sleep(0.35), route.fulfill(path=prop_asset, content_type="model/gltf-binary")),
+    )
+    page.route(
+        "**/assets/3d/bunnyland-3d.bin",
+        lambda route: route.fulfill(path=binary_asset, content_type="application/octet-stream"),
     )
     page.route("**/mock/play/extensions/bunnyland.3d/3d/v2/capabilities", lambda route: route.fulfill(status=200, json={
         "ok": True,

@@ -298,7 +298,9 @@ const walkHead = accessor([0.06,-0.04,0.06,-0.04,0.06].flatMap(quatX), 5126, 'VE
 const binary = Buffer.concat(chunks);
 const common = {
   asset: { version: '2.0', generator: 'Bunnyland 3D repo asset generator' },
-  buffers: [{ byteLength: binary.length, uri: `data:application/octet-stream;base64,${binary.toString('base64')}` }],
+  // Keep geometry same-origin so the production `connect-src 'self'` policy can
+  // load it. GLTFLoader fetches embedded data URIs through connect-src.
+  buffers: [{ byteLength: binary.length, uri: 'bunnyland-3d.bin' }],
   bufferViews,
   accessors,
 };
@@ -413,6 +415,7 @@ lanternProp.extensionsUsed = ['KHR_materials_emissive_strength'];
 writeFileSync(resolve(output, 'avatar-leporid.gltf'), `${JSON.stringify(avatar, null, 2)}\n`);
 writeFileSync(resolve(output, 'prop-generic.gltf'), `${JSON.stringify(genericProp, null, 2)}\n`);
 writeFileSync(resolve(output, 'prop-lantern.gltf'), `${JSON.stringify(lanternProp, null, 2)}\n`);
+writeFileSync(resolve(output, 'bunnyland-3d.bin'), binary);
 writeFileSync(resolve(output, 'manifest.json'), `${JSON.stringify({
   schema_version: 1,
   assets: {

@@ -6,14 +6,16 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const assetUrl = new URL('../public/assets/3d/avatar-leporid.gltf', import.meta.url);
+const binaryUrl = new URL('../public/assets/3d/bunnyland-3d.bin', import.meta.url);
 const manifestUrl = new URL('../public/assets/3d/manifest.json', import.meta.url);
 const generatorUrl = new URL('../scripts/generate-3d-assets.mjs', import.meta.url);
 const execFileAsync = promisify(execFile);
+const assetBinary = await readFile(binaryUrl);
 
 function accessorValues(gltf, accessorIndex) {
   const accessor = gltf.accessors[accessorIndex];
   const view = gltf.bufferViews[accessor.bufferView];
-  const bytes = Buffer.from(gltf.buffers[0].uri.split(',')[1], 'base64');
+  const bytes = assetBinary;
   const offset = (view.byteOffset || 0) + (accessor.byteOffset || 0);
   const components = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
   const length = accessor.count * components[accessor.type];
@@ -106,8 +108,10 @@ test('bundled avatar manifest resolves an animated repo-owned glTF', async () =>
       + armRotations[index - 1] * armRotations[index + 3];
     assert.ok(dot > 0.98, 'walking arm keyframes stay in one close quaternion hemisphere');
   }
-  assert.match(gltf.buffers[0].uri, /^data:application\/octet-stream;base64,/);
+  assert.equal(gltf.buffers[0].uri, 'bunnyland-3d.bin');
   assert.doesNotMatch(gltfText, /https?:\/\//);
+  assert.doesNotMatch(gltfText, /data:/);
+  assert.equal((await stat(binaryUrl)).size, gltf.buffers[0].byteLength);
   assert.ok((await stat(fileURLToPath(assetUrl))).size < 500_000);
 });
 
@@ -138,12 +142,16 @@ test('bundled art generation is deterministic and props keep their visual parts'
     manifestUrl,
   ];
   const before = await Promise.all(paths.map(path => readFile(path, 'utf8')));
+  const binaryBefore = await readFile(binaryUrl);
   await execFileAsync(process.execPath, [fileURLToPath(generatorUrl)]);
   const after = await Promise.all(paths.map(path => readFile(path, 'utf8')));
   assert.deepEqual(after, before);
+  assert.deepEqual(await readFile(binaryUrl), binaryBefore);
 
   const crate = JSON.parse(after[1]);
   const lantern = JSON.parse(after[2]);
+  assert.equal(crate.buffers[0].uri, 'bunnyland-3d.bin');
+  assert.equal(lantern.buffers[0].uri, 'bunnyland-3d.bin');
   assert.ok(crate.nodes.some(node => node.name === 'Crate.Top'));
   assert.ok(crate.nodes.filter(node => node.name?.startsWith('Crate.Band.')).length === 2);
   assert.ok(lantern.nodes.some(node => node.name === 'Lantern.Cap'));
