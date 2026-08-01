@@ -165,6 +165,13 @@ CLAIM_STATE = {
     "room_requests": 0,
     "methods": [],
 }
+PUBLIC_WORLD = {
+    "world_id": "mock-world",
+    "world_epoch": 21,
+    "title": "Clover City",
+    "description": "Mind the foxes after dark.",
+    "content_flags": ["adult:violence"],
+}
 SCENE_STATE = {
     "crate_x": 12,
     "effect_remaining": -1,
@@ -628,13 +635,10 @@ def route_api(page):
         })
 
     page.route("**/mock/play/characters", characters_route)
-    page.route("**/mock/public/world", lambda route: route.fulfill(status=200, json={
-        "world_id": "mock-world",
-        "world_epoch": 21,
-        "title": "Clover City",
-        "description": "Mind the foxes after dark.",
-        "content_flags": ["adult:violence"],
-    }))
+    page.route(
+        "**/mock/public/world",
+        lambda route: route.fulfill(status=200, json=PUBLIC_WORLD),
+    )
 
     def assert_browser_claim(route):
         headers = route.request.all_headers()
@@ -1911,6 +1915,22 @@ def main() -> None:
                 raise AssertionError(
                     f"stale persisted claim did not retry with a fresh POST: {resumed_state!r}"
                 )
+
+            PUBLIC_WORLD.update(
+                title="  ",
+                description="\n",
+                content_flags=[],
+            )
+            page.evaluate("localStorage.clear()")
+            page.goto(f"{base_url}/player.html?server={base_url}/mock", wait_until="networkidle")
+            page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
+            claims_before_empty_world = len(CLAIM_STATE["methods"])
+            page.locator("#character-select").select_option("character:ash")
+            expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
+            expect(page.locator("#content-warning-dialog")).not_to_be_visible()
+            expect(page.locator("#world-intro-dialog")).not_to_be_visible()
+            if len(CLAIM_STATE["methods"]) == claims_before_empty_world:
+                raise AssertionError("3D player did not claim an unadorned world immediately")
 
             page.unroute("**/mock/play/extensions/bunnyland.3d/3d/v2/capabilities")
             page.route(

@@ -6,6 +6,7 @@ import type { ActionFormField } from './action-form-overlay';
 import { reportPlayerCanvasProgress } from './canvas-progress';
 import {
   fetchPublicWorld,
+  hasWorldIntroduction,
   ignoredContentFlags,
   rememberIgnoredContentFlags,
   rememberWorldIntroSkip,
@@ -898,7 +899,11 @@ async function requireContentWarning(base: string): Promise<boolean> {
   pendingContentSignature = signature;
   if (!visible.length || warningAccepted) {
     acceptedContentFlags.set(scope, signature);
-    if (introducedWorlds.has(scope) || shouldSkipWorldIntro(base, world.worldId)) {
+    if (
+      !hasWorldIntroduction(world)
+      || introducedWorlds.has(scope)
+      || shouldSkipWorldIntro(base, world.worldId)
+    ) {
       clearPendingContentGate();
       return true;
     }
@@ -936,7 +941,8 @@ function settleContentWarning(accepted: boolean): void {
     pendingContentFlags = [];
     if (contentWarningDialog.open) contentWarningDialog.close();
     if (
-      !introducedWorlds.has(scope)
+      hasWorldIntroduction(world)
+      && !introducedWorlds.has(scope)
       && !shouldSkipWorldIntro(pendingContentBase, world.worldId)
     ) {
       showWorldIntro(world);

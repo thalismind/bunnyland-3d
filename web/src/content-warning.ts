@@ -65,6 +65,10 @@ export async function fetchContentFlags(base: string): Promise<string[]> {
   return (await fetchPublicWorld(base)).contentFlags;
 }
 
+export function hasWorldIntroduction(world: PublicWorldResource): boolean {
+  return Boolean(world.title.trim() || world.description.trim());
+}
+
 export function ignoredContentFlags(): string[] {
   try { return normalizeContentFlags(JSON.parse(localStorage.getItem(IGNORED_CONTENT_FLAGS_KEY) || '[]'));
   } catch { return []; }
