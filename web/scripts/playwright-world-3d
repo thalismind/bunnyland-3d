@@ -945,7 +945,8 @@ def main() -> None:
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page(viewport=VIEWPORT)
+            context = browser.new_context(bypass_csp=True, viewport=VIEWPORT)
+            page = context.new_page()
             requested_urls = []
             browser_errors = []
             websocket_messages = []
