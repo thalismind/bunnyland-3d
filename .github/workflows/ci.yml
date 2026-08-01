@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
@@ -61,6 +63,10 @@ jobs:
     name: Server Plugin
     runs-on: ubuntu-latest
     needs: package
+    outputs:
+      base-digest: ${{ steps.server-base.outputs.digest }}
+      base-sha: ${{ steps.server-base.outputs.sha }}
+      digest: ${{ steps.server-build.outputs.digest }}
     steps:
       - name: Checkout 3D plugin
         uses: actions/checkout@v6
@@ -72,6 +78,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve immutable server base
+        id: server-base
+        run: |
+          image=$(sed -n 's/^ARG BUNNYLAND_SERVER_IMAGE=//p' Dockerfile.server)
+          [[ "$image" =~ ^ghcr.io/thalismind/bunnyland-server@sha256:[0-9a-f]{64}$ ]]
+          test "$(printf '%s\n' "$image" | wc -l)" -eq 1
+          docker pull "$image"
+          source_sha=$(docker image inspect "$image" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "digest=${image##*@}" >> "$GITHUB_OUTPUT"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
       - name: Build server test image
         uses: docker/build-push-action@v7
         with:
@@ -97,6 +115,7 @@ jobs:
         if: always()
         run: python3 scripts/junit-summary .reports
       - name: Build server image
+        id: server-build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -108,6 +127,7 @@ jobs:
           tags: |
             ghcr.io/thalismind/bunnyland-3d-server:main
             ghcr.io/thalismind/bunnyland-3d-server:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           provenance: mode=max
           sbom: true
       - name: Scan exact server image
@@ -128,6 +148,10 @@ jobs:
     name: Web Client
     runs-on: ubuntu-latest
     needs: package
+    outputs:
+      base-digest: ${{ steps.web-base.outputs.digest }}
+      base-sha: ${{ steps.web-base.outputs.sha }}
+      digest: ${{ steps.web-build.outputs.digest }}
     steps:
       - name: Checkout 3D plugin
         uses: actions/checkout@v6
@@ -139,6 +163,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve immutable web base
+        id: web-base
+        run: |
+          image=$(sed -n 's/^ARG BUNNYLAND_WEB_IMAGE=//p' Dockerfile.web)
+          [[ "$image" =~ ^ghcr.io/thalismind/bunnyland-web@sha256:[0-9a-f]{64}$ ]]
+          test "$(printf '%s\n' "$image" | wc -l)" -eq 1
+          docker pull "$image"
+          source_sha=$(docker image inspect "$image" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "digest=${image##*@}" >> "$GITHUB_OUTPUT"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
       - name: Build web test image
         uses: docker/build-push-action@v7
         with:
@@ -191,6 +227,7 @@ jobs:
         if: always()
         run: python3 scripts/junit-summary .reports
       - name: Build web image
+        id: web-build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -201,6 +238,7 @@ jobs:
           tags: |
             ghcr.io/thalismind/bunnyland-3d-web:main
             ghcr.io/thalismind/bunnyland-3d-web:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           provenance: mode=max
           sbom: true
       - name: Scan exact web image
@@ -212,3 +250,55 @@ jobs:
           only-fixed: true
           severity-cutoff: high
           by-cve: true
+
+  dispatch-vps-promotion:
+    name: Request sandbox pin promotion
+    runs-on: ubuntu-latest
+    needs:
+      - server
+      - web
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Dispatch exact source and image hashes to VPS
+        env:
+          GH_TOKEN: ${{ secrets.BUNNYLAND_VPS_PROMOTION_TOKEN }}
+          SERVER_BASE_DIGEST: ${{ needs.server.outputs.base-digest }}
+          SERVER_BASE_SHA: ${{ needs.server.outputs.base-sha }}
+          SERVER_DIGEST: ${{ needs.server.outputs.digest }}
+          WEB_BASE_DIGEST: ${{ needs.web.outputs.base-digest }}
+          WEB_BASE_SHA: ${{ needs.web.outputs.base-sha }}
+          WEB_DIGEST: ${{ needs.web.outputs.digest }}
+        run: |
+          test -n "$GH_TOKEN"
+          [[ "$SERVER_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$WEB_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SERVER_BASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$WEB_BASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SERVER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$WEB_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          jq -n \
+            --arg source_ref "$GITHUB_REF" \
+            --arg three_d_sha "$GITHUB_SHA" \
+            --arg server_sha "$SERVER_BASE_SHA" \
+            --arg server_base_digest "$SERVER_BASE_DIGEST" \
+            --arg server_digest "$SERVER_DIGEST" \
+            --arg web_sha "$WEB_BASE_SHA" \
+            --arg web_base_digest "$WEB_BASE_DIGEST" \
+            --arg web_digest "$WEB_DIGEST" \
+            '{
+              event_type: "promote-sandbox",
+              client_payload: {
+                source_ref: $source_ref,
+                three_d_sha: $three_d_sha,
+                server_sha: $server_sha,
+                server_base_digest: $server_base_digest,
+                server_digest: $server_digest,
+                web_sha: $web_sha,
+                web_base_digest: $web_base_digest,
+                web_digest: $web_digest
+              }
+            }' |
+            gh api --method POST repos/thalismind/bunnyland-vps/dispatches --input -

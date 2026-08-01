@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Update one immutable upstream base image for an automated promotion PR."""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_SHA = re.compile(r"[0-9a-f]{40}")
+IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+BASES = {
+    "server": (
+        ROOT / "Dockerfile.server",
+        "BUNNYLAND_SERVER_IMAGE",
+        "ghcr.io/thalismind/bunnyland-server",
+    ),
+    "web": (
+        ROOT / "Dockerfile.web",
+        "BUNNYLAND_WEB_IMAGE",
+        "ghcr.io/thalismind/bunnyland-web",
+    ),
+}
+
+
+def promote(kind: str, source_sha: str, digest: str) -> bool:
+    try:
+        path, variable, repository = BASES[kind]
+    except KeyError as error:
+        raise ValueError("kind must be server or web") from error
+    if SOURCE_SHA.fullmatch(source_sha) is None:
+        raise ValueError("source SHA must be 40 lowercase hexadecimal characters")
+    if IMAGE_DIGEST.fullmatch(digest) is None:
+        raise ValueError("digest must be a sha256 value")
+    image = f"{repository}@{digest}"
+
+    text = path.read_text(encoding="utf-8")
+    pattern = re.compile(rf"(?m)^ARG {re.escape(variable)}=\S+$")
+    matches = pattern.findall(text)
+    if len(matches) != 1:
+        raise ValueError(f"{path.name} must declare {variable} exactly once")
+    replacement = f"ARG {variable}={image}"
+    updated = pattern.sub(replacement, text)
+    if updated == text:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def main() -> None:
+    if len(sys.argv) != 4:
+        raise SystemExit(
+            "usage: scripts/promote-base-image [server|web] SOURCE_SHA SHA256_DIGEST"
+        )
+    try:
+        changed = promote(sys.argv[1], sys.argv[2], sys.argv[3])
+    except ValueError as error:
+        raise SystemExit(f"error: {error}") from error
+    print("updated" if changed else "already pinned")
+
+
+if __name__ == "__main__":
+    main()
