@@ -1,0 +1,121 @@
+name: Promote upstream base image
+
+on:
+  repository_dispatch:
+    types:
+      - promote-server
+      - promote-web
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-base-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Validate and promote immutable base
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 120
+
+    steps:
+      - name: Validate dispatch payload and published image
+        env:
+          PROMOTION_KIND: ${{ github.event.action }}
+          SOURCE_REPO: ${{ github.event.client_payload.source_repo }}
+          SOURCE_REF: ${{ github.event.client_payload.source_ref }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_sha }}
+          SOURCE_DIGEST: ${{ github.event.client_payload.digest }}
+        run: |
+          case "$PROMOTION_KIND" in
+            promote-server)
+              expected_repo=thalismind/bunnyland-server
+              expected_image=ghcr.io/thalismind/bunnyland-server
+              ;;
+            promote-web)
+              expected_repo=thalismind/bunnyland-web
+              expected_image=ghcr.io/thalismind/bunnyland-web
+              ;;
+            *)
+              echo "unexpected promotion kind: $PROMOTION_KIND" >&2
+              exit 2
+              ;;
+          esac
+          test "$SOURCE_REPO" = "$expected_repo"
+          test "$SOURCE_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          source_image="${expected_image}@${SOURCE_DIGEST}"
+
+          main_sha=$(curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${SOURCE_REPO}/commits/main" |
+            jq -r .sha)
+          test "$main_sha" = "$SOURCE_SHA"
+
+          docker pull "$source_image"
+          image_sha=$(docker image inspect "$source_image" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+          test "$image_sha" = "$SOURCE_SHA"
+
+      - name: Check out destination main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BUNNYLAND_3D_PROMOTION_TOKEN }}
+
+      - name: Open tested promotion PR and merge after checks pass
+        env:
+          GH_TOKEN: ${{ secrets.BUNNYLAND_3D_PROMOTION_TOKEN }}
+          PROMOTION_KIND: ${{ github.event.action }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_sha }}
+          SOURCE_DIGEST: ${{ github.event.client_payload.digest }}
+        run: |
+          test -n "$GH_TOKEN"
+          kind=${PROMOTION_KIND#promote-}
+          scripts/promote-base-image "$kind" "$SOURCE_SHA" "$SOURCE_DIGEST"
+          if git diff --quiet; then
+            echo "$kind base is already pinned to $SOURCE_DIGEST"
+            exit 0
+          fi
+
+          expected_file=Dockerfile.$kind
+          test "$(git diff --name-only)" = "$expected_file"
+          branch=automation/promote-${kind}-${SOURCE_SHA:0:12}
+          git config user.name bunnyland-release
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git switch -c "$branch"
+          git add "$expected_file"
+          git commit -m "Pin ${kind} base ${SOURCE_SHA:0:12}"
+          git push origin "HEAD:refs/heads/$branch"
+
+          pr_url=$(gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Pin ${kind} base ${SOURCE_SHA:0:12}" \
+            --body "Automated immutable-base promotion from \`${SOURCE_SHA}\`. The destination CI must pass before this PR is merged.")
+
+          checks_found=false
+          for attempt in $(seq 1 30); do
+            gh pr checks "$pr_url" --json name \
+              >"$RUNNER_TEMP/promotion-checks.json" 2>/dev/null || true
+            if jq -e 'length > 0' "$RUNNER_TEMP/promotion-checks.json" >/dev/null; then
+              checks_found=true
+              break
+            fi
+            sleep 10
+          done
+          test "$checks_found" = true
+          checked_head=$(gh pr view "$pr_url" --json headRefOid --jq .headRefOid)
+          checked_base=$(gh pr view "$pr_url" --json baseRefOid --jq .baseRefOid)
+          gh pr checks "$pr_url" --watch --fail-fast --interval 20
+          test "$(gh pr view "$pr_url" --json headRefOid --jq .headRefOid)" = "$checked_head"
+          test "$(gh pr view "$pr_url" --json baseRefOid --jq .baseRefOid)" = "$checked_base"
+          test "$(gh pr view "$pr_url" --json files --jq '.files[].path')" = "$expected_file"
+          gh pr merge "$pr_url" --squash --delete-branch \
+            --match-head-commit "$checked_head" \
+            --subject "Pin ${kind} base ${SOURCE_SHA:0:12}"
