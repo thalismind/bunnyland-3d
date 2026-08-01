@@ -567,7 +567,7 @@ export class PlayerScene {
     else this.keys.delete(code);
   }
 
-  adjustZoom(direction: -1 | 1): void {
+  adjustZoom(direction: number): void {
     this.cameraRadius = THREE.MathUtils.clamp(this.cameraRadius + direction * 0.45, 2.7, 8.5);
     this.requestFrame();
   }
@@ -3287,7 +3287,6 @@ export class PlayerScene {
 
   private onPointerDown = (event: PointerEvent): void => {
     if (event.pointerType === 'touch') {
-      event.preventDefault();
       this.touchPointers.set(event.pointerId, new THREE.Vector2(event.clientX, event.clientY));
       if (this.touchPointers.size >= 2) {
         const [first, second] = [...this.touchPointers.values()];
@@ -3310,7 +3309,6 @@ export class PlayerScene {
 
   private onPointerMove = (event: PointerEvent): void => {
     if (event.pointerType === 'touch' && this.touchPointers.has(event.pointerId)) {
-      event.preventDefault();
       this.touchPointers.set(event.pointerId, new THREE.Vector2(event.clientX, event.clientY));
       if (this.touchPointers.size >= 2) {
         const [first, second] = [...this.touchPointers.values()];
@@ -3394,6 +3392,6 @@ export class PlayerScene {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    this.adjustZoom(Math.sign(event.deltaY) < 0 ? -1 : 1);
+    this.adjustZoom(Math.sign(event.deltaY));
   };
 }

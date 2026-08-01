@@ -16,7 +16,7 @@ test('coarse-pointer movement and zoom controls have accessible names', () => {
   assert.match(playerPage, /@media \(pointer: coarse\)[\s\S]*#touch-controls/);
   assert.match(controller, /setVirtualMovement\(code, true\)/);
   assert.match(controller, /setVirtualMovement\(code, false\)/);
-  assert.match(controller, /adjustZoom\(button\.dataset\.zoom === 'in' \? -1 : 1\)/);
+  assert.match(controller, /adjustZoom\(Number\(button\.dataset\.zoom\)\)/);
 });
 
 test('the renderer supports touch orbit, pinch zoom, and system appearance preferences', () => {

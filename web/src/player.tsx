@@ -172,8 +172,8 @@ function PlayerShell() {
           <button type="button" data-move-code="KeyD" aria-label="Move right">→</button>
         </div>
         <div id="touch-zoom" aria-label="Camera zoom">
-          <button type="button" data-zoom="in" aria-label="Zoom in">＋</button>
-          <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+          <button type="button" data-zoom="-1" aria-label="Zoom in">＋</button>
+          <button type="button" data-zoom="1" aria-label="Zoom out">−</button>
         </div>
       </div>
       <div id="exit-prompt" class="hidden" aria-live="polite">
