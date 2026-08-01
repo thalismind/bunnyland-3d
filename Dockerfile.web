@@ -9,7 +9,7 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci
 RUN npm audit --audit-level=high
 
-COPY web/index.html web/admin.html web/player.html web/vite.config.ts web/tsconfig.json ./
+COPY web/index.html web/admin.html web/player.html web/nginx.conf web/vite.config.ts web/tsconfig.json ./
 COPY web/src ./src
 COPY web/public ./public
 COPY web/scripts ./scripts
