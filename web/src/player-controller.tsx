@@ -79,6 +79,7 @@ const claimButton = document.getElementById('btn-claim') as HTMLButtonElement;
 const requestImageButton = document.getElementById('btn-request-image') as HTMLButtonElement;
 const openSheetButton = document.getElementById('btn-open-sheet') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLElement;
+const announcerEl = document.getElementById('player-announcer') as HTMLElement;
 const portraitFrameEl = document.getElementById('portrait-frame') as HTMLElement;
 const characterNameEl = document.getElementById('character-name') as HTMLElement;
 const characterInfoEl = document.getElementById('character-info') as HTMLElement;
@@ -120,6 +121,8 @@ const emptyStateEl = document.getElementById('empty-state') as HTMLElement;
 const emptyStateTitleEl = document.getElementById('empty-state-title') as HTMLElement;
 const emptyStateDetailEl = document.getElementById('empty-state-detail') as HTMLElement;
 const controlHintEl = document.getElementById('control-hint') as HTMLElement;
+const movementButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-move-code]')];
+const zoomButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-zoom]')];
 const claimDialog = document.getElementById('claim-dialog') as HTMLDialogElement;
 const claimFallbackEl = document.getElementById('claim-fallback') as HTMLSelectElement;
 const claimFallbackControllerEl = document.getElementById('claim-fallback-controller') as HTMLInputElement;
@@ -216,6 +219,7 @@ scene.setEffectLevel(initialEffectLevel);
 function status(text: string, cls = ''): void {
   statusEl.textContent = text;
   statusEl.className = cls;
+  announcerEl.textContent = text;
 }
 
 function openConnectionDialog(): void {
@@ -426,7 +430,7 @@ function stopLobbyPolling(): void {
 
 function startLobbyPolling(): void {
   stopLobbyPolling();
-  if (!baseUrl || playerId) return;
+  if (!baseUrl || playerId || document.hidden) return;
   const generation = ++lobbyGeneration;
   const requestBase = baseUrl;
   const poll = (): Promise<void> => {
@@ -1043,7 +1047,7 @@ function ActionFormOverlay({ action, fields, initialTarget, onClose }: {
   initialTarget: string;
   onClose: (value: Record<string, unknown> | null) => void;
 }) {
-  const formRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [error, setError] = useState('');
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(
     fields.map(field => [
@@ -1067,18 +1071,20 @@ function ActionFormOverlay({ action, fields, initialTarget, onClose }: {
     }
     onClose(payload);
   }, [fields, onClose, values]);
-  useLayoutEffect(() => formRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>('[data-field]')?.focus(), []);
-  return <div
-    id="action-form-backdrop"
-    onClick={event => { if (event.currentTarget === event.target) onClose(null); }}
-    onKeyDown={event => {
-      if (event.key === 'Escape') onClose(null);
-      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) submit();
-    }}
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+  }, []);
+  return <dialog
+    id="action-form-dialog"
+    ref={dialogRef}
+    aria-labelledby="action-form-title"
+    onCancel={() => onClose(null)}
   >
-    <div class="action-form-card">
-      <h2>{actionTitle(action)}</h2>
-      <div class="form-body" ref={formRef}>
+    <form method="dialog" class="action-form-card" onSubmit={event => { event.preventDefault(); submit(); }}>
+      <h2 id="action-form-title">{actionTitle(action)}</h2>
+      <div class="form-body">
         {fields.map((field, index) => <label class="form-field" key={field.key}>
           <span>{field.label}{field.required ? ' *' : ''}</span>
           {field.candidates ? <select
@@ -1101,24 +1107,26 @@ function ActionFormOverlay({ action, fields, initialTarget, onClose }: {
             onInput={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
           />}
         </label>)}
-        <div class="form-error">{error}</div>
+        <div class="form-error" role="alert">{error}</div>
       </div>
       <div class="form-actions">
         <button type="button" data-form-cancel onClick={() => onClose(null)}>Cancel</button>
-        <button type="button" data-form-submit onClick={submit}>Submit</button>
+        <button type="submit" data-form-submit>Submit</button>
       </div>
-    </div>
-  </div>;
+    </form>
+  </dialog>;
 }
 
 function actionForm(action: ActionView, fields: ActionFormField[]): Promise<Record<string, unknown> | null> {
   return new Promise(resolve => {
     scene.setEnabled(false);
+    const previousFocus = document.activeElement as HTMLElement | null;
     const backdrop = document.createElement('div');
     const close = (value: Record<string, unknown> | null): void => {
       renderView(null, backdrop);
       backdrop.remove();
       scene.setEnabled(true);
+      previousFocus?.focus();
       resolve(value);
     };
     document.body.appendChild(backdrop);
@@ -1399,6 +1407,20 @@ photoLightbox.addEventListener('click', event => {
 lightboxCloseButton.addEventListener('click', closeLightbox);
 lightboxDownloadButton.addEventListener('click', downloadActivePhoto);
 captureButton.addEventListener('click', captureToGallery);
+for (const button of movementButtons) {
+  const code = button.dataset.moveCode as 'KeyA' | 'KeyD' | 'KeyS' | 'KeyW';
+  const stop = (): void => scene.setVirtualMovement(code, false);
+  button.addEventListener('pointerdown', event => {
+    button.setPointerCapture(event.pointerId);
+    scene.setVirtualMovement(code, true);
+  });
+  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    button.addEventListener(eventName, stop);
+  }
+}
+for (const button of zoomButtons) {
+  button.addEventListener('click', () => scene.adjustZoom(button.dataset.zoom === 'in' ? -1 : 1));
+}
 hudButton.addEventListener('click', () => {
   const closed = sideEl.classList.toggle('closed');
   hudButton.setAttribute('aria-expanded', String(!closed));
@@ -1426,9 +1448,29 @@ document.addEventListener('keydown', event => {
     void confirmNearbyExit();
   }
 });
-const tickCountdownTimer = window.setInterval(updateTickCountdown, 1000);
+let tickCountdownTimer = 0;
+const scheduleTickCountdown = (): void => {
+  window.clearTimeout(tickCountdownTimer);
+  if (document.hidden) return;
+  tickCountdownTimer = window.setTimeout(() => {
+    updateTickCountdown();
+    scheduleTickCountdown();
+  }, 1000 - Date.now() % 1000);
+};
+const onVisibilityChange = (): void => {
+  scheduleTickCountdown();
+  if (document.hidden) {
+    stopLobbyPolling();
+    return;
+  }
+  updateTickCountdown();
+  if (playerId) void refresh();
+  else startLobbyPolling();
+};
+document.addEventListener('visibilitychange', onVisibilityChange);
+scheduleTickCountdown();
 window.addEventListener('beforeunload', () => {
-  window.clearInterval(tickCountdownTimer);
+  window.clearTimeout(tickCountdownTimer);
   stopPlayerUpdates();
   stopLobbyPolling();
 });

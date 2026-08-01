@@ -14,6 +14,14 @@ function oneChunk(prefix) {
   return matches[0];
 }
 
+function oneChunkMatching(label, pattern) {
+  const matches = javascript.filter(file => pattern.test(file));
+  if (matches.length !== 1) {
+    throw new Error(`expected one ${label} chunk, found ${matches.length}`);
+  }
+  return matches[0];
+}
+
 async function sizes(file) {
   const source = await readFile(new URL(file, assetsUrl));
   return { raw: source.length, brotli: brotliCompressSync(source).length };
@@ -29,10 +37,18 @@ const threeFile = oneChunk('three.module-');
 const playerFile = oneChunk('player-controller-');
 const gltfFile = oneChunk('gltf-assets-');
 const boundaryFile = oneChunk('outdoor-boundary-');
+const entryFile = oneChunkMatching('player entry', /^player-(?!controller-).*\.js$/);
+const postEffectsFile = oneChunk('post-effects-');
+const preactFile = oneChunk('preact-');
+const preloadFile = oneChunk('preload-helper-');
 const three = await sizes(threeFile);
 const player = await sizes(playerFile);
 const gltf = await sizes(gltfFile);
 const boundary = await sizes(boundaryFile);
+const entry = await sizes(entryFile);
+const postEffects = await sizes(postEffectsFile);
+const preact = await sizes(preactFile);
+const preload = await sizes(preloadFile);
 
 within(threeFile, three.raw, 580_000, 'raw');
 within(threeFile, three.brotli, 120_000, 'Brotli');
@@ -45,6 +61,13 @@ within(
   170_000,
   'Brotli',
 );
+within(
+  'complete initial player renderer JavaScript',
+  three.brotli + player.brotli + gltf.brotli + boundary.brotli
+    + entry.brotli + postEffects.brotli + preact.brotli + preload.brotli,
+  180 * 1024,
+  'Brotli',
+);
 
 const indexHtml = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
 if (indexHtml.includes(threeFile) || indexHtml.includes(gltfFile)) {
@@ -52,5 +75,5 @@ if (indexHtml.includes(threeFile) || indexHtml.includes(gltfFile)) {
 }
 
 console.log(
-  `bundle budgets: three ${three.brotli} B br, player ${player.brotli} B br, glTF ${gltf.brotli} B br, boundary ${boundary.brotli} B br`,
+  `bundle budgets: complete player renderer ${three.brotli + player.brotli + gltf.brotli + boundary.brotli + entry.brotli + postEffects.brotli + preact.brotli + preload.brotli} B br; three ${three.brotli} B br, player ${player.brotli} B br, glTF ${gltf.brotli} B br, boundary ${boundary.brotli} B br`,
 );

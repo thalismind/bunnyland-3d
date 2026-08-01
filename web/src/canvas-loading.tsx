@@ -16,8 +16,8 @@ export function CanvasLoading({
   const percent = determinate ? Math.min(100, Math.max(0, loaded / total * 100)) : 0;
   return <div
     class={`canvas-loading${failed ? ' failed' : ''}`}
-    role="status"
-    aria-live="polite"
+    role={failed ? 'alert' : 'status'}
+    aria-live={failed ? 'assertive' : 'polite'}
     aria-atomic="true"
   >
     {!failed && <span class="canvas-loading-spinner" aria-hidden="true"></span>}

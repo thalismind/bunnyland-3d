@@ -116,7 +116,7 @@ export interface PlayerSceneView {
   entities: RoomRenderEntity[];
 }
 
-export interface ThreeDCapabilities {
+export interface Capabilities3D {
   ok: boolean;
   plugin_id: string;
   plugin_version: string;
@@ -147,8 +147,8 @@ export interface ServerAssetManifest {
   assets: Record<string, ServerModelAsset>;
 }
 
-export async function fetch3dCapabilities(base: string): Promise<ThreeDCapabilities> {
-  const data = await sendJson(base, '/play/extensions/bunnyland.3d/3d/v2/capabilities') as ThreeDCapabilities;
+export async function fetch3dCapabilities(base: string): Promise<Capabilities3D> {
+  const data = await sendJson(base, '/play/extensions/bunnyland.3d/3d/v2/capabilities') as Capabilities3D;
   if (data.plugin_id !== 'bunnyland.3d' || Number(data.scene_schema_version) !== 4) {
     throw new Error('Bunnyland 3D scene schema v4 is required');
   }

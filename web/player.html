@@ -48,6 +48,7 @@
       }
       #viewer { position: absolute; inset: 0; min-width: 0; min-height: 0; }
       #viewer canvas { display: block; width: 100%; height: 100%; }
+      #viewer canvas { touch-action: none; }
       #side {
         position: absolute;
         z-index: 20;
@@ -87,9 +88,11 @@
       .panel-tabs button[aria-selected="true"] {
         border-color: var(--bl-accent);
         background: var(--bl-surface-hover);
-        color: var(--bl-accent-strong);
+        color: var(--bl-text);
+        font-weight: 700;
         box-shadow: inset 0 -2px 0 var(--bl-accent);
       }
+      #hud-next-tick { color: var(--bl-text-soft); }
       [role="tabpanel"][hidden] { display: none; }
       #scene-summary {
         position: absolute;
@@ -135,6 +138,27 @@
         pointer-events: none;
       }
       #control-hint.hidden { display: none; }
+      #touch-controls {
+        position: absolute;
+        z-index: 18;
+        inset: auto auto 14px 14px;
+        display: none;
+        align-items: end;
+        gap: 12px;
+      }
+      #movement-pad {
+        display: grid;
+        grid-template-columns: repeat(3, 48px);
+        grid-template-rows: repeat(2, 48px);
+        gap: 5px;
+      }
+      #movement-pad button { min-width: 48px; min-height: 48px; font-size: 22px; touch-action: none; }
+      #movement-pad button[data-move-code="KeyW"] { grid-column: 2; grid-row: 1; }
+      #movement-pad button[data-move-code="KeyA"] { grid-column: 1; grid-row: 2; }
+      #movement-pad button[data-move-code="KeyS"] { grid-column: 2; grid-row: 2; }
+      #movement-pad button[data-move-code="KeyD"] { grid-column: 3; grid-row: 2; }
+      #touch-zoom { display: grid; gap: 5px; }
+      #touch-zoom button { min-width: 48px; min-height: 48px; font-size: 20px; }
       #exit-prompt {
         position: absolute;
         z-index: 15;
@@ -189,7 +213,7 @@
       .panel:last-child { border-bottom: 0; }
       .panel h2 { margin: 0 0 8px; font-size: 18px; }
       .muted { color: var(--bl-text-soft); font-size: var(--bl-text-sm); }
-      #status.ok { color: var(--bl-ok); }
+      body #status.ok { color: var(--bl-text); font-weight: 700; }
       #status.err { color: var(--bl-error); }
       #target-line, #action-tools {
         display: flex;
@@ -443,14 +467,18 @@
         font-size: var(--bl-text-xs);
         text-transform: uppercase;
       }
-      #action-form-backdrop {
+      #action-form-dialog {
         position: fixed;
         inset: 0;
         z-index: 10001;
-        display: grid;
-        place-items: center;
-        background: var(--bl-overlay);
+        width: min(404px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+        padding: 12px;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
       }
+      #action-form-dialog::backdrop { background: var(--bl-overlay); }
       .action-form-card {
         width: min(380px, calc(100vw - 24px));
         border: 1px solid var(--bl-border-control);
@@ -510,12 +538,20 @@
         #side { inset: 8px 8px 8px auto; width: min(360px, calc(100% - 16px)); }
         #control-hint { display: none; }
       }
+      @media (pointer: coarse) {
+        #touch-controls { display: flex; }
+        #control-hint { display: none; }
+        #exit-prompt { bottom: 130px; }
+      }
       @media (max-width: 560px) {
         .player-toolbar .toolbar-brand { flex-basis: calc(100% - 72px); }
         .toolbar-character { max-width: 120px; }
       }
       @media (prefers-reduced-motion: reduce) {
         #side { transition: none; }
+      }
+      @media (forced-colors: active) {
+        #movement-pad button, #touch-zoom button, .panel-tabs button[aria-selected="true"] { outline: 2px solid ButtonText; }
       }
     </style>
   </head>

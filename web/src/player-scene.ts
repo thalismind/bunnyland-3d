@@ -503,6 +503,8 @@ export class PlayerScene {
   private dragging = false;
   private dragged = false;
   private pointerStart = new THREE.Vector2();
+  private readonly touchPointers = new Map<number, THREE.Vector2>();
+  private pinchDistance = 0;
   private selectedEntityId = '';
   private lastPick: { x: number; y: number; ids: string[]; index: number; at: number } | null = null;
   private nearbyExitId = '';
@@ -558,6 +560,16 @@ export class PlayerScene {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) this.keys.clear();
+  }
+
+  setVirtualMovement(code: 'KeyA' | 'KeyD' | 'KeyS' | 'KeyW', active: boolean): void {
+    if (active && this.enabled) this.keys.add(code);
+    else this.keys.delete(code);
+  }
+
+  adjustZoom(direction: -1 | 1): void {
+    this.cameraRadius = THREE.MathUtils.clamp(this.cameraRadius + direction * 0.45, 2.7, 8.5);
+    this.requestFrame();
   }
 
   setEffectLevel(level: ClientEffectLevel): void {
@@ -3274,6 +3286,21 @@ export class PlayerScene {
   };
 
   private onPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      this.touchPointers.set(event.pointerId, new THREE.Vector2(event.clientX, event.clientY));
+      if (this.touchPointers.size >= 2) {
+        const [first, second] = [...this.touchPointers.values()];
+        this.pinchDistance = first.distanceTo(second);
+        this.dragging = false;
+      } else {
+        this.dragging = true;
+        this.dragged = false;
+        this.pointerStart.set(event.clientX, event.clientY);
+      }
+      this.renderer.domElement.setPointerCapture(event.pointerId);
+      return;
+    }
     if (event.button !== 2) return;
     this.dragging = true;
     this.dragged = false;
@@ -3282,6 +3309,24 @@ export class PlayerScene {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch' && this.touchPointers.has(event.pointerId)) {
+      event.preventDefault();
+      this.touchPointers.set(event.pointerId, new THREE.Vector2(event.clientX, event.clientY));
+      if (this.touchPointers.size >= 2) {
+        const [first, second] = [...this.touchPointers.values()];
+        const distance = first.distanceTo(second);
+        if (this.pinchDistance > 0) {
+          this.cameraRadius = THREE.MathUtils.clamp(
+            this.cameraRadius - (distance - this.pinchDistance) * 0.012,
+            2.7,
+            8.5,
+          );
+        }
+        this.pinchDistance = distance;
+        this.dragged = true;
+        return;
+      }
+    }
     if (!this.dragging) return;
     const dx = event.clientX - this.pointerStart.x;
     const dy = event.clientY - this.pointerStart.y;
@@ -3292,6 +3337,14 @@ export class PlayerScene {
   };
 
   private onPointerUp = (event: PointerEvent): void => {
+    const touchGesture = event.pointerType === 'touch';
+    if (touchGesture) {
+      this.touchPointers.delete(event.pointerId);
+      this.pinchDistance = 0;
+      this.dragging = false;
+      if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
+      if (this.dragged) return;
+    }
     if (event.button === 2) {
       this.dragging = false;
       if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
@@ -3341,6 +3394,6 @@ export class PlayerScene {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    this.cameraRadius = THREE.MathUtils.clamp(this.cameraRadius + Math.sign(event.deltaY) * 0.45, 2.7, 8.5);
+    this.adjustZoom(Math.sign(event.deltaY) < 0 ? -1 : 1);
   };
 }

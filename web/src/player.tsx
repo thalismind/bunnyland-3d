@@ -54,6 +54,7 @@ function PlayerShell() {
     };
   }, []);
   return <>
+    <div id="player-announcer" class="bl-visually-hidden" aria-live="polite" aria-atomic="true"></div>
     <Toolbar id="toolbar">
       <ToolbarRow class="toolbar-heading player-toolbar" id="toolbar-row1">
         <ToolbarBrand>Bunnyland 3D Player</ToolbarBrand>
@@ -163,6 +164,18 @@ function PlayerShell() {
         <div id="hud-room">Connect to a v2 server to begin.</div>
       </div>
       <div id="control-hint">WASD move · right-drag orbit · wheel zoom · click target</div>
+      <div id="touch-controls" aria-label="3D touch controls">
+        <div id="movement-pad" aria-label="Movement pad">
+          <button type="button" data-move-code="KeyW" aria-label="Move forward">↑</button>
+          <button type="button" data-move-code="KeyA" aria-label="Move left">←</button>
+          <button type="button" data-move-code="KeyS" aria-label="Move backward">↓</button>
+          <button type="button" data-move-code="KeyD" aria-label="Move right">→</button>
+        </div>
+        <div id="touch-zoom" aria-label="Camera zoom">
+          <button type="button" data-zoom="in" aria-label="Zoom in">＋</button>
+          <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+        </div>
+      </div>
       <div id="exit-prompt" class="hidden" aria-live="polite">
         <span id="exit-prompt-text">Travel?</span>
         <button id="btn-exit-prompt" type="button">E · Travel</button>

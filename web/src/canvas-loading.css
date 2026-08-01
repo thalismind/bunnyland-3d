@@ -72,6 +72,6 @@
 @media (prefers-reduced-motion: reduce) {
   .canvas-loading-spinner,
   .canvas-loading-meter > span {
-    animation-duration: 3s;
+    animation: none;
   }
 }

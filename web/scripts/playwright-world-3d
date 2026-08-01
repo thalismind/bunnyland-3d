@@ -17,6 +17,8 @@ import urllib.request
 
 from playwright.sync_api import expect, sync_playwright
 
+from playwright_accessibility import assert_accessible
+
 
 BASE_URL = os.environ.get("BUNNYLAND_3D_WEB_BASE_URL", "").rstrip("/")
 ARTIFACT_DIR = Path(os.environ.get("BUNNYLAND_3D_ARTIFACT_DIR", "artifacts"))
@@ -1096,6 +1098,7 @@ def main() -> None:
             assert_responsive_toolbar(page, "3D player", character=True)
             expect(page.locator("#toolbar #theme-select")).to_have_count(0)
             expect(page.locator("#empty-state-title")).to_contain_text("Pick a character to start")
+            assert_accessible(page, "3D player shell")
             idle_render = page.evaluate("window.__world3dPlayer.renderState()")
             if idle_render["frames"] != 0 or idle_render["scheduled"]:
                 raise AssertionError(f"player rendered before a room was selected: {idle_render!r}")
@@ -1208,6 +1211,7 @@ def main() -> None:
             expect(selected_tabs).to_have_count(1)
             expect(selected_tabs).to_have_text("Actions")
             expect(page.locator("#panel-actions")).to_be_visible()
+            assert_accessible(page, "3D player HUD")
             expect(page.locator("#panel-character")).not_to_be_visible()
             tabs = page.locator('[role="tab"]')
             expect(tabs).to_have_count(4)
