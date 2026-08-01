@@ -919,6 +919,15 @@ def assert_responsive_toolbar(page, name: str, *, character: bool = False) -> No
         if dialog_position["shadow"] == "none":
             raise AssertionError(f"{name} connection dialog lacked themed depth: {dialog_position!r}")
         dialog.get_by_role("button", name="Close").click()
+        drawer_bounds = page.evaluate(
+            """() => {
+              const main = document.querySelector('#main').getBoundingClientRect();
+              const drawer = document.querySelector('#side').getBoundingClientRect();
+              return { drawerBottom: drawer.bottom, mainBottom: main.bottom };
+            }"""
+        )
+        if abs(drawer_bounds["drawerBottom"] - drawer_bounds["mainBottom"]) > 1:
+            raise AssertionError(f"{name} HUD does not reach the bottom: {drawer_bounds!r}")
     elif not any(row["api"] and row["index"] == 1 for row in rows):
         raise AssertionError(f"{name} server controls are not on the second row: {layout!r}")
     for row in rows:
