@@ -128,8 +128,8 @@ jobs:
             ghcr.io/thalismind/bunnyland-3d-server:main
             ghcr.io/thalismind/bunnyland-3d-server:${{ github.sha }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
-          provenance: mode=max
-          sbom: true
+          provenance: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'mode=max' || 'false' }}
+          sbom: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Scan exact server image
         uses: anchore/scan-action@v7.4.0
         with:
@@ -239,8 +239,8 @@ jobs:
             ghcr.io/thalismind/bunnyland-3d-web:main
             ghcr.io/thalismind/bunnyland-3d-web:${{ github.sha }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
-          provenance: mode=max
-          sbom: true
+          provenance: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'mode=max' || 'false' }}
+          sbom: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Scan exact web image
         uses: anchore/scan-action@v7.4.0
         with:
