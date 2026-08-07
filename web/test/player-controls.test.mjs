@@ -6,6 +6,7 @@ const playerMarkup = await readFile(new URL('../src/player.tsx', import.meta.url
 const playerPage = await readFile(new URL('../player.html', import.meta.url), 'utf8');
 const controller = await readFile(new URL('../src/player-controller.tsx', import.meta.url), 'utf8');
 const scene = await readFile(new URL('../src/player-scene.ts', import.meta.url), 'utf8');
+const speechBubbles = await readFile(new URL('../src/speech-bubbles.ts', import.meta.url), 'utf8');
 const nginx = await readFile(new URL('../nginx.conf', import.meta.url), 'utf8');
 
 test('coarse-pointer movement and zoom controls have accessible names', () => {
@@ -33,6 +34,19 @@ test('the 3D shell retains a live status region and a non-canvas HUD path', () =
   assert.match(playerMarkup, /id="player-announcer"[\s\S]*aria-live="polite"/);
   assert.match(playerMarkup, /id="side"[\s\S]*id="panel-room"[\s\S]*id="panel-actions"/);
   assert.match(playerMarkup, /id="viewer"[\s\S]*id="side"/);
+});
+
+test('visible speech is projected into noninteractive bubbles anchored to on-camera speakers', () => {
+  assert.match(playerMarkup, /id="speech-bubbles"[\s\S]*aria-hidden="true"/);
+  assert.match(playerPage, /#speech-bubbles[\s\S]*pointer-events: none/);
+  assert.match(controller, /updateSpeechBubbles\(speechBubbles, messages\)/);
+  assert.match(controller, /scene\.entityScreenPoint\(element\.dataset\.speakerId \|\| ''\)/);
+  assert.match(scene, /Math\.abs\(projected\.x\) > 1[\s\S]*Math\.abs\(projected\.y\) > 1/);
+  for (const eventType of ['SpeechSaidEvent', 'SpeechToldEvent', 'ConversationLineEvent']) {
+    assert.match(speechBubbles, new RegExp(eventType));
+  }
+  assert.match(speechBubbles, /expiresAt: occurredAt \+ 6_000/);
+  assert.match(speechBubbles, /textCharacters\.length <= 160/);
 });
 
 test('the 3D image compresses text and caches only hashed assets immutably', () => {

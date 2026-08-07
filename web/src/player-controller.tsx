@@ -65,6 +65,7 @@ import {
   type QueuedProjection,
   type PlayerLiveUpdates,
 } from './play';
+import { updateSpeechBubbles, type SpeechBubble } from './speech-bubbles';
 
 const ACTIVITY_LIMIT = 24;
 
@@ -99,6 +100,7 @@ const actionFilterClearButton = document.getElementById('action-filter-clear') a
 const actionsEl = document.getElementById('actions') as HTMLElement;
 const queueEl = document.getElementById('queue') as HTMLElement;
 const activityEl = document.getElementById('activity') as HTMLElement;
+const speechBubblesEl = document.getElementById('speech-bubbles') as HTMLElement;
 const photoGalleryEl = document.getElementById('photo-gallery') as HTMLElement;
 const photoLightbox = document.getElementById('photo-lightbox') as HTMLElement;
 const photoLightboxTitle = document.getElementById('photo-lightbox-title') as HTMLElement;
@@ -159,6 +161,7 @@ let queue: QueuedProjection | null = null;
 let selectedTargetId = '';
 let showActionIcons = iconPreference(true);
 let activityLines: ActivityLine[] = [];
+let speechBubbles: SpeechBubble[] = [];
 let seenEventIds = new Set<string>();
 let renderedGalleryItems: Array<Pick<GalleryItem, 'id' | 'src' | 'title'>> = [];
 let eventsPrimed = false;
@@ -200,6 +203,7 @@ const scene = new PlayerScene(
   progress => reportPlayerCanvasProgress(progress
     ? { active: true, loaded: progress.loaded, total: progress.total }
     : { active: false, loaded: 0, total: 0 }),
+  positionSpeechBubbles,
 );
 
 function storedEffectLevel(): ClientEffectLevel {
@@ -291,6 +295,7 @@ async function selectCharacter(characterId: string): Promise<void> {
     control = null;
     projection = null;
     queue = null;
+    speechBubbles = [];
     startLobbyPolling();
     render();
     return;
@@ -309,6 +314,7 @@ async function selectCharacter(characterId: string): Promise<void> {
   playerId = characterId;
   selectedTargetId = '';
   activityLines = [];
+  speechBubbles = [];
   seenEventIds = new Set<string>();
   eventsPrimed = false;
   status('claiming...');
@@ -392,6 +398,8 @@ function refresh(): Promise<void> {
 
 function applyActivity(messages: Awaited<ReturnType<typeof fetchCharacterRecentEvents>>, requestBase: string): void {
   if (!projection) return;
+  speechBubbles = updateSpeechBubbles(speechBubbles, messages);
+  renderSpeechBubbles();
   const drained = drainNarratedEvents(messages, {
     seenIds: seenEventIds,
     playerId,
@@ -473,6 +481,7 @@ function expirePlayerClaim(characterId: string): void {
   control = null;
   projection = null;
   queue = null;
+  speechBubbles = [];
   selectedTargetId = '';
   nearbyExit = null;
   renderExitPrompt();
@@ -511,6 +520,7 @@ function renderCharacters(): void {
 }
 
 function render(): void {
+  renderSpeechBubbles();
   showActionIconsEl.checked = showActionIcons;
   claimButton.disabled = !playerId;
   claimButton.textContent = !playerId || !control ? 'Claim' : control.active === false ? 'Resume' : 'Idle';
@@ -740,6 +750,30 @@ function renderActivity(): void {
     occurrences.set(contentKey, occurrence);
     return <div key={`${contentKey}:${occurrence}`} class={`activity-row kind-${line.kind}`}><RowIcon icon={line.icon || ''} />{line.text}</div>;
   })}</> : <EmptyState>No recent activity.</EmptyState>, activityEl);
+}
+
+function renderSpeechBubbles(): void {
+  renderView(<>{speechBubbles.map(bubble => (
+    <div class="speech-bubble" data-speaker-id={bubble.speakerId} key={bubble.eventId}>{bubble.text}</div>
+  ))}</>, speechBubblesEl);
+  positionSpeechBubbles();
+}
+
+function positionSpeechBubbles(): void {
+  const active = speechBubbles.filter(bubble => bubble.expiresAt > Date.now());
+  if (active.length !== speechBubbles.length) {
+    speechBubbles = active;
+    renderSpeechBubbles();
+    return;
+  }
+  const { left, top } = speechBubblesEl.getBoundingClientRect();
+  for (const element of speechBubblesEl.querySelectorAll<HTMLElement>('[data-speaker-id]')) {
+    const point = scene.entityScreenPoint(element.dataset.speakerId || '');
+    element.hidden = !point;
+    if (!point) continue;
+    element.style.left = `${point.x - left}px`;
+    element.style.top = `${point.y - top}px`;
+  }
 }
 
 function renderGallery(): void {
@@ -1035,6 +1069,7 @@ async function releasePlayerClaim(): Promise<void> {
     control = null;
     projection = null;
     queue = null;
+    speechBubbles = [];
     selectedTargetId = '';
     startLobbyPolling();
     pushActivity({ text: 'Claim released.', kind: 'system' });

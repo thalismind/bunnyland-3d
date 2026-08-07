@@ -156,6 +156,7 @@ function PlayerShell() {
           total={renderer.total}
         />}
       </section>
+      <div id="speech-bubbles" aria-hidden="true"></div>
       <div id="empty-state" aria-live="polite">
         <div id="empty-state-title">Connect to a server</div>
         <div id="empty-state-detail">Enter a Bunnyland API URL above, then choose a character.</div>

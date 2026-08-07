@@ -525,6 +525,7 @@ export class PlayerScene {
     private readonly onSelectEntity: (entityId: string) => void,
     private readonly onNearbyExit: (exit: PlayerSceneExit | null) => void,
     private readonly onLoadProgress: (progress: SceneLoadProgress | null) => void = () => {},
+    private readonly onFrame: () => void = () => {},
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
@@ -748,7 +749,7 @@ export class PlayerScene {
     const tracked = this.entities.get(entityId);
     if (!tracked) return null;
     const projected = tracked.root.position.clone().add(new THREE.Vector3(0, tracked.entity.is_character ? 1 : 0.4, 0)).project(this.camera);
-    if (projected.z < -1 || projected.z > 1) return null;
+    if (projected.z < -1 || projected.z > 1 || Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     return {
       x: rect.left + (projected.x + 1) * rect.width / 2,
@@ -3247,6 +3248,7 @@ export class PlayerScene {
     this.updateNearbyExit();
     this.updateCamera(delta);
     this.renderScene(delta);
+    this.onFrame();
     this.renderedFrames += 1;
     this.requestFrame();
   };
