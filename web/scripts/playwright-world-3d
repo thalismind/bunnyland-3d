@@ -1743,12 +1743,24 @@ def main() -> None:
             avatar_bounded = page.evaluate("window.__world3dPlayer.avatarState()")
             if avatar_bounded["x"] > 15.65:
                 raise AssertionError(f"local avatar escaped room bounds: {avatar_bounded!r}")
-            page.keyboard.down("KeyW")
+            page.locator("#touch-controls").evaluate("element => { element.style.display = 'flex'; }")
+            movement_button = page.locator('[data-move-code="KeyW"]')
+            movement_button.hover()
+            page.mouse.down()
             page.wait_for_timeout(180)
-            page.keyboard.up("KeyW")
+            touch_moving = page.evaluate("window.__world3dPlayer.cameraState().moving")
+            page.mouse.up()
             avatar_after = page.evaluate("window.__world3dPlayer.avatarState()")
-            if avatar_after == avatar_before:
-                raise AssertionError(f"WASD did not move the local avatar: {avatar_before!r}")
+            if not touch_moving or avatar_after == avatar_before:
+                raise AssertionError(
+                    f"held movement button did not move the local avatar: "
+                    f"{avatar_before!r} -> {avatar_after!r}"
+                )
+            if page.evaluate("window.__world3dPlayer.cameraState().moving"):
+                raise AssertionError("released movement button remained active")
+            if page.evaluate("getSelection()?.toString() || ''"):
+                raise AssertionError("movement button selected its arrow text")
+            page.locator("#touch-controls").evaluate("element => { element.style.display = ''; }")
             requests_before_poll = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )

@@ -421,6 +421,7 @@ function signature(value: unknown): string {
 function activeControl(): boolean {
   const active = document.activeElement as HTMLElement | null;
   if (!active) return false;
+  if (active.matches('[data-move-code]')) return false;
   return active.matches('input, select, textarea, button, [contenteditable="true"]')
     || Boolean(active.closest('dialog, [role="dialog"]'));
 }

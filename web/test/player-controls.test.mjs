@@ -14,12 +14,12 @@ test('coarse-pointer controls have accessible names and suppress text selection'
     assert.match(playerMarkup, new RegExp(`aria-label="${label}"`));
   }
   assert.match(playerPage, /#touch-controls[\s\S]*display: none/);
-  assert.match(playerPage, /#touch-controls[\s\S]*-webkit-user-select: none;[\s\S]*user-select: none;/);
+  assert.match(playerPage, /#touch-controls[\s\S]*-webkit-touch-callout: none;[\s\S]*-webkit-user-select: none;[\s\S]*user-select: none;/);
   assert.match(playerPage, /@media \(pointer: coarse\)[\s\S]*#touch-controls/);
-  assert.match(controller, /button\.addEventListener\('pointerdown', event => \{\s*event\.preventDefault\(\);/);
   assert.match(controller, /setVirtualMovement\(code, true\)/);
   assert.match(controller, /setVirtualMovement\(code, false\)/);
   assert.match(controller, /adjustZoom\(Number\(button\.dataset\.zoom\)\)/);
+  assert.match(scene, /active\.matches\('\[data-move-code\]'\)/);
 });
 
 test('the renderer supports touch orbit, pinch zoom, and system appearance preferences', () => {
