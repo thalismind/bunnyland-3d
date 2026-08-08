@@ -1375,6 +1375,7 @@ for (const button of movementButtons) {
   const code = button.dataset.moveCode as 'KeyA' | 'KeyD' | 'KeyS' | 'KeyW';
   const stop = (): void => scene.setVirtualMovement(code, false);
   button.addEventListener('pointerdown', event => {
+    event.preventDefault();
     button.setPointerCapture(event.pointerId);
     scene.setVirtualMovement(code, true);
   });
