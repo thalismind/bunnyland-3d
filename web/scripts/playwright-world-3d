@@ -1745,11 +1745,31 @@ def main() -> None:
                 raise AssertionError(f"local avatar escaped room bounds: {avatar_bounded!r}")
             page.locator("#touch-controls").evaluate("element => { element.style.display = 'flex'; }")
             movement_button = page.locator('[data-move-code="KeyW"]')
-            movement_button.hover()
-            page.mouse.down()
+            movement_bounds = movement_button.bounding_box()
+            if movement_bounds is None:
+                raise AssertionError("movement button had no touch target")
+            touch_session = context.new_cdp_session(page)
+            touch_session.send(
+                "Input.dispatchTouchEvent",
+                {
+                    "type": "touchStart",
+                    "touchPoints": [{
+                        "x": movement_bounds["x"] + movement_bounds["width"] / 2,
+                        "y": movement_bounds["y"] + movement_bounds["height"] / 2,
+                    }],
+                },
+            )
             page.wait_for_timeout(180)
             touch_moving = page.evaluate("window.__world3dPlayer.cameraState().moving")
-            page.mouse.up()
+            touch_session.send(
+                "Input.dispatchTouchEvent",
+                {"type": "touchEnd", "touchPoints": []},
+            )
+            page.wait_for_function(
+                "!document.activeElement?.matches('[data-move-code]')"
+            )
+            if movement_button.evaluate("element => element === document.activeElement"):
+                raise AssertionError("released movement button retained focus")
             avatar_after = page.evaluate("window.__world3dPlayer.avatarState()")
             if not touch_moving or avatar_after == avatar_before:
                 raise AssertionError(
@@ -1761,6 +1781,20 @@ def main() -> None:
             if page.evaluate("getSelection()?.toString() || ''"):
                 raise AssertionError("movement button selected its arrow text")
             page.locator("#touch-controls").evaluate("element => { element.style.display = ''; }")
+            selectable_point = page.evaluate(
+                "window.__world3dPlayer.entityScreenPoint('item:clover')"
+            )
+            if selectable_point is None:
+                raise AssertionError("nearby entity was off-camera after touch movement")
+            touch_session.send(
+                "Input.dispatchTouchEvent",
+                {"type": "touchStart", "touchPoints": [selectable_point]},
+            )
+            touch_session.send(
+                "Input.dispatchTouchEvent",
+                {"type": "touchEnd", "touchPoints": []},
+            )
+            expect(page.locator("#target-label")).to_contain_text("Silver Clover")
             requests_before_poll = page.evaluate(
                 """async () => (await fetch('./mock/test-claim')).json()"""
             )

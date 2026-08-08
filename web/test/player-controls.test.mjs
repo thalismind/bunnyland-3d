@@ -18,6 +18,9 @@ test('coarse-pointer controls have accessible names and suppress text selection'
   assert.match(playerPage, /@media \(pointer: coarse\)[\s\S]*#touch-controls/);
   assert.match(controller, /setVirtualMovement\(code, true\)/);
   assert.match(controller, /setVirtualMovement\(code, false\)/);
+  assert.match(controller, /button\.releasePointerCapture\(event\.pointerId\)/);
+  assert.match(controller, /button\.blur\(\)/);
+  assert.match(controller, /button\.addEventListener\('click', \(\) => button\.blur\(\)\)/);
   assert.match(controller, /adjustZoom\(Number\(button\.dataset\.zoom\)\)/);
   assert.match(scene, /active\.matches\('\[data-move-code\]'\)/);
 });

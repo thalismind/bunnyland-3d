@@ -1373,14 +1373,19 @@ lightboxDownloadButton.addEventListener('click', downloadActivePhoto);
 captureButton.addEventListener('click', captureToGallery);
 for (const button of movementButtons) {
   const code = button.dataset.moveCode as 'KeyA' | 'KeyD' | 'KeyS' | 'KeyW';
-  const stop = (): void => scene.setVirtualMovement(code, false);
+  const stop = (event: PointerEvent): void => {
+    scene.setVirtualMovement(code, false);
+    if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId);
+    button.blur();
+  };
   button.addEventListener('pointerdown', event => {
     button.setPointerCapture(event.pointerId);
     scene.setVirtualMovement(code, true);
   });
-  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    button.addEventListener(eventName, stop);
-  }
+  button.addEventListener('pointerup', stop);
+  button.addEventListener('pointercancel', stop);
+  button.addEventListener('lostpointercapture', stop);
+  button.addEventListener('click', () => button.blur());
 }
 for (const button of zoomButtons) {
   button.addEventListener('click', () => scene.adjustZoom(Number(button.dataset.zoom)));
