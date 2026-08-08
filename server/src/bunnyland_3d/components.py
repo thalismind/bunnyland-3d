@@ -200,7 +200,6 @@ class ParticleEmitter3DComponent(Component):
 class DecorationSource3DComponent(Component):
     """Ownership marker for idempotent recipe-managed presentation entities."""
 
-    room_id: str
     recipe_key: str
     role: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]*$")
     recipe_version: int = Field(default=1, ge=1)

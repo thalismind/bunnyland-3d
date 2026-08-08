@@ -287,7 +287,6 @@ def _apply_room_decoration_rule(world, room, rule: RoomDecorationRule) -> None:
     replace_component(
         entity,
         DecorationSource3DComponent(
-            room_id=str(room.id),
             recipe_key=rule.key,
             recipe_version=RECIPE_VERSION,
             role=rule.key,
@@ -346,9 +345,9 @@ def register_room_decorations(
             _apply_room_decoration_rule(actor.world, room, rule)
 
 
-def _source(room, recipe: OutdoorRecipe, role: str) -> DecorationSource3DComponent:
+def _source(recipe: OutdoorRecipe, role: str) -> DecorationSource3DComponent:
     return DecorationSource3DComponent(
-        room_id=str(room.id), recipe_key=recipe.key, recipe_version=RECIPE_VERSION, role=role
+        recipe_key=recipe.key, recipe_version=RECIPE_VERSION, role=role
     )
 
 
@@ -367,7 +366,7 @@ def _upsert_group(
     asset = recipe.flora_asset if role == f"{CORE_ROLE_PREFIX}flora" else recipe.detail_asset
     tint = recipe.flora_color if role == f"{CORE_ROLE_PREFIX}flora" else recipe.detail_color
     count = recipe.flora_count if role == f"{CORE_ROLE_PREFIX}flora" else recipe.detail_count
-    replace_component(entity, _source(room, recipe, role))
+    replace_component(entity, _source(recipe, role))
     replace_component(
         entity,
         PropGroup3DComponent(
@@ -408,7 +407,7 @@ def apply_outdoor_recipe(world, room, *, reroll: bool = False) -> dict:
     if light is None:
         light = spawn_entity(world)
         room.add_relationship(HasDecoration3D(role=light_role), light.id)
-    replace_component(light, _source(room, recipe, light_role))
+    replace_component(light, _source(recipe, light_role))
     replace_component(light, Transform3DComponent(position=Vector3(8.0, 2.4, 8.0)))
     replace_component(light, Light3DComponent(color=recipe.light_color, intensity=1.25, range=9.0))
 
@@ -422,7 +421,7 @@ def apply_outdoor_recipe(world, room, *, reroll: bool = False) -> dict:
     if emitter is None:
         emitter = spawn_entity(world)
         room.add_relationship(HasDecoration3D(role=particles_role), emitter.id)
-    replace_component(emitter, _source(room, recipe, particles_role))
+    replace_component(emitter, _source(recipe, particles_role))
     replace_component(emitter, Transform3DComponent(position=Vector3(8.0, 0.2, 8.0)))
     replace_component(
         emitter,
