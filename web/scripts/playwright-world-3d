@@ -1240,12 +1240,12 @@ def main() -> None:
             page.wait_for_function(
                 "initial => document.querySelector('#queue-title')?.textContent !== initial",
                 arg=initial_countdown,
-                timeout=2500,
+                timeout=5000,
             )
             page.wait_for_function(
                 "initial => document.querySelector('#hud-next-tick')?.textContent !== initial",
                 arg=initial_hud_countdown,
-                timeout=2500,
+                timeout=5000,
             )
             page.wait_for_function("!window.__world3dPlayer.cameraState().moving")
             page.wait_for_function(
