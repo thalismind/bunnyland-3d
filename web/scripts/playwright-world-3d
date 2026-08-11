@@ -1946,6 +1946,7 @@ def main() -> None:
             )
             page.reload(wait_until="networkidle")
             page.wait_for_function("window.__world3dPlayer && window.__world3dPlayer.ready")
+            page.locator("#character-select").select_option("")
             page.locator("#character-select").select_option("character:ash")
             expect(page.locator("#room-title")).to_contain_text("Mirror Pond")
             resumed_state = page.evaluate(
