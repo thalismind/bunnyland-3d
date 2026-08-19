@@ -82,7 +82,7 @@ wheels = [
 
 [[package]]
 name = "bunnyland"
-version = "1.0.0rc2"
+version = "1.0.0"
 source = { directory = "../../bunnyland-server" }
 dependencies = [
     { name = "pwdlib", extra = ["argon2"] },
@@ -136,6 +136,9 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-cov", specifier = ">=7.0" },
+    { name = "pytest-forked", specifier = ">=1.6" },
+    { name = "pytest-random-order", specifier = ">=1.2" },
+    { name = "pytest-xdist", specifier = ">=3.8" },
     { name = "ruff", specifier = ">=0.6" },
 ]
 
