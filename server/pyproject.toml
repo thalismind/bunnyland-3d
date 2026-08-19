@@ -3,6 +3,29 @@ name = "bunnyland-3d"
 version = "0.3.0"
 description = "Out-of-tree Bunnyland 3D presentation, movement, and collision plugin."
 readme = "README.md"
+license = "AGPL-3.0-or-later"
+authors = [
+    { name = "Thalis Mind" },
+]
+keywords = [
+    "3d",
+    "bunnyland",
+    "ecs",
+    "plugin",
+    "simulation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Games/Entertainment :: Simulation",
+]
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "bunnyland[server]>=1.0.0,<2",
@@ -10,6 +33,11 @@ dependencies = [
     "relics-ecs>=0.1.1,<0.2",
     "trimesh==4.12.2",
 ]
+
+[project.urls]
+Documentation = "https://github.com/thalismind/bunnyland-3d#readme"
+Issues = "https://github.com/thalismind/bunnyland-3d/issues"
+Repository = "https://github.com/thalismind/bunnyland-3d"
 
 [project.entry-points."bunnyland.plugins"]
 "bunnyland.3d" = "bunnyland_3d.plugin:bunnyland_plugins"
